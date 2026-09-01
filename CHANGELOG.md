@@ -11,3 +11,5 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Initial product scope, safety model, privacy contract, architecture, and
   development plan.
+- Swift package foundations for DevSiftCore, the `devsift` CLI, and the DevSift
+  SwiftUI app.

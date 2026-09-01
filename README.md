@@ -53,14 +53,26 @@ The implementation order and acceptance gates are documented in
 [the development plan](docs/DEVELOPMENT_PLAN.md). The intended dependency flow
 is described in [the architecture guide](docs/ARCHITECTURE.md).
 
+The current foundation workspace can be exercised with:
+
+```shell
+swift build
+swift test
+swift run devsift status
+swift run DevSiftApp
+```
+
+The CLI and app currently report their scan-only development status. Filesystem
+scanning begins in the next milestone.
+
 Development uses small Conventional Commits. Every code commit must build and
 pass tests before it is pushed. Filesystem tests operate only inside temporary,
 synthetic fixtures and never scan or clean a contributor's real home directory.
 
 ## Project status
 
-- Current phase: project foundation
-- Current behavior: documentation only
+- Current phase: Swift workspace foundation
+- Current behavior: status-only CLI and app shell; no filesystem scanning
 - First release target: `v0.1.0-alpha.1`, read-only scan surfaces
 - Supported platform target: macOS 14 or newer
 - Implementation language: Swift 6
