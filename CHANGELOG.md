@@ -13,3 +13,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   development plan.
 - Swift package foundations for DevSiftCore, the `devsift` CLI, and the DevSift
   SwiftUI app.
+- Continuous integration for formatting, debug and release builds, and tests.
