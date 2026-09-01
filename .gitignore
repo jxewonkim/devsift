@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcresult
+
+# Local configuration and signing material
+.env
+.env.*
+!.env.example
+*.p12
+*.mobileprovision
+
+# DevSift-local sensitive output
+/.devsift/
+/scan-reports/
+/local-artifacts/
+*.devsift-report.json
+*.devsift-plan.json

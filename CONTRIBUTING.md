@@ -1,0 +1,47 @@
+# Contributing to DevSift
+
+Thank you for helping build a safer storage tool for macOS developers.
+
+## Before you start
+
+- Read the [product scope](docs/PRODUCT.md) and [safety model](docs/SAFETY.md).
+- Open an issue before starting a large feature or a change to cleanup safety.
+- Never attach a real scan report without redacting usernames, paths, project
+  names, file names, and other private metadata.
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Workflow
+
+1. Create a short-lived branch from `main`.
+2. Keep commits small and use Conventional Commits, for example
+   `feat(core): add allocated-size scanning`.
+3. Add or update tests with behavior changes.
+4. Run formatting, build, and tests locally.
+5. Open a pull request describing behavior, safety impact, and verification.
+
+`main` must remain buildable and testable. Do not force-push public shared
+branches.
+
+## Filesystem-test rules
+
+Filesystem behavior is security-sensitive. Tests must:
+
+- create all fixtures under a fresh temporary directory;
+- use synthetic names and contents;
+- avoid a contributor's home directory and real application data;
+- verify that paths outside the fixture are unchanged;
+- cover symlinks, missing files, permission failures, cancellation, and path
+  containment where relevant.
+
+No test may invoke a real cleanup command against `/`, `/Users`, a home
+directory, `/Applications`, or another broad path.
+
+## Privacy and secrets
+
+Do not commit scan reports, cleanup manifests from real machines, absolute home
+paths, logs containing file names, `.env` files, credentials, certificates,
+private keys, or signing material. Use synthetic fixtures for documentation and
+tests.
+
+Security vulnerabilities should be reported privately as described in
+[SECURITY.md](SECURITY.md).
