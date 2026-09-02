@@ -147,7 +147,38 @@ struct ScanOutputTests {
     )
   }
 
-  @Test("JSON v1 round-trips every integer exactly and retains raw path bytes")
+  @Test("Text withholds every size in an overflowed summary")
+  func overflowText() {
+    let overflowedItem = CLITestReportFactory.item(
+      rawComponents: [Array("overflowed".utf8)],
+      logicalBytes: .max,
+      allocatedBytes: .max,
+      hardLinkExclusiveAllocatedBytes: .max,
+      sizeOverflowed: true,
+      isComplete: false
+    )
+    let report = CLITestReportFactory.report(
+      root: CLITestReportFactory.item(
+        logicalBytes: .max,
+        allocatedBytes: .max,
+        hardLinkExclusiveAllocatedBytes: .max,
+        sizeOverflowed: true,
+        isComplete: false
+      ),
+      topLevelItems: [overflowedItem],
+      suppressedIssueCount: 2
+    )
+
+    let output = ScanTextRenderer.render(report: report)
+
+    #expect(output.contains("Observed apparent allocated: unavailable (size overflow)"))
+    #expect(output.contains("Observed logical: unavailable (size overflow)"))
+    #expect(output.contains("unavailable (size overflow) apparent"))
+    #expect(output.contains("exact saturated values are unavailable"))
+    #expect(output.contains("16.0 EiB") == false)
+  }
+
+  @Test("JSON v2 round-trips every integer and summary accounting flag")
   func jsonRoundTripAndDeterminism() throws {
     let rawPath: [UInt8] = [0xFF, 0x00, 0x5C]
     let root = CLITestReportFactory.item(
@@ -164,6 +195,7 @@ struct ScanOutputTests {
       sharedContentMetadataUnavailableCount: UInt64.max,
       unobservedHardLinkFileCount: UInt64.max,
       nonExclusiveHardLinkFileCount: UInt64.max,
+      sizeOverflowed: true,
       isComplete: false
     )
     let item = CLITestReportFactory.item(
@@ -207,25 +239,26 @@ struct ScanOutputTests {
     let first = try ScanJSONRenderer.render(report: report, limits: limits)
     let second = try ScanJSONRenderer.render(report: report, limits: limits)
     let data = try #require(first.data(using: .utf8))
-    let decoded = try JSONDecoder().decode(ScanJSONDocumentV1.self, from: data)
+    let decoded = try JSONDecoder().decode(ScanJSONDocumentV2.self, from: data)
 
     #expect(first == second)
     #expect(first.hasSuffix("\n"))
     #expect(first.hasSuffix("\n\n") == false)
-    #expect(decoded == ScanJSONDocumentV1(report: report, limits: limits))
+    #expect(decoded == ScanJSONDocumentV2(report: report, limits: limits))
     #expect(decoded.schema == "devsift.scan")
-    #expect(decoded.schemaVersion == 1)
+    #expect(decoded.schemaVersion == 2)
     #expect(decoded.pathStyle == "root-relative")
     #expect(decoded.report.root.recursiveSize.logicalBytes == String(UInt64.max))
+    #expect(decoded.report.root.sizeOverflowed)
     #expect(decoded.report.root.counts.regularFiles == String(UInt64.max))
     #expect(decoded.report.topLevelItems.first?.path.rawComponentsBase64 == ["/wBc"])
     #expect(decoded.report.issues.first?.systemCode == nil)
     #expect(decoded.report.issues.last?.systemCode == 5)
     #expect(first.contains("\"systemCode\" : null"))
-    try assertJSONV1KeySets(data)
+    try assertJSONV2KeySets(data)
   }
 
-  private func assertJSONV1KeySets(_ data: Data) throws {
+  private func assertJSONV2KeySets(_ data: Data) throws {
     let object = try #require(
       JSONSerialization.jsonObject(with: data) as? [String: Any]
     )
@@ -260,7 +293,7 @@ struct ScanOutputTests {
       "path", "kind", "recursiveSize", "hardLinkExclusiveAllocatedBytes", "counts",
       "unknownAllocatedItemCount", "possibleSharedContentFileCount",
       "sharedContentMetadataUnavailableCount", "unobservedHardLinkFileCount",
-      "nonExclusiveHardLinkFileCount", "isComplete",
+      "nonExclusiveHardLinkFileCount", "sizeOverflowed", "isComplete",
     ]
     #expect(Set(root.keys) == itemKeys)
     #expect(Set(item.keys) == itemKeys)

@@ -80,7 +80,7 @@ struct CLIApplicationTests {
 
     let json = await application.run(arguments: ["scan", "--json", "."])
     #expect(json.exitCode == CLIExitCode.success)
-    #expect(json.standardOutput.contains("\"schemaVersion\" : 1"))
+    #expect(json.standardOutput.contains("\"schemaVersion\" : 2"))
     #expect(json.standardError.isEmpty)
   }
 
@@ -102,7 +102,7 @@ struct CLIApplicationTests {
       #expect(result.exitCode == CLIExitCode.partialResult)
       #expect(result.standardError.contains("partial results"))
       let data = try #require(result.standardOutput.data(using: .utf8))
-      let decoded = try JSONDecoder().decode(ScanJSONDocumentV1.self, from: data)
+      let decoded = try JSONDecoder().decode(ScanJSONDocumentV2.self, from: data)
       #expect(decoded.report.isComplete == false)
     }
   }

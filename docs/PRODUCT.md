@@ -16,6 +16,10 @@ storage created by their tools. It favors evidence and user control over opaque
 
 ## Core jobs
 
+The scan-only `v0.1` milestone implements the first job: observe and understand
+storage under one selected root. Jobs 2 through 5 are the long-term product
+direction and are not classification or cleanup promises in the current build.
+
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
 3. Explain whether an item is regenerable, user-owned, active, stale, or
@@ -24,6 +28,9 @@ storage created by their tools. It favors evidence and user control over opaque
 5. Report what was actually reclaimed and what was skipped.
 
 ## Initial catalog
+
+This catalog is planned for the explainable-rules phase; it is not present in
+the scan-only app or CLI.
 
 The first rule set is planned to recognize:
 

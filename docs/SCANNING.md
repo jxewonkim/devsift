@@ -22,6 +22,9 @@ A report contains:
 human-readable description preserves valid UTF-8 and renders an invalid
 component as hexadecimal escapes. `description` is display-only and can match a
 valid literal escape-like name; equality and ordering use `rawComponents`.
+Frontends must apply their own context-safe display escaping. The app escapes
+control, format, line-separator, default-ignorable, backslash, and invalid UTF-8
+bytes before rendering a path, while retaining the raw path as row identity.
 
 The scanner does not retain a result object for every descendant. A caller can
 drill down by explicitly scanning one direct child as a new root. If the
@@ -51,6 +54,9 @@ an empty root reports one directory.
   missing link.
 - directories and symbolic links contribute only their own inode storage;
   symbolic-link targets are never opened or sized.
+- `sizeOverflowed` records that at least one size sum in that summary saturated
+  at `UInt64.max`. It remains available even if the corresponding bounded issue
+  is not retained, so a frontend can withhold the saturated value.
 
 The descriptor-relative scanner deliberately does not reconstruct absolute
 child paths to query Foundation resource values. Clone-sharing metadata is
@@ -63,6 +69,43 @@ cleanup rules and execution-time revalidation are separate layers.
 
 The command-line projection, including human labels, JSON schema, stream
 behavior, and exit codes, is documented in the [CLI contract](CLI.md).
+
+## App presentation contract
+
+The native dashboard maps Core values without deriving cleanup eligibility:
+
+| App label | Core value |
+| --- | --- |
+| Observed apparent allocation | `root.recursiveSize.allocatedBytes` |
+| Hard-link-adjusted allocation | `root.hardLinkExclusiveAllocatedBytes` |
+| Observed logical size | `root.recursiveSize.logicalBytes` |
+| Observed entries | `root.counts.total` |
+
+The selected directory inode is included in the root summary. Top-level rows
+therefore do not have to sum to the root values. Rows sort by apparent allocated
+bytes descending, then by `ScanRelativePath` raw-byte ordering. Row identity is
+the raw relative path rather than its display string. A row with one or more
+unknown allocation measurements stays in that same ordering based on the
+allocation bytes that were observed; it is marked partial but is not promoted
+or demoted as a special case.
+
+The app applies these partial-result rules:
+
+- `topLevelItemsWereSuppressed` shows the observed direct-child count and no
+  arbitrary subset of rows;
+- `traversalDetailsWereDiscarded` withholds normal descendant totals and rows,
+  because the remaining root values describe only the selected directory inode
+  and earlier issues were discarded;
+- `hardLinkAccountingIsComplete == false` marks hard-link-adjusted values as
+  partial;
+- `sizeOverflowed` withholds that summary's size values as overflowed rather
+  than exact;
+- unknown allocated sizes and incomplete item summaries are visibly partial;
+- retained `issues.count` and `suppressedIssueCount` are displayed separately.
+
+“Complete observation” means the configured traversal and accounting bounds
+were satisfied. It does not mean that an item is safe to remove. The complete
+app behavior and accessibility contract is documented in [APP.md](APP.md).
 
 ## Containment and traversal
 

@@ -109,24 +109,25 @@ enum ScanTextRenderer {
     if report.traversalDetailsWereDiscarded {
       lines.append("Root summary: unavailable (descendant details discarded)")
       lines.append(
-        "  Root inode apparent allocated: \(IECByteCountFormatter.string(from: report.root.recursiveSize.allocatedBytes))"
+        "  Root inode apparent allocated: \(sizeText(report.root.recursiveSize.allocatedBytes, overflowed: report.root.sizeOverflowed))"
       )
       lines.append(
-        "  Root inode logical: \(IECByteCountFormatter.string(from: report.root.recursiveSize.logicalBytes))"
+        "  Root inode logical: \(sizeText(report.root.recursiveSize.logicalBytes, overflowed: report.root.sizeOverflowed))"
       )
       return
     }
 
-    let hardLinkStatus = report.hardLinkAccountingIsComplete ? "" : " (partial)"
+    let hardLinkStatus =
+      report.hardLinkAccountingIsComplete || report.root.sizeOverflowed ? "" : " (partial)"
     lines.append("Observed root summary:")
     lines.append(
-      "  Observed apparent allocated: \(IECByteCountFormatter.string(from: report.root.recursiveSize.allocatedBytes))"
+      "  Observed apparent allocated: \(sizeText(report.root.recursiveSize.allocatedBytes, overflowed: report.root.sizeOverflowed))"
     )
     lines.append(
-      "  Observed hard-link-exclusive allocated: \(IECByteCountFormatter.string(from: report.root.hardLinkExclusiveAllocatedBytes))\(hardLinkStatus)"
+      "  Observed hard-link-exclusive allocated: \(sizeText(report.root.hardLinkExclusiveAllocatedBytes, overflowed: report.root.sizeOverflowed))\(hardLinkStatus)"
     )
     lines.append(
-      "  Observed logical: \(IECByteCountFormatter.string(from: report.root.recursiveSize.logicalBytes))"
+      "  Observed logical: \(sizeText(report.root.recursiveSize.logicalBytes, overflowed: report.root.sizeOverflowed))"
     )
     lines.append("  Observed entries: \(report.root.counts.total)")
     lines.append("  Regular files: \(report.root.counts.regularFiles)")
@@ -196,10 +197,11 @@ enum ScanTextRenderer {
     for item in sortedItems {
       let status = item.isComplete ? "complete" : "partial"
       let hardLinkStatus =
-        report.hardLinkAccountingIsComplete && item.isComplete ? "" : " (partial)"
+        report.hardLinkAccountingIsComplete && item.isComplete || item.sizeOverflowed
+        ? "" : " (partial)"
       lines.append(
-        "- \(IECByteCountFormatter.string(from: item.recursiveSize.allocatedBytes)) apparent"
-          + " | \(IECByteCountFormatter.string(from: item.hardLinkExclusiveAllocatedBytes)) hard-link-exclusive\(hardLinkStatus)"
+        "- \(sizeText(item.recursiveSize.allocatedBytes, overflowed: item.sizeOverflowed)) apparent"
+          + " | \(sizeText(item.hardLinkExclusiveAllocatedBytes, overflowed: item.sizeOverflowed)) hard-link-exclusive\(hardLinkStatus)"
           + " | \(item.kind.rawValue) | \(status)"
           + " | \(TerminalText.quoted(path: item.path))"
       )
@@ -229,6 +231,9 @@ enum ScanTextRenderer {
     if report.suppressedIssueCount > 0 {
       warnings.append("\(report.suppressedIssueCount) additional issues were suppressed.")
     }
+    if report.root.sizeOverflowed || report.topLevelItems.contains(where: \.sizeOverflowed) {
+      warnings.append("One or more size totals overflowed; exact saturated values are unavailable.")
+    }
 
     guard !warnings.isEmpty else {
       return
@@ -257,6 +262,10 @@ enum ScanTextRenderer {
       lines.append(line)
     }
   }
+
+  private static func sizeText(_ bytes: UInt64, overflowed: Bool) -> String {
+    overflowed ? "unavailable (size overflow)" : IECByteCountFormatter.string(from: bytes)
+  }
 }
 
 enum ScanJSONEncodingError: Error {
@@ -265,7 +274,7 @@ enum ScanJSONEncodingError: Error {
 
 enum ScanJSONRenderer {
   static func render(report: ScanReport, limits: ScanLimits) throws -> String {
-    let document = ScanJSONDocumentV1(report: report, limits: limits)
+    let document = ScanJSONDocumentV2(report: report, limits: limits)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let data = try encoder.encode(document)
@@ -277,23 +286,23 @@ enum ScanJSONRenderer {
   }
 }
 
-struct ScanJSONDocumentV1: Codable, Equatable, Sendable {
+struct ScanJSONDocumentV2: Codable, Equatable, Sendable {
   let schema: String
   let schemaVersion: Int
   let devsiftVersion: String
   let safetyMode: String
   let pathStyle: String
   let limits: ScanJSONLimitsV1
-  let report: ScanJSONReportV1
+  let report: ScanJSONReportV2
 
   init(report: ScanReport, limits: ScanLimits) {
     schema = "devsift.scan"
-    schemaVersion = 1
+    schemaVersion = 2
     devsiftVersion = DevSiftStatus.current.version
     safetyMode = DevSiftStatus.current.safetyMode.rawValue
     pathStyle = "root-relative"
     self.limits = ScanJSONLimitsV1(limits: limits)
-    self.report = ScanJSONReportV1(report: report)
+    self.report = ScanJSONReportV2(report: report)
   }
 
   enum CodingKeys: String, CodingKey {
@@ -334,10 +343,10 @@ struct ScanJSONLimitsV1: Codable, Equatable, Sendable {
   }
 }
 
-struct ScanJSONReportV1: Codable, Equatable, Sendable {
+struct ScanJSONReportV2: Codable, Equatable, Sendable {
   let isComplete: Bool
-  let root: ScanJSONItemV1
-  let topLevelItems: [ScanJSONItemV1]
+  let root: ScanJSONItemV2
+  let topLevelItems: [ScanJSONItemV2]
   let topLevelItemCount: String
   let topLevelItemsWereSuppressed: Bool
   let hardLinkAccountingIsComplete: Bool
@@ -347,8 +356,8 @@ struct ScanJSONReportV1: Codable, Equatable, Sendable {
 
   init(report: ScanReport) {
     isComplete = report.isComplete
-    root = ScanJSONItemV1(item: report.root)
-    topLevelItems = report.topLevelItems.map(ScanJSONItemV1.init)
+    root = ScanJSONItemV2(item: report.root)
+    topLevelItems = report.topLevelItems.map(ScanJSONItemV2.init)
     topLevelItemCount = String(report.topLevelItemCount)
     topLevelItemsWereSuppressed = report.topLevelItemsWereSuppressed
     hardLinkAccountingIsComplete = report.hardLinkAccountingIsComplete
@@ -370,7 +379,7 @@ struct ScanJSONReportV1: Codable, Equatable, Sendable {
   }
 }
 
-struct ScanJSONItemV1: Codable, Equatable, Sendable {
+struct ScanJSONItemV2: Codable, Equatable, Sendable {
   let path: ScanJSONPathV1
   let kind: String
   let recursiveSize: ScanJSONSizeV1
@@ -381,6 +390,7 @@ struct ScanJSONItemV1: Codable, Equatable, Sendable {
   let sharedContentMetadataUnavailableCount: String
   let unobservedHardLinkFileCount: String
   let nonExclusiveHardLinkFileCount: String
+  let sizeOverflowed: Bool
   let isComplete: Bool
 
   init(item: ScanItemSummary) {
@@ -394,6 +404,7 @@ struct ScanJSONItemV1: Codable, Equatable, Sendable {
     sharedContentMetadataUnavailableCount = String(item.sharedContentMetadataUnavailableCount)
     unobservedHardLinkFileCount = String(item.unobservedHardLinkFileCount)
     nonExclusiveHardLinkFileCount = String(item.nonExclusiveHardLinkFileCount)
+    sizeOverflowed = item.sizeOverflowed
     isComplete = item.isComplete
   }
 
@@ -408,6 +419,7 @@ struct ScanJSONItemV1: Codable, Equatable, Sendable {
     case sharedContentMetadataUnavailableCount
     case unobservedHardLinkFileCount
     case nonExclusiveHardLinkFileCount
+    case sizeOverflowed
     case isComplete
   }
 }

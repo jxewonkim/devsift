@@ -783,6 +783,7 @@ private struct SummaryAccumulator {
       sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
       unobservedHardLinkFileCount: unobservedHardLinkFileCount,
       nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount,
+      sizeOverflowed: hasSizeOverflow,
       isComplete: isComplete
     )
   }

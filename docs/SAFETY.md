@@ -42,8 +42,10 @@ still inside its approved root.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
 - Scan code cannot mutate files.
-- The scan CLI exposes no cleanup, delete, move, quarantine, or permission-
-  escalation command; complete and partial reports remain read-only.
+- The app and scan CLI expose no cleanup, delete, move, quarantine, or
+  permission-escalation action; complete and partial reports remain read-only.
+- The app never presents a partial, bounded, or overflowed observation as
+  complete or as evidence that an item can be cleaned.
 - Core logic does not construct or execute shell commands.
 - Failure to read metadata produces a visible error or skip, never permission
   escalation or an unsafe assumption.
@@ -52,6 +54,10 @@ still inside its approved root.
 - A changed candidate is skipped during revalidation.
 - Partial failures are reported item by item.
 - Permanent deletion is not part of the initial milestones.
+
+Cancellation is safe but may not be instantaneous. A blocking filesystem call
+can finish before the next cancellation checkpoint is reached. The scanner
+still performs no filesystem mutation while cancellation unwinds.
 
 ## Rule requirements
 

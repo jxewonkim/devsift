@@ -152,6 +152,7 @@ public struct ScanItemSummary: Hashable, Sendable {
   public let sharedContentMetadataUnavailableCount: UInt64
   public let unobservedHardLinkFileCount: UInt64
   public let nonExclusiveHardLinkFileCount: UInt64
+  public let sizeOverflowed: Bool
   public let isComplete: Bool
 
   public init(
@@ -165,6 +166,7 @@ public struct ScanItemSummary: Hashable, Sendable {
     sharedContentMetadataUnavailableCount: UInt64,
     unobservedHardLinkFileCount: UInt64,
     nonExclusiveHardLinkFileCount: UInt64,
+    sizeOverflowed: Bool = false,
     isComplete: Bool
   ) {
     self.path = path
@@ -177,6 +179,7 @@ public struct ScanItemSummary: Hashable, Sendable {
     self.sharedContentMetadataUnavailableCount = sharedContentMetadataUnavailableCount
     self.unobservedHardLinkFileCount = unobservedHardLinkFileCount
     self.nonExclusiveHardLinkFileCount = nonExclusiveHardLinkFileCount
+    self.sizeOverflowed = sizeOverflowed
     self.isComplete = isComplete
   }
 }

@@ -309,6 +309,18 @@ struct AllocatedSizeScannerTests {
     #expect(report.root.recursiveSize.allocatedBytes == .max)
     #expect(bucket.recursiveSize.logicalBytes == .max)
     #expect(bucket.recursiveSize.allocatedBytes == .max)
+    #expect(report.root.sizeOverflowed)
+    #expect(bucket.sizeOverflowed)
     #expect(overflowPaths == [".", "bucket"])
+
+    let issueBoundedReport = try await scanner.scan(
+      root: fixture.root,
+      limits: ScanLimits(maximumRecordedIssues: 0)
+    )
+    let issueBoundedBucket = try summary(named: "bucket", in: issueBoundedReport)
+    #expect(issueBoundedReport.issues.isEmpty)
+    #expect(issueBoundedReport.suppressedIssueCount == 2)
+    #expect(issueBoundedReport.root.sizeOverflowed)
+    #expect(issueBoundedBucket.sizeOverflowed)
   }
 }

@@ -10,6 +10,11 @@ DevSift is designed to work locally and reveal as little as possible.
 - No network access required for scanning.
 - No background or automatic scanning.
 - No scan outside roots explicitly selected by the user.
+- The app does not scan before the folder picker returns an explicit selection,
+  automatically rescan a previous folder, or persist a recent-folder list.
+- The app does not save or upload reports. It displays root-relative item paths
+  and keeps the selected absolute root only in the current in-memory window
+  state.
 
 ## Sensitive output
 
@@ -27,6 +32,11 @@ selected absolute root in text or JSON. JSON retains exact relative filename
 bytes as Base64, so reports can still reveal sensitive names and must be
 reviewed before sharing. Redirecting standard output is the explicit export
 action; DevSift never writes a report file on its own.
+
+The app displays the selected root path so the user can verify scope, then shows
+top-level rows as root-relative names. Closing the window discards its in-memory
+selection and report. The opt-in developer snapshot harness uses only synthetic
+paths and is never run automatically by the application.
 
 ## Future changes
 
