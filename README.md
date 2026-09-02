@@ -23,15 +23,18 @@ local workflow:
 - make every cleanup plan reviewable and reproducible;
 - process paths and reports locally, without telemetry.
 
-The initial rule catalog recognizes selected development-related storage such
+The built-in rule catalog recognizes selected development-related storage such
 as Xcode DerivedData and DeviceSupport versions, SwiftPM build output, and uv,
 npm, and Homebrew caches. For a complete item, the scanner can now give its age
 check a conservative upper bound of the newest inode modification time observed
-during traversal. Recognition or a satisfied age check is not permission to
-clean: uncollected trusted-location, ownership, generated-marker, activity, and
-protected-descendant facts keep real candidates protected. Large AI models,
-virtual machines, user documents, and active application data are never
-treated as disposable merely because they are large.
+during traversal. For an exact SwiftPM `.build` candidate, a bounded
+descriptor-relative observer can also verify the metadata of an exact regular
+file named `workspace-state.json`. Neither its scan-time identity nor a
+satisfied marker or age check is permission to clean: uncollected
+trusted-location, ownership, activity, and protected-descendant facts keep real
+candidates protected. Large AI models, virtual machines, user documents, and
+active application data are never treated as disposable merely because they
+are large.
 
 ## Current interfaces
 

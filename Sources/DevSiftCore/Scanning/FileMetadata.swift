@@ -1,11 +1,6 @@
 import Darwin
 import Foundation
 
-struct FileIdentity: Hashable, Sendable {
-  let device: UInt64
-  let inode: UInt64
-}
-
 struct FileSystemName: Comparable, Hashable, Sendable {
   let bytes: [UInt8]
 

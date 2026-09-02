@@ -26,6 +26,7 @@ func testRuleVersion(_ rawValue: UInt32 = 1) -> RuleVersion {
 func ruleSummary(
   rawComponents: [[UInt8]],
   kind: FileSystemEntryKind = .directory,
+  scanTimeIdentity: FileIdentity? = nil,
   isComplete: Bool = true,
   unknownAllocatedItemCount: UInt64 = 0,
   sizeOverflowed: Bool = false,
@@ -34,6 +35,7 @@ func ruleSummary(
   ScanItemSummary(
     path: ScanRelativePath(rawComponents: rawComponents),
     kind: kind,
+    scanTimeIdentity: scanTimeIdentity,
     recursiveSize: StorageSize(logicalBytes: 1_024, allocatedBytes: 1_024),
     hardLinkExclusiveAllocatedBytes: 1_024,
     counts: ScanEntryCounts(
@@ -63,7 +65,8 @@ func completeRuleIntegrity() -> RuleScanIntegrity {
     suppressedIssueCount: 0,
     unknownAllocatedItemCount: 0,
     sizeOverflowed: false,
-    hardLinkAccountingIsComplete: true
+    hardLinkAccountingIsComplete: true,
+    identityMatchesScan: .known(true)
   )
 }
 

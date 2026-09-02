@@ -148,11 +148,54 @@ struct RuleClassificationReportValidationTests {
       referenceUnixSeconds: 100
     )
 
+    expectPreflightError(.inputPathIsNotTopLevel(nested), report: request.report)
     expectValidationError(
       .inputPathIsNotTopLevel(nested),
       report: validationReport([]),
       request: request
     )
+  }
+
+  @Test("Scan preflight requires a directory root summary at the root path")
+  func scanPreflightRootShape() throws {
+    let valid = completeScanReport(topLevelItems: [])
+    try ScanReportPreflight.validate(valid)
+
+    let invalidRoots: [(ScanItemSummary, RuleClassificationReportValidationError)] = [
+      (
+        ruleSummary(rawComponents: [Array("not-root".utf8)]),
+        .rootSummaryPathIsNotRoot(validationPath("not-root"))
+      ),
+      (
+        ruleSummary(rawComponents: [], kind: .regularFile),
+        .rootSummaryIsNotDirectory(.regularFile)
+      ),
+    ]
+
+    for (root, expectedError) in invalidRoots {
+      let report = ScanReport(
+        root: root,
+        topLevelItems: [],
+        topLevelItemCount: 0,
+        topLevelItemsWereSuppressed: false,
+        hardLinkAccountingIsComplete: true,
+        traversalDetailsWereDiscarded: false,
+        issues: [],
+        suppressedIssueCount: 0
+      )
+      let request = RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+        report: report,
+        referenceUnixSeconds: 100
+      )
+
+      expectPreflightError(expectedError, report: report)
+      expectValidationError(
+        expectedError,
+        report: validationReport([]),
+        request: request
+      )
+    }
   }
 
   @Test("Malformed scan report structure is rejected before eligibility")
@@ -248,6 +291,98 @@ struct RuleClassificationReportValidationTests {
           referenceUnixSeconds: 100
         )
       )
+    }
+  }
+
+  @Test("Scan-time identity coverage is all-or-none and remains on the root device")
+  func scanTimeIdentityStructure() throws {
+    let rootIdentity = FileIdentity(device: 10, inode: 20)
+    let itemIdentity = FileIdentity(device: 10, inode: 30)
+    let otherDeviceIdentity = FileIdentity(device: 11, inode: 30)
+    let path = validationPath("a")
+
+    let malformedReports: [(ScanReport, RuleClassificationReportValidationError)] = [
+      (
+        completeScanReport(
+          topLevelItems: [
+            ruleSummary(rawComponents: path.rawComponents, scanTimeIdentity: itemIdentity)
+          ]
+        ),
+        .inconsistentScanTimeIdentityCoverage(path)
+      ),
+      (
+        ScanReport(
+          root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+          topLevelItems: [ruleSummary(rawComponents: path.rawComponents)],
+          topLevelItemCount: 1,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .inconsistentScanTimeIdentityCoverage(path)
+      ),
+      (
+        ScanReport(
+          root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+          topLevelItems: [
+            ruleSummary(
+              rawComponents: path.rawComponents,
+              scanTimeIdentity: otherDeviceIdentity
+            )
+          ],
+          topLevelItemCount: 1,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .scanTimeIdentityDeviceMismatch(path)
+      ),
+    ]
+
+    for (scanReport, expectedError) in malformedReports {
+      expectPreflightError(expectedError, report: scanReport)
+      expectValidationError(
+        expectedError,
+        report: validationReport([]),
+        request: RuleClassificationRequest(
+          root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+          report: scanReport,
+          referenceUnixSeconds: 100
+        )
+      )
+    }
+
+    let validReport = ScanReport(
+      root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+      topLevelItems: [
+        ruleSummary(rawComponents: path.rawComponents, scanTimeIdentity: itemIdentity),
+        ruleSummary(rawComponents: [Array("b".utf8)], scanTimeIdentity: itemIdentity),
+      ],
+      topLevelItemCount: 2,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let validRequest = RuleClassificationRequest(
+      root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+      report: validReport,
+      referenceUnixSeconds: 100
+    )
+    let validEvaluations = [
+      validationEvaluation(path: path),
+      validationEvaluation(path: validationPath("b")),
+    ]
+    try ScanReportPreflight.validate(validReport)
+    do {
+      try validationReport(validEvaluations).validate(for: validRequest)
+    } catch {
+      Issue.record("Expected same-device duplicate inode identities to validate: \(error)")
     }
   }
 
@@ -684,6 +819,7 @@ struct RuleClassificationReportValidationTests {
       AutomaticCheckIdentifier.allocationKnown,
       AutomaticCheckIdentifier.sizeDidNotOverflow,
       AutomaticCheckIdentifier.hardLinksComplete,
+      AutomaticCheckIdentifier.identityMatchesScan,
     ]
     let expectedStates: [CheckIdentifier: RuleFindingState] = [
       AutomaticCheckIdentifier.reportComplete: .failed,
@@ -694,6 +830,7 @@ struct RuleClassificationReportValidationTests {
       AutomaticCheckIdentifier.allocationKnown: .failed,
       AutomaticCheckIdentifier.sizeDidNotOverflow: .failed,
       AutomaticCheckIdentifier.hardLinksComplete: .failed,
+      AutomaticCheckIdentifier.identityMatchesScan: .unknown(.incompleteScan),
     ]
 
     for identifier in integrityIdentifiers {
@@ -717,6 +854,47 @@ struct RuleClassificationReportValidationTests {
         request: request
       )
     }
+  }
+
+  @Test("Scan identity findings stay unknown when no identity was retained")
+  func uncollectedScanIdentityFinding() throws {
+    let request = RuleClassificationRequest(
+      root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+      report: completeScanReport(
+        topLevelItems: [ruleSummary(rawComponents: [Array("a".utf8)])]
+      ),
+      referenceUnixSeconds: 100
+    )
+    let path = validationPath("a")
+
+    let valid = validationEvaluation(
+      matchState: .possibleMatch,
+      disposition: .protected,
+      findings: validationCommonFindings(
+        states: [
+          AutomaticCheckIdentifier.identityMatchesScan: .unknown(.notCollected)
+        ]
+      ) + validationRuleSpecificFindings()
+    )
+    try validationReport([valid]).validate(for: request)
+
+    let forged = validationEvaluation(
+      matchState: .possibleMatch,
+      disposition: .protected,
+      findings: validationCommonFindings(
+        states: [AutomaticCheckIdentifier.activity: .unknown(.notCollected)]
+      ) + validationRuleSpecificFindings()
+    )
+    expectValidationError(
+      .commonFindingStateMismatch(
+        path: path,
+        finding: AutomaticCheckIdentifier.identityMatchesScan,
+        expected: .unknown(.notCollected),
+        actual: .satisfied
+      ),
+      report: validationReport([forged]),
+      request: request
+    )
   }
 
   @Test("Finding identifiers and matching revisions are unique and ordered")
@@ -860,6 +1038,20 @@ struct RuleClassificationReportValidationTests {
       Issue.record("Expected \(expected), received \(error)")
     }
   }
+
+  private func expectPreflightError(
+    _ expected: RuleClassificationReportValidationError,
+    report: ScanReport
+  ) {
+    do {
+      try ScanReportPreflight.validate(report)
+      Issue.record("Expected scan preflight error \(expected)")
+    } catch let error as RuleClassificationReportValidationError {
+      #expect(error == expected)
+    } catch {
+      Issue.record("Expected \(expected), received \(error)")
+    }
+  }
 }
 
 private let validationRuleRevision = RuleRevision(
@@ -996,6 +1188,12 @@ private func validationCommonFindings(
       state: state(AutomaticCheckIdentifier.hardLinksComplete),
       explanation: explanation
     ),
+    validationFinding(
+      identifier: AutomaticCheckIdentifier.identityMatchesScan.rawValue,
+      kind: .scanIntegrity,
+      state: state(AutomaticCheckIdentifier.identityMatchesScan),
+      explanation: explanation
+    ),
   ]
 }
 
@@ -1037,12 +1235,27 @@ private func validationRequest(
   names: [String],
   referenceUnixSeconds: Int64 = 100
 ) -> RuleClassificationRequest {
-  RuleClassificationRequest(
+  let device: UInt64 = 1
+  let items = names.enumerated().map { index, name in
+    ruleSummary(
+      rawComponents: [Array(name.utf8)],
+      scanTimeIdentity: FileIdentity(device: device, inode: UInt64(index + 2))
+    )
+  }
+  return RuleClassificationRequest(
     root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
-    report: completeScanReport(
-      topLevelItems: names.map { name in
-        ruleSummary(rawComponents: [Array(name.utf8)])
-      }
+    report: ScanReport(
+      root: ruleSummary(
+        rawComponents: [],
+        scanTimeIdentity: FileIdentity(device: device, inode: 1)
+      ),
+      topLevelItems: items,
+      topLevelItemCount: UInt64(items.count),
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
     ),
     referenceUnixSeconds: referenceUnixSeconds
   )

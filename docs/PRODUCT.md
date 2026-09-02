@@ -27,15 +27,18 @@ evidence keeps them protected. Jobs 4 and 5 remain later product direction.
 4. Produce a deterministic, reviewable plan before changing anything.
 5. Report what was actually reclaimed and what was skipped.
 
-## Initial catalog
+## Built-in catalog version 2
 
-The first versioned catalog is present in Core, the CLI, and the app. Its
-eligible outcomes are policy ceilings for fully evidenced synthetic
+The second version of the built-in catalog is present in Core, the CLI, and the
+app. Its eligible outcomes are policy ceilings for fully evidenced synthetic
 observations. For a complete item, the current real-scan adapter can establish
 the age input from the newest inode modification time observed during scanning.
-Trusted-location, ownership, generated-marker, reliable-activity, and
-protected-descendant evidence remain unavailable, so runtime outcomes remain
-Protected.
+For an exact SwiftPM `.build` candidate, a bounded identity-bound observer can
+also establish whether an exact regular-file `workspace-state.json` marker is
+present. Scan-time identity is observation binding, not deletion authority;
+trusted-location, ownership, reliable-activity, and protected-descendant
+evidence remain unavailable, so runtime outcomes remain Protected even when
+the marker is satisfied.
 
 The first rule set recognizes:
 

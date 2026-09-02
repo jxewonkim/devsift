@@ -18,8 +18,12 @@ DevSift is designed to work locally and reveal as little as possible.
 - The app does not save or upload reports. It displays root-relative item paths
   and keeps the selected absolute root only in the current in-memory window
   state.
-- Classification runs locally over in-memory scan observations. It does not
-  reopen files, read contents, invoke package managers, or make network calls.
+- Classification runs locally. Its bounded evidence stage may reopen the
+  selected root and retained top-level candidates descriptor-relatively to
+  verify scan-time identity. For an exact `.build` candidate, it may also
+  inspect metadata for an exact `workspace-state.json` child. It does not read
+  file contents, follow symbolic-link targets, invoke package managers, or make
+  network calls.
 
 ## Sensitive output
 
@@ -42,8 +46,8 @@ Classification output is also root-relative, but adds tool attribution, rule
 identifiers, evidence findings, policy results, and one captured reference
 timestamp. These details may reveal installed tools and work patterns and must
 be reviewed before sharing. The current scan and classification JSON schemas do
-not expose a candidate's raw modification-time aggregate; classification emits
-only the resulting age finding and its reference timestamp.
+not expose a candidate's raw modification-time aggregate or scan-time identity;
+classification emits only the resulting findings and its reference timestamp.
 
 The app displays the selected root path so the user can verify scope, then shows
 top-level rows as root-relative names. Closing the window discards its in-memory

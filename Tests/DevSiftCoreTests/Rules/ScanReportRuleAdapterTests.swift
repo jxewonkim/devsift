@@ -27,6 +27,11 @@ struct ScanReportRuleAdapterTests {
     )
     #expect(uv.matchState == .possibleMatch)
     #expect(
+      uv.findings.first {
+        $0.identifier == testCheckIdentifier("identity-matches-scan")
+      }?.state == .unknown(.notCollected)
+    )
+    #expect(
       uv.findings.contains {
         $0.state == .unknown(.notCollected)
       }
@@ -73,6 +78,9 @@ struct ScanReportRuleAdapterTests {
         referenceUnixSeconds: 1_000
       )
     )
+    let observationsByPath = Dictionary(
+      uniqueKeysWithValues: observations.map { ($0.summary.path, $0) }
+    )
     let facts = Dictionary(uniqueKeysWithValues: observations.map { ($0.summary.path, $0.facts) })
 
     #expect(facts[known.path]?.newestContentModificationUnixSeconds == .known(123))
@@ -85,6 +93,43 @@ struct ScanReportRuleAdapterTests {
     #expect(
       facts[incomplete.path]?.newestContentModificationUnixSeconds == .unknown(.incompleteScan)
     )
+    #expect(
+      observationsByPath[incomplete.path]?.integrity.identityMatchesScan
+        == .unknown(.incompleteScan)
+    )
+  }
+
+  @Test("Evidence cardinality mismatches fail closed")
+  func evidenceCardinalityMismatch() throws {
+    let item = ruleSummary(
+      rawComponents: [Array(".build".utf8)],
+      scanTimeIdentity: FileIdentity(device: 1, inode: 2)
+    )
+    let report = ScanReport(
+      root: ruleSummary(
+        rawComponents: [],
+        scanTimeIdentity: FileIdentity(device: 1, inode: 1)
+      ),
+      topLevelItems: [item],
+      topLevelItemCount: 1,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let observations = ScanReportRuleAdapter.observations(
+      for: RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+        report: report,
+        referenceUnixSeconds: 100
+      ),
+      evidence: RuleEvidenceObservation(candidates: [])
+    )
+    let observation = try #require(observations.first)
+
+    #expect(observation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
+    #expect(observation.facts.generatedContentMarker == .unknown(.invalidMetadata))
   }
 
   @Test("Descriptor-scanned age rounds conservatively and stays protected")
@@ -94,8 +139,10 @@ struct ScanReportRuleAdapterTests {
 
     let build = try fixture.makeDirectory(".build")
     let payload = try fixture.write(".build/payload.bin", bytes: [1])
+    let workspaceState = try fixture.write(".build/workspace-state.json", bytes: Array("{}".utf8))
     _ = try fixture.write("Package.swift", bytes: [])
     try fixture.setModificationTime(50, for: build)
+    try fixture.setModificationTime(75, for: workspaceState)
     try fixture.setModificationTime(100, for: payload, nanoseconds: 1)
 
     let scan = try await AllocatedSizeScanner().scan(root: fixture.root)
@@ -132,8 +179,28 @@ struct ScanReportRuleAdapterTests {
     let age = try #require(
       decision.findings.first { $0.identifier == testCheckIdentifier("age-requirement") }
     )
+    let identity = try #require(
+      decision.findings.first {
+        $0.identifier == testCheckIdentifier("identity-matches-scan")
+      }
+    )
+    let marker = try #require(
+      decision.findings.first {
+        $0.identifier == testCheckIdentifier("generated-content-marker")
+      }
+    )
 
     #expect(age.state == .satisfied)
+    #expect(identity.state == .satisfied)
+    #expect(marker.state == .satisfied)
+    #expect(decision.rule?.identifier == testRuleIdentifier("devsift.swiftpm.build"))
+    #expect(decision.rule?.version == testRuleVersion(2))
+    #expect(decision.rule.map { decision.matchingRules == [$0] } == true)
+    #expect(
+      decision.findings.first {
+        $0.identifier == testCheckIdentifier("activity-requirement")
+      }?.state == .unknown(.notCollected)
+    )
     #expect(decision.matchState == .possibleMatch)
     #expect(decision.disposition == .protected)
   }

@@ -1,5 +1,98 @@
 import Foundation
 
+enum ScanReportPreflight {
+  static func validate(_ report: ScanReport) throws {
+    guard report.topLevelItems.count <= RuleCatalogLimits.maximumObservations else {
+      throw RuleClassificationReportValidationError.tooManyInputItems(
+        maximum: RuleCatalogLimits.maximumObservations,
+        actual: report.topLevelItems.count
+      )
+    }
+    guard report.root.path == .root else {
+      throw RuleClassificationReportValidationError.rootSummaryPathIsNotRoot(
+        report.root.path
+      )
+    }
+    guard report.root.kind == .directory else {
+      throw RuleClassificationReportValidationError.rootSummaryIsNotDirectory(
+        report.root.kind
+      )
+    }
+
+    try validateScanTimeIdentities(report)
+
+    if report.topLevelItemsWereSuppressed {
+      guard report.topLevelItems.isEmpty else {
+        throw RuleClassificationReportValidationError.suppressedTopLevelItemsRetained(
+          actual: report.topLevelItems.count
+        )
+      }
+    } else {
+      guard report.topLevelItemCount == UInt64(report.topLevelItems.count) else {
+        throw RuleClassificationReportValidationError.topLevelItemCountMismatch(
+          reported: report.topLevelItemCount,
+          retained: report.topLevelItems.count
+        )
+      }
+    }
+
+    if report.traversalDetailsWereDiscarded {
+      guard
+        report.topLevelItemsWereSuppressed,
+        report.topLevelItems.isEmpty,
+        report.topLevelItemCount == 0,
+        !report.hardLinkAccountingIsComplete
+      else {
+        throw RuleClassificationReportValidationError.discardedTraversalStateIsInconsistent
+      }
+    }
+
+    if report.root.isComplete,
+      !report.issues.isEmpty || report.suppressedIssueCount > 0
+    {
+      throw RuleClassificationReportValidationError.rootMarkedCompleteWithScanIssues
+    }
+
+    let incompletePaths = report.topLevelItems
+      .filter { !$0.isComplete }
+      .map(\.path)
+      .sorted()
+    if report.isComplete, let incompletePath = incompletePaths.first {
+      throw RuleClassificationReportValidationError.completeReportContainsIncompleteItem(
+        incompletePath
+      )
+    }
+
+    for item in report.topLevelItems {
+      guard item.path.rawComponents.count == 1 else {
+        throw RuleClassificationReportValidationError.inputPathIsNotTopLevel(item.path)
+      }
+    }
+  }
+
+  private static func validateScanTimeIdentities(_ report: ScanReport) throws {
+    guard let rootIdentity = report.root.scanTimeIdentity else {
+      if let item = report.topLevelItems.first(where: { $0.scanTimeIdentity != nil }) {
+        throw RuleClassificationReportValidationError.inconsistentScanTimeIdentityCoverage(
+          item.path
+        )
+      }
+      return
+    }
+
+    for item in report.topLevelItems {
+      guard let itemIdentity = item.scanTimeIdentity else {
+        throw RuleClassificationReportValidationError.inconsistentScanTimeIdentityCoverage(
+          item.path
+        )
+      }
+      guard itemIdentity.device == rootIdentity.device else {
+        throw RuleClassificationReportValidationError.scanTimeIdentityDeviceMismatch(item.path)
+      }
+    }
+  }
+}
+
 extension RuleClassificationReport {
   /// Validates an already-returned classification report against its exact
   /// request. Custom classifiers are trusted in-process code, but callers can
@@ -11,19 +104,13 @@ extension RuleClassificationReport {
         actual: referenceUnixSeconds
       )
     }
-    guard request.report.topLevelItems.count <= RuleCatalogLimits.maximumObservations else {
-      throw RuleClassificationReportValidationError.tooManyInputItems(
-        maximum: RuleCatalogLimits.maximumObservations,
-        actual: request.report.topLevelItems.count
-      )
-    }
+    try ScanReportPreflight.validate(request.report)
     guard evaluations.count <= RuleCatalogLimits.maximumObservations else {
       throw RuleClassificationReportValidationError.tooManyEvaluations(
         maximum: RuleCatalogLimits.maximumObservations,
         actual: evaluations.count
       )
     }
-    try validateScanReportStructure(request.report)
 
     var totalFindingCount = 0
     for evaluation in evaluations {
@@ -50,9 +137,6 @@ extension RuleClassificationReport {
     var inputCounts: [ScanRelativePath: Int] = [:]
     var inputItems: [ScanRelativePath: ScanItemSummary] = [:]
     for item in request.report.topLevelItems {
-      guard item.path.rawComponents.count == 1 else {
-        throw RuleClassificationReportValidationError.inputPathIsNotTopLevel(item.path)
-      }
       expectedPaths.insert(item.path)
       inputCounts[item.path, default: 0] += 1
       if inputItems[item.path] == nil {
@@ -98,50 +182,6 @@ extension RuleClassificationReport {
         totalTextBytes: &totalTextBytes,
         totalIdentityTextBytes: &totalIdentityTextBytes,
         totalMatchingRuleRevisions: &totalMatchingRuleRevisions
-      )
-    }
-  }
-
-  private func validateScanReportStructure(_ report: ScanReport) throws {
-    if report.topLevelItemsWereSuppressed {
-      guard report.topLevelItems.isEmpty else {
-        throw RuleClassificationReportValidationError.suppressedTopLevelItemsRetained(
-          actual: report.topLevelItems.count
-        )
-      }
-    } else {
-      guard report.topLevelItemCount == UInt64(report.topLevelItems.count) else {
-        throw RuleClassificationReportValidationError.topLevelItemCountMismatch(
-          reported: report.topLevelItemCount,
-          retained: report.topLevelItems.count
-        )
-      }
-    }
-
-    if report.traversalDetailsWereDiscarded {
-      guard
-        report.topLevelItemsWereSuppressed,
-        report.topLevelItems.isEmpty,
-        report.topLevelItemCount == 0,
-        !report.hardLinkAccountingIsComplete
-      else {
-        throw RuleClassificationReportValidationError.discardedTraversalStateIsInconsistent
-      }
-    }
-
-    if report.root.isComplete,
-      !report.issues.isEmpty || report.suppressedIssueCount > 0
-    {
-      throw RuleClassificationReportValidationError.rootMarkedCompleteWithScanIssues
-    }
-
-    let incompletePaths = report.topLevelItems
-      .filter { !$0.isComplete }
-      .map(\.path)
-      .sorted()
-    if report.isComplete, let incompletePath = incompletePaths.first {
-      throw RuleClassificationReportValidationError.completeReportContainsIncompleteItem(
-        incompletePath
       )
     }
   }
@@ -421,6 +461,7 @@ extension RuleClassificationReport {
       (AutomaticCheckIdentifier.allocationKnown, .scanIntegrity),
       (AutomaticCheckIdentifier.sizeDidNotOverflow, .scanIntegrity),
       (AutomaticCheckIdentifier.hardLinksComplete, .scanIntegrity),
+      (AutomaticCheckIdentifier.identityMatchesScan, .scanIntegrity),
     ]
 
     for (identifier, expectedKind) in commonKinds {
@@ -498,6 +539,22 @@ extension RuleClassificationReport {
       try validateCommonFindingState(
         identifier,
         expected: expectedState,
+        evaluation: evaluation,
+        findings: findings
+      )
+    }
+
+    if !scanReport.isComplete || !inputItem.isComplete {
+      try validateCommonFindingState(
+        AutomaticCheckIdentifier.identityMatchesScan,
+        expected: .unknown(.incompleteScan),
+        evaluation: evaluation,
+        findings: findings
+      )
+    } else if inputItem.scanTimeIdentity == nil {
+      try validateCommonFindingState(
+        AutomaticCheckIdentifier.identityMatchesScan,
+        expected: .unknown(.notCollected),
         evaluation: evaluation,
         findings: findings
       )

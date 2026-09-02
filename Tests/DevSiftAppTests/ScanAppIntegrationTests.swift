@@ -98,4 +98,88 @@ struct ScanAppIntegrationTests {
     let uvAttributesAfterScan = try FileManager.default.attributesOfItem(atPath: uv.path)
     #expect(uvAttributesAfterScan[.modificationDate] as? Date == uvModificationDateBeforeScan)
   }
+
+  @Test("The dashboard exposes identity-bound SwiftPM marker evidence without mutation")
+  func recognizedSwiftPMMarkerEvidenceRemainsProtected() async throws {
+    let container = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DevSiftAppMarkerTests-\(UUID().uuidString)", isDirectory: true)
+    let root = container.appendingPathComponent("root", isDirectory: true)
+    let build = root.appendingPathComponent(".build", isDirectory: true)
+    let workspaceState = build.appendingPathComponent("workspace-state.json")
+    let packageManifest = root.appendingPathComponent("Package.swift")
+    let outside = container.appendingPathComponent("outside.txt")
+    try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: workspaceState)
+    try Data("// package".utf8).write(to: packageManifest)
+    try Data("outside-sentinel".utf8).write(to: outside)
+    let oldDate = Date(timeIntervalSince1970: 100)
+    try FileManager.default.setAttributes(
+      [.modificationDate: oldDate],
+      ofItemAtPath: workspaceState.path
+    )
+    try FileManager.default.setAttributes(
+      [.modificationDate: oldDate],
+      ofItemAtPath: build.path
+    )
+    defer { try? FileManager.default.removeItem(at: container) }
+
+    let pathsBeforeScan = try FileManager.default.subpathsOfDirectory(atPath: container.path)
+      .sorted()
+    let markerBeforeScan = try Data(contentsOf: workspaceState)
+    let manifestBeforeScan = try Data(contentsOf: packageManifest)
+    let outsideBeforeScan = try Data(contentsOf: outside)
+    let buildAttributesBeforeScan = try FileManager.default.attributesOfItem(atPath: build.path)
+    let markerAttributesBeforeScan = try FileManager.default.attributesOfItem(
+      atPath: workspaceState.path
+    )
+    let model = ScanViewModel(
+      scanner: AllocatedSizeScanner(),
+      securityScope: SecurityScopeSpy(startResult: false),
+      referenceUnixSeconds: { 100 + 7 * 24 * 60 * 60 }
+    )
+
+    await model.startScan(at: root).value
+
+    guard case .result(_, let presentation) = model.phase else {
+      Issue.record("Expected the real scanner, observer, and classifier to return a result")
+      return
+    }
+    let buildRow = try #require(
+      presentation.items.first {
+        $0.id.rawComponents == [Array(".build".utf8)]
+      }
+    )
+    let findingStates = Dictionary(
+      uniqueKeysWithValues: buildRow.policy.findings.map { ($0.identifier.rawValue, $0.state) }
+    )
+
+    #expect(findingStates["age-requirement"] == .satisfied)
+    #expect(findingStates["identity-matches-scan"] == .satisfied)
+    #expect(findingStates["generated-content-marker"] == .satisfied)
+    #expect(findingStates["activity-requirement"] == .unknown(.notCollected))
+    #expect(buildRow.policy.ruleRevisionLabels == ["devsift.swiftpm.build@2"])
+    #expect(buildRow.policy.matchState == .possibleMatch)
+    #expect(buildRow.policy.disposition == .protected)
+    #expect(buildRow.policy.isMalformed == false)
+
+    #expect(
+      try FileManager.default.subpathsOfDirectory(atPath: container.path).sorted()
+        == pathsBeforeScan
+    )
+    #expect(try Data(contentsOf: workspaceState) == markerBeforeScan)
+    #expect(try Data(contentsOf: packageManifest) == manifestBeforeScan)
+    #expect(try Data(contentsOf: outside) == outsideBeforeScan)
+    let buildAttributesAfterScan = try FileManager.default.attributesOfItem(atPath: build.path)
+    let markerAttributesAfterScan = try FileManager.default.attributesOfItem(
+      atPath: workspaceState.path
+    )
+    #expect(
+      buildAttributesAfterScan[.modificationDate] as? Date
+        == buildAttributesBeforeScan[.modificationDate] as? Date
+    )
+    #expect(
+      markerAttributesAfterScan[.modificationDate] as? Date
+        == markerAttributesBeforeScan[.modificationDate] as? Date
+    )
+  }
 }

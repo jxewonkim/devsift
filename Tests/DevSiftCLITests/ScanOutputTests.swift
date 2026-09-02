@@ -181,7 +181,10 @@ struct ScanOutputTests {
   @Test("JSON v2 round-trips every integer and summary accounting flag")
   func jsonRoundTripAndDeterminism() throws {
     let rawPath: [UInt8] = [0xFF, 0x00, 0x5C]
+    let rootIdentity = FileIdentity(device: 0xD35, inode: 0x100)
+    let itemIdentity = FileIdentity(device: rootIdentity.device, inode: 0x101)
     let root = CLITestReportFactory.item(
+      scanTimeIdentity: rootIdentity,
       logicalBytes: UInt64.max,
       allocatedBytes: UInt64.max,
       hardLinkExclusiveAllocatedBytes: UInt64.max,
@@ -201,6 +204,7 @@ struct ScanOutputTests {
     let item = CLITestReportFactory.item(
       rawComponents: [rawPath],
       kind: .regularFile,
+      scanTimeIdentity: itemIdentity,
       counts: CLITestReportFactory.counts(regularFiles: 1, directories: 0)
     )
     let issues = [

@@ -46,6 +46,50 @@ struct ScanPresentationTests {
     #expect(SafeDisplayText.filePath(URL(fileURLWithPath: "/")) == "/")
   }
 
+  @Test("Scan-time identity remains internal to UI-facing presentation strings")
+  func scanTimeIdentityIsNotPresented() async throws {
+    let device: UInt64 = 8_642_135_791_357
+    let rootIdentity = FileIdentity(device: device, inode: 9_753_246_802_468)
+    let itemIdentity = FileIdentity(device: device, inode: 8_024_680_246_802)
+    let item = AppTestReportFactory.item(
+      rawComponents: [Array("DerivedData".utf8)],
+      scanTimeIdentity: itemIdentity
+    )
+    let report = AppTestReportFactory.report(
+      root: AppTestReportFactory.item(scanTimeIdentity: rootIdentity),
+      topLevelItems: [item]
+    )
+
+    let presentation = try await makePresentation(for: report)
+    let row = try #require(presentation.items.first)
+    #expect(row.summary.scanTimeIdentity == itemIdentity)
+
+    var userFacingStrings = [
+      row.displayPath,
+      row.summary.kind.displayName,
+      row.policy.badgeTitle,
+      row.policy.matchStateDisplayName,
+      row.policy.displayName,
+      row.policy.responsibleTool,
+      row.policy.explanation,
+      row.policy.accessibilityLabel,
+    ]
+    userFacingStrings.append(contentsOf: row.policy.ruleRevisionLabels)
+    userFacingStrings.append(contentsOf: presentation.partialDetailMessages)
+    for finding in row.policy.findings {
+      userFacingStrings.append(contentsOf: [
+        finding.identifier.rawValue,
+        finding.kind.displayName,
+        finding.state.displayName,
+        finding.explanation,
+      ])
+    }
+
+    for rawIdentityValue in [device, rootIdentity.inode, itemIdentity.inode].map(String.init) {
+      #expect(userFacingStrings.allSatisfy { !$0.contains(rawIdentityValue) })
+    }
+  }
+
   @Test("Traversal discard and size overflow make affected metrics unavailable")
   func unavailableMetrics() async throws {
     let discarded = try await makePresentation(

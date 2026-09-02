@@ -9,17 +9,19 @@ struct ExplainableRuleClassifierTests {
   func builtInMatches() async throws {
     let classifier = ExplainableRuleClassifier()
     let reference: Int64 = 4_000_000
-    let cases: [(name: String, root: String, rule: String, disposition: RuleDisposition)] = [
-      ("uv", "Caches", "devsift.cache.uv", .reclaimable),
-      ("_cacache", "Caches", "devsift.cache.npm", .reviewRequired),
-      ("Homebrew", "Caches", "devsift.cache.homebrew", .reviewRequired),
-      ("DerivedData", "Xcode", "devsift.xcode.derived-data", .reviewRequired),
-      (".build", "Project", "devsift.swiftpm.build", .reviewRequired),
-      (
-        "17.4 (21E217)", "iOS DeviceSupport", "devsift.xcode.ios-device-support",
-        .reviewRequired
-      ),
-    ]
+    let cases:
+      [(name: String, root: String, rule: String, version: UInt32, disposition: RuleDisposition)] =
+        [
+          ("uv", "Caches", "devsift.cache.uv", 1, .reclaimable),
+          ("_cacache", "Caches", "devsift.cache.npm", 1, .reviewRequired),
+          ("Homebrew", "Caches", "devsift.cache.homebrew", 1, .reviewRequired),
+          ("DerivedData", "Xcode", "devsift.xcode.derived-data", 1, .reviewRequired),
+          (".build", "Project", "devsift.swiftpm.build", 2, .reviewRequired),
+          (
+            "17.4 (21E217)", "iOS DeviceSupport", "devsift.xcode.ios-device-support",
+            1, .reviewRequired
+          ),
+        ]
 
     for testCase in cases {
       let report = try await classifier.classify(
@@ -33,6 +35,7 @@ struct ExplainableRuleClassifierTests {
         referenceUnixSeconds: reference
       )
       let evaluation = try evaluation(testCase.rule, in: report)
+      #expect(evaluation.rule?.version.rawValue == testCase.version)
       #expect(evaluation.matchState == .matched, "Expected \(testCase.rule) to match")
       #expect(evaluation.disposition == testCase.disposition)
       #expect(!evaluation.explanation.isEmpty)
@@ -165,7 +168,7 @@ struct ExplainableRuleClassifierTests {
       #expect(result.disposition == .protected, "Guard: \(guardCase)")
       #expect(
         result.findings.contains {
-          $0.kind == .scanIntegrity && $0.state == .failed
+          $0.kind == .scanIntegrity && $0.state != .satisfied
         },
         "Guard: \(guardCase)"
       )
@@ -505,6 +508,33 @@ struct ExplainableRuleClassifierTests {
     }
   }
 
+  @Test("Request structure is preflighted before evidence observation")
+  func requestPreflightPrecedesObservation() async throws {
+    let observer = RuleEvidenceObserverSpy()
+    let classifier = try ExplainableRuleClassifier(
+      rules: [SyntheticRule(definition: syntheticDefinition(id: "devsift.test.preflight"))],
+      evidenceObserver: observer
+    )
+    let nestedPath = ScanRelativePath(
+      rawComponents: [Array("candidate".utf8), Array("nested".utf8)]
+    )
+    let request = RuleClassificationRequest(
+      root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+      report: completeScanReport(
+        topLevelItems: [ruleSummary(rawComponents: nestedPath.rawComponents)]
+      ),
+      referenceUnixSeconds: 100
+    )
+
+    do {
+      _ = try await classifier.classify(request)
+      Issue.record("Expected preflight to reject a nested top-level path")
+    } catch let error as RuleClassificationReportValidationError {
+      #expect(error == .inputPathIsNotTopLevel(nestedPath))
+    }
+    #expect(await observer.callCount() == 0)
+  }
+
   private func evaluation(
     _ identifier: String,
     in report: RuleClassificationReport
@@ -517,6 +547,26 @@ struct ExplainableRuleClassifierTests {
   }
 }
 
+private actor RuleEvidenceObserverSpy: RuleEvidenceObserving {
+  private var calls = 0
+
+  func observe(_ request: RuleClassificationRequest) async throws -> RuleEvidenceObservation {
+    calls += 1
+    return RuleEvidenceObservation(
+      candidates: request.report.topLevelItems.map { item in
+        .unavailable(
+          .notCollected,
+          observesGeneratedMarker: item.path.rawComponents == [Array(".build".utf8)]
+        )
+      }
+    )
+  }
+
+  func callCount() -> Int {
+    calls
+  }
+}
+
 private enum PartialGuardCase: String, CaseIterable {
   case reportIncomplete
   case itemIncomplete
@@ -526,9 +576,17 @@ private enum PartialGuardCase: String, CaseIterable {
   case allocationUnknown
   case sizeOverflow
   case hardLinksIncomplete
+  case identityMismatch
+  case identityUnknown
 
   var integrity: RuleScanIntegrity {
-    RuleScanIntegrity(
+    let identityMatchesScan: RuleObserved<Bool> =
+      switch self {
+      case .identityMismatch: .known(false)
+      case .identityUnknown: .unknown(.changedDuringObservation)
+      default: .known(true)
+      }
+    return RuleScanIntegrity(
       reportIsComplete: self != .reportIncomplete,
       itemIsComplete: self != .itemIncomplete,
       topLevelItemsWereSuppressed: self == .topLevelSuppressed,
@@ -536,7 +594,8 @@ private enum PartialGuardCase: String, CaseIterable {
       suppressedIssueCount: self == .issuesSuppressed ? 1 : 0,
       unknownAllocatedItemCount: self == .allocationUnknown ? 1 : 0,
       sizeOverflowed: self == .sizeOverflow,
-      hardLinkAccountingIsComplete: self != .hardLinksIncomplete
+      hardLinkAccountingIsComplete: self != .hardLinksIncomplete,
+      identityMatchesScan: identityMatchesScan
     )
   }
 }

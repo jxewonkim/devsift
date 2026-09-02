@@ -14,6 +14,9 @@ struct CLIIntegrationTests {
     let build = fixture.root.appendingPathComponent(".build", isDirectory: true)
     try FileManager.default.createDirectory(at: uv, withIntermediateDirectories: false)
     try FileManager.default.createDirectory(at: build, withIntermediateDirectories: false)
+    try Data("{}".utf8).write(
+      to: build.appendingPathComponent("workspace-state.json")
+    )
     try Data("// package".utf8).write(
       to: fixture.root.appendingPathComponent("Package.swift")
     )
@@ -42,6 +45,10 @@ struct CLIIntegrationTests {
     #expect(result.standardOutput.contains(fixture.root.path) == false)
 
     let data = try #require(result.standardOutput.data(using: .utf8))
+    let rawObject = try #require(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    try assertClassificationJSONKeepsScanIdentityPrivate(rawObject)
     let document = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
     #expect(document.schema == "devsift.classification")
     #expect(document.schemaVersion == 1)
@@ -68,9 +75,29 @@ struct CLIIntegrationTests {
           && $0.state.reason == "not-collected"
       }
     )
+    let buildDecision = try #require(
+      document.decisions.first(where: { $0.path.display == ".build" })
+    )
+    #expect(buildDecision.ruleRevision?.identifier == "devsift.swiftpm.build")
+    #expect(buildDecision.ruleRevision?.version == "2")
+    #expect(buildDecision.matchState == "possible-match")
+    #expect(buildDecision.disposition == "protected")
     #expect(
-      document.decisions.first(where: { $0.path.display == ".build" })?.ruleRevision?.identifier
-        == "devsift.swiftpm.build"
+      buildDecision.findings.contains {
+        $0.identifier == "identity-matches-scan" && $0.state.status == "satisfied"
+      }
+    )
+    #expect(
+      buildDecision.findings.contains {
+        $0.identifier == "generated-content-marker" && $0.state.status == "satisfied"
+      }
+    )
+    #expect(
+      buildDecision.findings.contains {
+        $0.identifier == "activity-requirement"
+          && $0.state.status == "unknown"
+          && $0.state.reason == "not-collected"
+      }
     )
     #expect(
       document.decisions.first(where: { $0.path.display == "mystery.bin" })?.matchState
@@ -152,6 +179,10 @@ struct CLIIntegrationTests {
     #expect(first.standardOutput.contains(fixture.root.path) == false)
 
     let data = try #require(first.standardOutput.data(using: .utf8))
+    let rawObject = try #require(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    try assertScanJSONKeepsScanIdentityPrivate(rawObject)
     let document = try JSONDecoder().decode(ScanJSONDocumentV2.self, from: data)
     #expect(document.schemaVersion == 2)
     #expect(document.pathStyle == "root-relative")
@@ -302,6 +333,61 @@ struct CLIIntegrationTests {
       #expect(result.standardOutput.isEmpty)
       #expect(result.standardError.contains("unknown command"))
       #expect(try fixture.snapshot() == beforeCommand)
+    }
+  }
+}
+
+private let privateScanIdentityJSONKeys: Set<String> = [
+  "scanTimeIdentity", "device", "inode",
+]
+
+private let scanItemJSONKeys: Set<String> = [
+  "path", "kind", "recursiveSize", "hardLinkExclusiveAllocatedBytes", "counts",
+  "unknownAllocatedItemCount", "possibleSharedContentFileCount",
+  "sharedContentMetadataUnavailableCount", "unobservedHardLinkFileCount",
+  "nonExclusiveHardLinkFileCount", "sizeOverflowed", "isComplete",
+]
+
+private let classificationObservationJSONKeys: Set<String> = [
+  "kind", "apparentAllocatedBytes", "hardLinkExclusiveAllocatedBytes",
+  "unknownAllocatedItemCount", "itemIsComplete", "sizeOverflowed",
+  "hardLinkAccountingIsComplete",
+]
+
+private func assertScanJSONKeepsScanIdentityPrivate(
+  _ object: [String: Any]
+) throws {
+  let report = try #require(object["report"] as? [String: Any])
+  let root = try #require(report["root"] as? [String: Any])
+  let items = try #require(report["topLevelItems"] as? [[String: Any]])
+
+  #expect(Set(root.keys) == scanItemJSONKeys)
+  for item in items {
+    #expect(Set(item.keys) == scanItemJSONKeys)
+  }
+  assertNoPrivateScanIdentityKeys(in: object)
+}
+
+private func assertClassificationJSONKeepsScanIdentityPrivate(
+  _ object: [String: Any]
+) throws {
+  let decisions = try #require(object["decisions"] as? [[String: Any]])
+  for decision in decisions {
+    let observation = try #require(decision["observation"] as? [String: Any])
+    #expect(Set(observation.keys) == classificationObservationJSONKeys)
+  }
+  assertNoPrivateScanIdentityKeys(in: object)
+}
+
+private func assertNoPrivateScanIdentityKeys(in value: Any) {
+  if let object = value as? [String: Any] {
+    #expect(Set(object.keys).isDisjoint(with: privateScanIdentityJSONKeys))
+    for child in object.values {
+      assertNoPrivateScanIdentityKeys(in: child)
+    }
+  } else if let array = value as? [Any] {
+    for child in array {
+      assertNoPrivateScanIdentityKeys(in: child)
     }
   }
 }

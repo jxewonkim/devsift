@@ -53,6 +53,13 @@ conservative subsecond rounding, invalid metadata, incomplete summaries,
 future clock skew, and an age-satisfied result that still remains `Protected`
 when another required fact is unavailable.
 
+Descriptor evidence tests must use synthetic roots and cover missing or wrong-
+kind markers, symbolic-link non-following, identity replacement, bounded
+failure, and cancellation. A satisfied marker must still remain `Protected`
+while another required fact is unavailable. Treat `scanTimeIdentity` only as a
+read-only observation-binding token; tests must never use it as cleanup or
+deletion authority.
+
 ## Privacy and secrets
 
 Do not commit scan reports, cleanup manifests from real machines, absolute home

@@ -48,10 +48,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Rule age findings now consume that aggregate only for complete items. The
   other required facts still keep real candidates Protected even when age is
   satisfied.
+- Scan-time root and retained top-level `(device, inode)` identities that bind
+  later read-only descriptor-relative observations to the objects that were
+  scanned. They are not cleanup or deletion authority.
+- A bounded identity-bound observer for the SwiftPM `.build` rule that checks
+  only metadata for an exact regular-file `workspace-state.json` marker without
+  following symbolic-link targets. A satisfied marker remains Protected while
+  other required evidence is unavailable.
 
 ### Changed
 
 - Scan JSON v2 and classification JSON v1 retain their existing wire shapes.
-  The raw candidate timestamp remains a Core-only aggregate; classification
-  reflects its result through the existing age finding state and generic
-  explanation.
+  Raw candidate timestamps and scan-time identities remain Core-only;
+  classification reflects the timestamp only through the existing age finding
+  state and generic explanation.
+- The CLI built-in catalog is now version 2. Only
+  `devsift.swiftpm.build` advances to rule revision 2 for its generated-marker
+  semantics; all other built-in rule revisions remain at version 1.

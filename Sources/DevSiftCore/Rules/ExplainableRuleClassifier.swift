@@ -2,6 +2,7 @@ import Foundation
 
 public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
   private let rules: [any ExplainableRule]
+  private let evidenceObserver: any RuleEvidenceObserving
 
   public init() {
     let builtIns = BuiltInRuleCatalog.rules
@@ -11,18 +12,31 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
       preconditionFailure("The built-in rule catalog is invalid: \(error)")
     }
     rules = builtIns.sorted { $0.definition.revision < $1.definition.revision }
+    evidenceObserver = DescriptorRuleEvidenceObserver()
   }
 
   public init(rules: [any ExplainableRule]) throws {
     try Self.validateCatalog(rules)
     self.rules = rules.sorted { $0.definition.revision < $1.definition.revision }
+    evidenceObserver = DescriptorRuleEvidenceObserver()
+  }
+
+  init(
+    rules: [any ExplainableRule],
+    evidenceObserver: any RuleEvidenceObserving
+  ) throws {
+    try Self.validateCatalog(rules)
+    self.rules = rules.sorted { $0.definition.revision < $1.definition.revision }
+    self.evidenceObserver = evidenceObserver
   }
 
   public func classify(
     _ request: RuleClassificationRequest
   ) async throws -> RuleClassificationReport {
     try Self.validateObservationCount(request.report.topLevelItems.count)
-    let observations = ScanReportRuleAdapter.observations(for: request)
+    try ScanReportPreflight.validate(request.report)
+    let evidence = try await evidenceObserver.observe(request)
+    let observations = ScanReportRuleAdapter.observations(for: request, evidence: evidence)
     let report = try await classify(
       observations: observations,
       referenceUnixSeconds: request.referenceUnixSeconds
@@ -528,6 +542,10 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
         condition: integrity.hardLinkAccountingIsComplete,
         explanation: "Hard-link accounting is complete."
       ),
+      observedIntegrityFinding(
+        identifier: AutomaticCheckIdentifier.identityMatchesScan,
+        observation: integrity.identityMatchesScan
+      ),
     ]
   }
 
@@ -541,6 +559,30 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
       kind: .scanIntegrity,
       state: condition ? .satisfied : .failed,
       explanation: explanation
+    )
+  }
+
+  private func observedIntegrityFinding(
+    identifier: CheckIdentifier,
+    observation: RuleObserved<Bool>
+  ) -> RuleFinding {
+    let result: (state: RuleFindingState, explanation: String) =
+      switch observation {
+      case .known(true):
+        (.satisfied, "The candidate identity matched the scan-time identity.")
+      case .known(false):
+        (.failed, "The candidate identity did not match the scan-time identity.")
+      case .unknown(let reason):
+        (
+          .unknown(reason),
+          "The candidate identity could not be rebound safely to the scan-time identity."
+        )
+      }
+    return RuleFinding(
+      identifier: identifier,
+      kind: .scanIntegrity,
+      state: result.state,
+      explanation: result.explanation
     )
   }
 
@@ -709,6 +751,7 @@ enum AutomaticCheckIdentifier {
   static let allocationKnown = makeCheckIdentifier("allocation-known")
   static let sizeDidNotOverflow = makeCheckIdentifier("size-did-not-overflow")
   static let hardLinksComplete = makeCheckIdentifier("hard-links-complete")
+  static let identityMatchesScan = makeCheckIdentifier("identity-matches-scan")
   static let ruleConflict = makeCheckIdentifier("rule-conflict")
   static let ruleValidity = makeCheckIdentifier("rule-validity")
   static let duplicateObservation = makeCheckIdentifier("duplicate-observation")
@@ -726,6 +769,7 @@ enum AutomaticCheckIdentifier {
     allocationKnown,
     sizeDidNotOverflow,
     hardLinksComplete,
+    identityMatchesScan,
     ruleConflict,
     ruleValidity,
     duplicateObservation,

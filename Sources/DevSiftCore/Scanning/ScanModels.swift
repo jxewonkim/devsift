@@ -51,6 +51,21 @@ public struct StorageSize: Hashable, Sendable {
   }
 }
 
+/// Device and inode observed during scanning.
+///
+/// This is a binding token for later descriptor-relative reobservation, not
+/// standalone authority to mutate a path. Filesystem identities can be reused,
+/// so any future mutation must reopen and revalidate immediately beforehand.
+public struct FileIdentity: Hashable, Sendable {
+  public let device: UInt64
+  public let inode: UInt64
+
+  public init(device: UInt64, inode: UInt64) {
+    self.device = device
+    self.inode = inode
+  }
+}
+
 public enum FileSystemEntryKind: String, CaseIterable, Hashable, Sendable {
   case regularFile = "regular-file"
   case directory
@@ -144,6 +159,8 @@ public struct ScanEntryCounts: Hashable, Sendable {
 public struct ScanItemSummary: Hashable, Sendable {
   public let path: ScanRelativePath
   public let kind: FileSystemEntryKind
+  /// Identity of this summary's own inode when retained by the scanner.
+  public let scanTimeIdentity: FileIdentity?
   public let recursiveSize: StorageSize
   public let hardLinkExclusiveAllocatedBytes: UInt64
   public let counts: ScanEntryCounts
@@ -163,6 +180,7 @@ public struct ScanItemSummary: Hashable, Sendable {
   public init(
     path: ScanRelativePath,
     kind: FileSystemEntryKind,
+    scanTimeIdentity: FileIdentity? = nil,
     recursiveSize: StorageSize,
     hardLinkExclusiveAllocatedBytes: UInt64,
     counts: ScanEntryCounts,
@@ -177,6 +195,7 @@ public struct ScanItemSummary: Hashable, Sendable {
   ) {
     self.path = path
     self.kind = kind
+    self.scanTimeIdentity = scanTimeIdentity
     self.recursiveSize = recursiveSize
     self.hardLinkExclusiveAllocatedBytes = hardLinkExclusiveAllocatedBytes
     self.counts = counts

@@ -47,6 +47,7 @@ public enum BuiltInRuleCatalog {
         tool: "Swift Package Manager",
         recognition: "The candidate raw name must be exactly `.build`.",
         disposition: .reviewRequired,
+        version: 2,
         includesPackageManifestCheck: true
       ),
       recognition: .exactName(Array(".build".utf8))
@@ -71,6 +72,7 @@ public enum BuiltInRuleCatalog {
     tool: String,
     recognition: String,
     disposition: RuleDisposition,
+    version: UInt32 = 1,
     minimumAgeSeconds: UInt64 = 7 * 24 * 60 * 60,
     includesPackageManifestCheck: Bool = false
   ) -> RuleDefinition {
@@ -116,7 +118,7 @@ public enum BuiltInRuleCatalog {
     return RuleDefinition(
       revision: RuleRevision(
         identifier: makeRuleIdentifier(id),
-        version: makeRuleVersion(1)
+        version: makeRuleVersion(version)
       ),
       displayName: name,
       responsibleTool: tool,
