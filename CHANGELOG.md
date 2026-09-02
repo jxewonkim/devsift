@@ -14,3 +14,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Swift package foundations for DevSiftCore, the `devsift` CLI, and the DevSift
   SwiftUI app.
 - Continuous integration for formatting, debug and release builds, and tests.
+- A read-only, cancellable allocated-size scanner with descriptor-anchored
+  traversal, deterministic bounded reports, structured partial errors,
+  cross-volume pruning, and conservative hard-link accounting.

@@ -33,7 +33,7 @@ private struct FoundationView: View {
         .font(.headline)
 
       Text(
-        "No files are scanned or changed in this build. The first read-only scanner is the next development milestone."
+        "No files are changed in this build. The read-only scanner is implemented in DevSiftCore; app integration is the next milestone."
       )
       .foregroundStyle(.secondary)
       .fixedSize(horizontal: false, vertical: true)

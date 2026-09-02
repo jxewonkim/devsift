@@ -30,6 +30,9 @@ Gate: package description, formatting, build, and tests pass locally and in CI.
 
 ## Phase 2: read-only scanner
 
+Status: implemented in DevSiftCore; CLI and app integration remain separate
+phases.
+
 Commit: `feat(core): add a read-only allocated-size scanner`
 
 - Enumerate only an explicit root.

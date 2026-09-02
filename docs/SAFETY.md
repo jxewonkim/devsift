@@ -30,7 +30,13 @@ still inside its approved root.
 ## Hard invariants
 
 - A scan root is explicit; there is no implicit whole-disk cleanup.
-- Directory enumeration does not follow symbolic links.
+- Directory enumeration is anchored to an opened root descriptor. Descendants
+  are opened relative to verified parent descriptors and symbolic links are not
+  followed.
+- Mounted descendants on a different device are reported and not traversed.
+- Scan depth, entry count, top-level output, hard-link accounting, and recorded
+  issue count have explicit limits; a reached limit produces a partial result
+  rather than silent omission.
 - A candidate cannot escape its approved root through symlinks, aliases, path
   normalization, mounts, or race conditions.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
