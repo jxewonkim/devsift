@@ -215,7 +215,8 @@ struct AllocatedSizeScannerSafetyTests {
         size: metadata.size,
         allocatedSizeIsKnown: metadata.allocatedSizeIsKnown,
         hardLinkCount: metadata.hardLinkCount,
-        mayShareFileContent: metadata.mayShareFileContent
+        mayShareFileContent: metadata.mayShareFileContent,
+        modificationUnixSeconds: metadata.modificationUnixSeconds
       )
     })
 

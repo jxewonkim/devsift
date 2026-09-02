@@ -420,6 +420,7 @@ private struct ScanAggregator {
   init(rootMetadata: FileMetadata, limits: ScanLimits) {
     root = SummaryAccumulator(path: .root, kind: .directory)
     root.observePath(kind: .directory)
+    root.observeModificationTime(rootMetadata.modificationUnixSeconds)
     root.addApparentContribution(rootMetadata)
     root.addExclusiveAllocatedContribution(rootMetadata)
     maximumTopLevelItems = limits.maximumTopLevelItems
@@ -461,9 +462,11 @@ private struct ScanAggregator {
     }
 
     root.observePath(kind: metadata.kind)
+    root.observeModificationTime(metadata.modificationUnixSeconds)
     root.addApparentContribution(metadata)
     if !topLevelItemsWereSuppressed {
       topLevel[topLevelComponent]?.observePath(kind: metadata.kind)
+      topLevel[topLevelComponent]?.observeModificationTime(metadata.modificationUnixSeconds)
       topLevel[topLevelComponent]?.addApparentContribution(metadata)
 
       if path.rawComponents.count == 1 {
@@ -700,6 +703,8 @@ private struct SummaryAccumulator {
   private var sharedContentMetadataUnavailableCount: UInt64 = 0
   private var unobservedHardLinkFileCount: UInt64 = 0
   private var nonExclusiveHardLinkFileCount: UInt64 = 0
+  private var newestContentModificationUnixSeconds: Int64?
+  private var encounteredInvalidModificationTime = false
   private(set) var hasSizeOverflow = false
 
   init(path: ScanRelativePath, kind: FileSystemEntryKind) {
@@ -718,6 +723,17 @@ private struct SummaryAccumulator {
     case .other:
       saturatingIncrement(&other)
     }
+  }
+
+  mutating func observeModificationTime(_ unixSeconds: Int64) {
+    guard unixSeconds >= 0 else {
+      encounteredInvalidModificationTime = true
+      return
+    }
+    newestContentModificationUnixSeconds = max(
+      newestContentModificationUnixSeconds ?? unixSeconds,
+      unixSeconds
+    )
   }
 
   mutating func addApparentContribution(_ metadata: FileMetadata) {
@@ -783,6 +799,8 @@ private struct SummaryAccumulator {
       sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
       unobservedHardLinkFileCount: unobservedHardLinkFileCount,
       nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount,
+      newestContentModificationUnixSeconds: encounteredInvalidModificationTime
+        ? -1 : newestContentModificationUnixSeconds,
       sizeOverflowed: hasSizeOverflow,
       isComplete: isComplete
     )

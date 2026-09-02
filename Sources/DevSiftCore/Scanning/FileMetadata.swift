@@ -32,6 +32,7 @@ struct FileMetadata: Equatable, Sendable {
   let allocatedSizeIsKnown: Bool
   let hardLinkCount: UInt64
   let mayShareFileContent: Bool?
+  let modificationUnixSeconds: Int64
 
   init(
     kind: FileSystemEntryKind,
@@ -39,7 +40,8 @@ struct FileMetadata: Equatable, Sendable {
     size: StorageSize,
     allocatedSizeIsKnown: Bool,
     hardLinkCount: UInt64,
-    mayShareFileContent: Bool?
+    mayShareFileContent: Bool?,
+    modificationUnixSeconds: Int64
   ) {
     self.kind = kind
     self.identity = identity
@@ -47,6 +49,7 @@ struct FileMetadata: Equatable, Sendable {
     self.allocatedSizeIsKnown = allocatedSizeIsKnown
     self.hardLinkCount = hardLinkCount
     self.mayShareFileContent = mayShareFileContent
+    self.modificationUnixSeconds = modificationUnixSeconds
   }
 
   /// Reads the selected root without following its final component.
@@ -127,6 +130,9 @@ struct FileMetadata: Equatable, Sendable {
     )
     allocatedSizeIsKnown = allocatedBytes != nil
     hardLinkCount = UInt64(information.st_nlink)
+    modificationUnixSeconds = Self.conservativeModificationUnixSeconds(
+      information.st_mtimespec
+    )
 
     // Foundation's clone-sharing resource key is path based. Reading it after
     // descriptor-relative validation would reintroduce a path race, so the
@@ -154,6 +160,29 @@ struct FileMetadata: Equatable, Sendable {
 
     let (bytes, overflow) = UInt64(blockCount).multipliedReportingOverflow(by: 512)
     return overflow ? nil : bytes
+  }
+
+  /// Returns a whole-second upper bound so discarding subsecond precision can
+  /// never make an inode appear older than it was. Negative, malformed, or
+  /// unrepresentable timestamps use a negative sentinel that fails closed in
+  /// summary aggregation and rule adaptation.
+  private static func conservativeModificationUnixSeconds(
+    _ timestamp: timespec
+  ) -> Int64 {
+    guard
+      let seconds = Int64(exactly: timestamp.tv_sec),
+      seconds >= 0,
+      timestamp.tv_nsec >= 0,
+      timestamp.tv_nsec < 1_000_000_000
+    else {
+      return -1
+    }
+
+    guard timestamp.tv_nsec > 0 else {
+      return seconds
+    }
+    let (ceiling, overflow) = seconds.addingReportingOverflow(1)
+    return overflow ? -1 : ceiling
   }
 }
 

@@ -28,7 +28,8 @@ func ruleSummary(
   kind: FileSystemEntryKind = .directory,
   isComplete: Bool = true,
   unknownAllocatedItemCount: UInt64 = 0,
-  sizeOverflowed: Bool = false
+  sizeOverflowed: Bool = false,
+  newestContentModificationUnixSeconds: Int64? = nil
 ) -> ScanItemSummary {
   ScanItemSummary(
     path: ScanRelativePath(rawComponents: rawComponents),
@@ -47,6 +48,7 @@ func ruleSummary(
     sharedContentMetadataUnavailableCount: 0,
     unobservedHardLinkFileCount: 0,
     nonExclusiveHardLinkFileCount: 0,
+    newestContentModificationUnixSeconds: newestContentModificationUnixSeconds,
     sizeOverflowed: sizeOverflowed,
     isComplete: isComplete
   )

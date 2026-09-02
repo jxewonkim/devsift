@@ -19,6 +19,16 @@ struct CLIIntegrationTests {
     )
     try Data([0xA1]).write(to: fixture.root.appendingPathComponent("mystery.bin"))
     try Data([0xB2]).write(to: fixture.root.appendingPathComponent("line\ncache"))
+    try FileManager.default.setAttributes(
+      [.modificationDate: Date(timeIntervalSince1970: 100)],
+      ofItemAtPath: uv.path
+    )
+    let uvAttributesBeforeClassification = try FileManager.default.attributesOfItem(
+      atPath: uv.path
+    )
+    let uvModificationDateBeforeClassification = try #require(
+      uvAttributesBeforeClassification[.modificationDate] as? Date
+    )
     let beforeClassification = try fixture.snapshot()
 
     let result = try await runDevSift(
@@ -40,9 +50,23 @@ struct CLIIntegrationTests {
     #expect(document.summary.decisionCount == "5")
     #expect(document.decisions.count == 5)
     #expect(document.decisions.allSatisfy { $0.disposition == "protected" })
+    let uvDecision = try #require(
+      document.decisions.first(where: { $0.path.display == "uv" })
+    )
+    let uvAgeFinding = try #require(
+      uvDecision.findings.first(where: { $0.identifier == "age-requirement" })
+    )
+    #expect(uvAgeFinding.kind == "age")
+    #expect(uvAgeFinding.state.status == "satisfied")
+    #expect(uvAgeFinding.state.reason == nil)
+    #expect(uvDecision.matchState == "possible-match")
+    #expect(uvDecision.disposition == "protected")
     #expect(
-      document.decisions.first(where: { $0.path.display == "uv" })?.matchState
-        == "possible-match"
+      uvDecision.findings.contains {
+        $0.identifier == "activity-requirement"
+          && $0.state.status == "unknown"
+          && $0.state.reason == "not-collected"
+      }
     )
     #expect(
       document.decisions.first(where: { $0.path.display == ".build" })?.ruleRevision?.identifier
@@ -63,6 +87,13 @@ struct CLIIntegrationTests {
     #expect(newlineDecision.observation?.apparentAllocatedBytes.isEmpty == false)
 
     #expect(try fixture.snapshot() == beforeClassification)
+    let uvAttributesAfterClassification = try FileManager.default.attributesOfItem(
+      atPath: uv.path
+    )
+    #expect(
+      uvAttributesAfterClassification[.modificationDate] as? Date
+        == uvModificationDateBeforeClassification
+    )
   }
 
   @Test("Classification text escapes terminal-control path content")

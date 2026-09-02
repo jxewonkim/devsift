@@ -47,6 +47,12 @@ missing and failed evidence, common scan-integrity guards, boundary ages,
 activity, conflicts, and deterministic ordering. Do not weaken `Protected`
 fallback behavior to make a fixture pass.
 
+Modification-time evidence tests must cover the newest descendant, an empty
+directory's own inode, symbolic-link inode inclusion without target traversal,
+conservative subsecond rounding, invalid metadata, incomplete summaries,
+future clock skew, and an age-satisfied result that still remains `Protected`
+when another required fact is unavailable.
+
 ## Privacy and secrets
 
 Do not commit scan reports, cleanup manifests from real machines, absolute home

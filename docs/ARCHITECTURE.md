@@ -22,7 +22,9 @@ Core layers are:
 - **Scanning:** read-only enumeration and allocated-size measurement. The
   current scanner streams metadata into root and top-level summaries rather
   than retaining every path. It anchors traversal to directory descriptors and
-  resolves every child relative to its already-open parent;
+  resolves every child relative to its already-open parent. It also carries one
+  bounded, conservative newest-observed inode modification-time aggregate per
+  summary;
 - **Rules:** versioned, deterministic candidate recognition, evidence findings,
   and conservative policy classification. Rules receive observations rather
   than filesystem URLs; the central classifier alone computes dispositions;
@@ -99,7 +101,11 @@ future optimization must not combine them in a way that allows discovery code
 to mutate the filesystem or bypass plan review.
 
 The current scan-to-rule adapter projects only facts already present in the
-bounded `ScanReport`; it performs no additional filesystem I/O. A future fact
-observer must preserve descriptor-relative traversal and identity checks rather
-than reconstructing descendant `URL` values from untrusted names. See the
+bounded `ScanReport`; it performs no additional filesystem I/O. Rules consume
+the modification-time aggregate only for complete item summaries. Before a
+future fact observer can safely reopen paths for trusted-location, ownership,
+marker, activity, or protected-descendant evidence, the scan report must carry
+identity needed to bind the reopened objects to the scan. That observer must
+preserve descriptor-relative traversal and identity checks rather than
+reconstructing descendant `URL` values from untrusted names. See the
 [rules contract](RULES.md).

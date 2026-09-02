@@ -33,6 +33,111 @@ struct ScanReportRuleAdapterTests {
     )
   }
 
+  @Test("Adapter projects age only from complete, valid scan observations")
+  func newestModificationEvidenceBoundary() {
+    let known = ruleSummary(
+      rawComponents: [Array("known".utf8)],
+      newestContentModificationUnixSeconds: 123
+    )
+    let missing = ruleSummary(rawComponents: [Array("missing".utf8)])
+    let invalid = ruleSummary(
+      rawComponents: [Array("invalid".utf8)],
+      newestContentModificationUnixSeconds: -1
+    )
+    let incomplete = ruleSummary(
+      rawComponents: [Array("incomplete".utf8)],
+      isComplete: false,
+      newestContentModificationUnixSeconds: 456
+    )
+    let report = ScanReport(
+      root: ruleSummary(rawComponents: [], isComplete: false),
+      topLevelItems: [known, missing, invalid, incomplete],
+      topLevelItemCount: 4,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [
+        ScanIssue(
+          path: incomplete.path,
+          operation: .readMetadata,
+          reason: .permissionDenied,
+          impact: .descendantsSkipped
+        )
+      ],
+      suppressedIssueCount: 0
+    )
+    let observations = ScanReportRuleAdapter.observations(
+      for: RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic/root", isDirectory: true),
+        report: report,
+        referenceUnixSeconds: 1_000
+      )
+    )
+    let facts = Dictionary(uniqueKeysWithValues: observations.map { ($0.summary.path, $0.facts) })
+
+    #expect(facts[known.path]?.newestContentModificationUnixSeconds == .known(123))
+    #expect(
+      facts[missing.path]?.newestContentModificationUnixSeconds == .unknown(.notCollected)
+    )
+    #expect(
+      facts[invalid.path]?.newestContentModificationUnixSeconds == .unknown(.invalidMetadata)
+    )
+    #expect(
+      facts[incomplete.path]?.newestContentModificationUnixSeconds == .unknown(.incompleteScan)
+    )
+  }
+
+  @Test("Descriptor-scanned age rounds conservatively and stays protected")
+  func descriptorScannedAgeRemainsProtected() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let build = try fixture.makeDirectory(".build")
+    let payload = try fixture.write(".build/payload.bin", bytes: [1])
+    _ = try fixture.write("Package.swift", bytes: [])
+    try fixture.setModificationTime(50, for: build)
+    try fixture.setModificationTime(100, for: payload, nanoseconds: 1)
+
+    let scan = try await AllocatedSizeScanner().scan(root: fixture.root)
+    let boundaryTooEarly = try await ExplainableRuleClassifier().classify(
+      RuleClassificationRequest(
+        root: fixture.root,
+        report: scan,
+        referenceUnixSeconds: 100 + 7 * 24 * 60 * 60
+      )
+    )
+    let boundaryDecision = try #require(
+      boundaryTooEarly.evaluations.first {
+        $0.path.rawComponents == [Array(".build".utf8)]
+      }
+    )
+    let boundaryAge = try #require(
+      boundaryDecision.findings.first {
+        $0.identifier == testCheckIdentifier("age-requirement")
+      }
+    )
+    #expect(boundaryAge.state == .failed)
+    #expect(boundaryDecision.disposition == .protected)
+
+    let classification = try await ExplainableRuleClassifier().classify(
+      RuleClassificationRequest(
+        root: fixture.root,
+        report: scan,
+        referenceUnixSeconds: 101 + 7 * 24 * 60 * 60
+      )
+    )
+    let decision = try #require(
+      classification.evaluations.first { $0.path.rawComponents == [Array(".build".utf8)] }
+    )
+    let age = try #require(
+      decision.findings.first { $0.identifier == testCheckIdentifier("age-requirement") }
+    )
+
+    #expect(age.state == .satisfied)
+    #expect(decision.matchState == .possibleMatch)
+    #expect(decision.disposition == .protected)
+  }
+
   @Test("SwiftPM manifest evidence uses an exact raw top-level sibling")
   func swiftPackageManifestRawSibling() async throws {
     let build = ruleSummary(rawComponents: [Array(".build".utf8)])

@@ -50,6 +50,9 @@ still inside its approved root.
 - Core logic does not construct or execute shell commands.
 - Failure to read metadata produces a visible error or skip, never permission
   escalation or an unsafe assumption.
+- A newest observed inode modification time is not proof of inactivity,
+  ownership, generated content, or the absence of protected descendants. An
+  incomplete item never turns its partial maximum into known age evidence.
 - A candidate remains `Protected` when a required activity check reports active
   use or is unavailable.
 - A changed candidate is skipped during revalidation.
@@ -82,8 +85,10 @@ grant a disposition. An unavailable required fact, invalid rule assessment,
 classification conflict, or incomplete scan produces `Protected`. A malformed
 returned report is rejected against the request's reference time and original
 `ScanReport` before either frontend renders it. The current adapter performs no
-extra filesystem probing, so its uncollected lifecycle facts intentionally keep
-real possible matches protected. See the complete [rules contract](RULES.md).
+extra filesystem probing. It may project the conservative newest inode time
+already retained by a complete scan summary, but a satisfied age check alone is
+insufficient: every remaining unknown required fact keeps the real candidate
+protected. See the complete [rules contract](RULES.md).
 
 ## Test boundary
 

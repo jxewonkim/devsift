@@ -77,6 +77,40 @@ struct ScannerFixture: Sendable {
       partialURL.appendingPathComponent(String(component))
     }
   }
+
+  func setModificationTime(
+    _ unixSeconds: Int64,
+    for url: URL,
+    nanoseconds: Int = 0,
+    followSymbolicLinks: Bool = true
+  ) throws {
+    guard
+      let nativeSeconds = Int(exactly: unixSeconds),
+      (0..<1_000_000_000).contains(nanoseconds)
+    else {
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(EOVERFLOW))
+    }
+    var timestamps = [
+      timespec(tv_sec: nativeSeconds, tv_nsec: nanoseconds),
+      timespec(tv_sec: nativeSeconds, tv_nsec: nanoseconds),
+    ]
+    var failureCode: Int32 = EINVAL
+    let flags = followSymbolicLinks ? 0 : AT_SYMLINK_NOFOLLOW
+    let status = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+      guard let path else {
+        return -1
+      }
+      let result = Darwin.utimensat(AT_FDCWD, path, &timestamps, flags)
+      if result != 0 {
+        failureCode = errno
+      }
+      return result
+    }
+
+    guard status == 0 else {
+      throw NSError(domain: NSPOSIXErrorDomain, code: Int(failureCode))
+    }
+  }
 }
 
 struct NodeSnapshot: Equatable {
