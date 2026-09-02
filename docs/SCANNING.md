@@ -5,7 +5,9 @@ directories. It reads filesystem metadata, never file contents, and exposes no
 mutation operation.
 
 ```swift
-let report = try await AllocatedSizeScanner().scan(root: selectedFolder)
+let report = try await AllocatedSizeScanner().scan(
+  ScanRequest(root: selectedFolder)
+)
 ```
 
 ## Result shape
@@ -64,15 +66,18 @@ therefore currently reported as unavailable, not as `false`. APFS clones,
 snapshots, compression, and concurrent changes can all make a later change in
 free volume space differ from either measurement.
 
-DevSift never labels a scan total as guaranteed reclaimable space. Future
-cleanup rules and execution-time revalidation are separate layers.
+DevSift never labels a scan total as guaranteed reclaimable space. The rule
+classifier consumes the bounded report as a separate read-only layer, and
+future planning and execution-time revalidation remain separate again. See the
+[rules contract](RULES.md).
 
 The command-line projection, including human labels, JSON schema, stream
 behavior, and exit codes, is documented in the [CLI contract](CLI.md).
 
 ## App presentation contract
 
-The native dashboard maps Core values without deriving cleanup eligibility:
+The native dashboard maps Core scan values without deriving cleanup eligibility
+itself:
 
 | App label | Core value |
 | --- | --- |
@@ -104,8 +109,10 @@ The app applies these partial-result rules:
 - retained `issues.count` and `suppressedIssueCount` are displayed separately.
 
 “Complete observation” means the configured traversal and accounting bounds
-were satisfied. It does not mean that an item is safe to remove. The complete
-app behavior and accessibility contract is documented in [APP.md](APP.md).
+were satisfied. It does not mean that an item is safe to remove. Observation
+status and the rule classifier's policy status remain visibly separate. The
+complete app behavior and accessibility contract is documented in
+[APP.md](APP.md).
 
 ## Containment and traversal
 

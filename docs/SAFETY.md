@@ -5,7 +5,7 @@ than a convenience command.
 
 ## Trust classes
 
-Every classified item will belong to one of three broad classes:
+Every recognized item belongs to one of three policy classes:
 
 - **Reclaimable:** generated and reproducible data with strong ownership and
   lifecycle evidence.
@@ -14,7 +14,7 @@ Every classified item will belong to one of three broad classes:
 - **Protected:** user content, active data, unknown data, broad system paths, or
   anything that fails a safety check.
 
-Unknown is protected, not reclaimable.
+Unknown is protected, not reclaimable or review-required.
 
 ## Required workflow
 
@@ -42,15 +42,16 @@ still inside its approved root.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
 - Scan code cannot mutate files.
-- The app and scan CLI expose no cleanup, delete, move, quarantine, or
-  permission-escalation action; complete and partial reports remain read-only.
+- The app and CLI expose no cleanup, delete, move, quarantine, or
+  permission-escalation action; scan and classification reports remain
+  read-only.
 - The app never presents a partial, bounded, or overflowed observation as
   complete or as evidence that an item can be cleaned.
 - Core logic does not construct or execute shell commands.
 - Failure to read metadata produces a visible error or skip, never permission
   escalation or an unsafe assumption.
-- Active application data is skipped when a reliable activity check is
-  required but unavailable.
+- A candidate remains `Protected` when a required activity check reports active
+  use or is unavailable.
 - A changed candidate is skipped during revalidation.
 - Partial failures are reported item by item.
 - Permanent deletion is not part of the initial milestones.
@@ -67,13 +68,22 @@ A cleanup rule must declare:
 - the tool or workflow responsible for the data;
 - positive evidence used to identify a candidate;
 - exclusions and protected descendants;
-- whether the data is reproducible;
+- an eligible disposition and reproducibility class;
 - required activity and age checks;
-- risk class and user-facing explanation;
+- user-facing explanations;
 - synthetic tests for matches, near misses, and hostile paths.
 
 Path shape alone is insufficient for a high-confidence rule when the path can
 contain user-owned content.
+
+The current classifier enforces common integrity checks centrally. Rules only
+recognize raw path shapes and project declared evidence; they cannot directly
+grant a disposition. An unavailable required fact, invalid rule assessment,
+classification conflict, or incomplete scan produces `Protected`. A malformed
+returned report is rejected against the request's reference time and original
+`ScanReport` before either frontend renders it. The current adapter performs no
+extra filesystem probing, so its uncollected lifecycle facts intentionally keep
+real possible matches protected. See the complete [rules contract](RULES.md).
 
 ## Test boundary
 

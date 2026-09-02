@@ -79,20 +79,40 @@ cancelled, failed, rescan, stale-result, and Core-integration behavior. Native
 1200 x 760 light and dark render snapshots are available as an opt-in local QA
 harness.
 
-Implementation milestone reached: scan-only app and CLI. The
-`v0.1.0-alpha.1` tag and release remain a separate release action.
+Implementation milestone reached at that phase: scan-only app and CLI. The
+first tag was deferred; the current `v0.1.0-alpha.1` target also includes the
+Phase 5 classification surface.
 
 ## Phase 5: explainable rules
 
-Commit sequence begins with `feat(rules): classify cleanup candidates with explainable policies`.
+Status: implemented as a conservative classification foundation. Built-in
+rules can recognize exact raw path shapes and explain every missing or
+failed check. The current scan adapter does not collect the trusted-location,
+ownership, marker, age, activity, or protected-descendant evidence required to
+promote a real candidate, so unknown facts remain protected.
+Descriptor-relative evidence observation remains a later Phase 5 increment.
 
-- Introduce versioned rule definitions and risk classes.
+Implemented commit sequence:
+
+- `feat(rules): add explainable candidate classification`;
+- `fix(rules): harden classification boundaries`;
+- `feat(rules): validate classification report integrity`;
+- `feat(cli): expose explainable classification reports`;
+- `fix(rules): tighten report validation semantics`;
+- `fix(cli): isolate classification failures`;
+- `feat(app): present explainable policy decisions`.
+
+- Introduce versioned rule definitions, eligible dispositions, and
+  reproducibility classes.
 - Start with high-confidence development caches.
 - Show positive evidence, exclusions, age, activity requirements, and why a
   candidate is or is not reclaimable.
 
 Gate: each rule has matches, near misses, hostile-path tests, and a visible
 explanation. Unknown data remains protected.
+
+Implementation milestone reached: scanning and explainable policy
+classification are available in Core, CLI, and app without any mutation API.
 
 ## Phase 6: dry-run plans
 

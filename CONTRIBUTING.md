@@ -4,7 +4,8 @@ Thank you for helping build a safer storage tool for macOS developers.
 
 ## Before you start
 
-- Read the [product scope](docs/PRODUCT.md) and [safety model](docs/SAFETY.md).
+- Read the [product scope](docs/PRODUCT.md),
+  [safety model](docs/SAFETY.md), and [rules contract](docs/RULES.md).
 - Open an issue before starting a large feature or a change to cleanup safety.
 - Never attach a real scan report without redacting usernames, paths, project
   names, file names, and other private metadata.
@@ -40,6 +41,11 @@ CLI integration tests execute the built `devsift` binary directly, never
 through a shell, and may scan only their own synthetic temporary fixture. Text
 goldens and the versioned JSON DTO must be updated deliberately when a visible
 output contract changes.
+
+Rule tests must cover exact raw-byte matches, near misses, hostile names,
+missing and failed evidence, common scan-integrity guards, boundary ages,
+activity, conflicts, and deterministic ordering. Do not weaken `Protected`
+fallback behavior to make a fixture pass.
 
 ## Privacy and secrets
 

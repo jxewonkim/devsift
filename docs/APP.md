@@ -1,9 +1,10 @@
 # Native app contract
 
 The DevSift macOS app is a read-only SwiftUI projection of DevSiftCore. It lets
-the user choose exactly one folder, observes filesystem metadata, and presents
-complete or partial scan results. It has no classification, recommendation,
-cleanup, move, quarantine, or deletion action.
+the user choose exactly one folder, observes filesystem metadata, applies the
+same versioned rule classifier as the CLI, and presents observation and policy
+results separately. It has no planning, cleanup, move, quarantine, approval,
+or deletion action.
 
 Run the development executable on macOS 14 or newer:
 
@@ -23,11 +24,11 @@ does not standardize it, resolve symlinks, rebuild it from a path string, or
 discard dot components.
 
 The app requests security-scoped access for the returned URL. A successful
-request is balanced only after the scan and result preparation finish, on every
-success, error, and cancellation path. Development URLs that are already
-readable can return `false` because no scope was granted; the scanner still
-attempts its descriptor-based validation and reports a typed read failure if
-access is unavailable.
+request is balanced only after scanning, classification, and result preparation
+finish, on every success, error, and cancellation path. Development URLs that
+are already readable can return `false` because no scope was granted; the
+scanner still attempts its descriptor-based validation and reports a typed read
+failure if access is unavailable.
 
 Selections, recent folders, and reports are not persisted. Closing a window
 cancels its active task and discards that window's in-memory state.
@@ -37,19 +38,20 @@ cancels its active task and discards that window's in-memory state.
 Each window owns an independent `ScanViewModel` and one visible phase:
 
 ```text
-empty --select--> scanning --success--> result
-                       |          |
-                       |          +-----> failed
-                       +--cancel--------> cancelled
+empty --select--> scanning --scan result--> classifying --success--> result
+                       |                         |             |
+                       |                         |             +--> failed
+                       +-----------cancel--------+-----------> cancelled
 
 result/cancelled/failed --rescan--> scanning
 any stable state --------select--> scanning a new root
 ```
 
-Core does not expose a known total or progress callback, so the scanning state
-uses an indeterminate progress indicator. It never invents a percentage.
-Cancellation becomes visible immediately and asks the underlying task to stop;
-a blocking filesystem call can return before Core reaches its next checkpoint.
+Core does not expose a known total or progress callback, so scanning and policy
+analysis use honest indeterminate progress states. They never invent a
+percentage. Cancellation becomes visible immediately and asks the active task
+to stop; a blocking filesystem call can return before Core reaches its next
+checkpoint.
 
 Every scan receives a unique operation ID. Starting a new scan invalidates and
 cancels the previous task. A scanner that ignores cancellation and returns late
@@ -58,9 +60,10 @@ the newer phase.
 
 ## Result presentation
 
-The dashboard shows one open summary band and a native table of top-level
-observations. It uses the field mapping and partial rules in
-[SCANNING.md](SCANNING.md#app-presentation-contract).
+The dashboard shows one observation summary band and a native table of
+top-level items. It uses the field mapping and partial rules in
+[SCANNING.md](SCANNING.md#app-presentation-contract), then joins Core policy
+decisions by exact raw `ScanRelativePath` identity.
 
 The initial table order is apparent allocated bytes descending, with exact raw
 path bytes as the deterministic tie-breaker. The visible row columns are:
@@ -70,20 +73,38 @@ path bytes as the deterministic tie-breaker. The visible row columns are:
 - observed apparent allocation;
 - hard-link-adjusted allocation;
 - observed entry count;
-- complete or partial observation status.
+- complete or partial observation status;
+- an independent policy disposition.
+
+The policy badge always presents the effective disposition: Reclaimable,
+Review, or Protected. Valid unrecognized, possible-match, conflict, and
+invalid-rule decisions therefore display Protected. Before presentation, the
+app validates the classifier's report against the original `ScanReport` and
+reference time; missing, duplicate, extra, or internally inconsistent output
+enters a bounded policy-analysis failure state instead of being rendered. The
+row presenter also keeps malformed non-protected decisions Protected as a
+secondary defense.
+
+No row is selected automatically. Selecting one reveals a policy disclosure
+with the match state, rule revision or revisions when present, responsible
+tool, explanation, and every structured finding. The entire central result
+pane is top-anchored and scrollable at the 900 x 620 minimum window size; the
+dashboard header and safety footer remain fixed while the table and disclosure
+can move through the viewport.
 
 Paths are untrusted display data. Control and invisible formatting characters,
 backslashes, and invalid UTF-8 bytes are escaped before display. The raw
 `ScanRelativePath` remains the SwiftUI row identifier, so two byte-distinct
 names cannot collapse into one visible identity.
 
-## Accounting language
+## Observation and policy language
 
-The app never uses “reclaimable,” “can free,” “savings,” or “safe to clean” as a
-result label. It always explains that observed allocation is not guaranteed
-reclaimable. Hard links, APFS clones, snapshots, compression, unreadable paths,
-and concurrent changes can make actual free-space changes differ from the
-observation.
+The app uses “Reclaimable” only as a rule disposition, never as a measured or
+guaranteed savings claim. It always explains that observed allocation is not
+guaranteed reclaimable. Hard links, APFS clones, snapshots, compression,
+unreadable paths, and concurrent changes can make actual free-space changes
+differ from the observation. In the current real-scan adapter, missing
+lifecycle evidence keeps recognized candidates Protected.
 
 “Complete observation” describes traversal within the configured limits. A
 partial observation can result from skipped entries, output bounds, incomplete
@@ -95,7 +116,7 @@ issues have separate counts and issue rows include operation and impact.
 
 - `Command-O`: select a folder when a scan is not active;
 - `Command-R`: rescan the current folder when available;
-- `Escape`: cancel an active scan;
+- `Escape`: cancel an active scan or policy analysis;
 - arrow keys: move the native table selection.
 
 Buttons use text labels and accessibility hints. Decorative symbols are hidden
@@ -106,9 +127,9 @@ states include text and icons, so color is never the only signal.
 
 The interface uses semantic macOS colors and system typography. It supports
 light and dark appearance without separate assets, has a 900 x 620 minimum
-window size, and uses 1200 x 760 as its design QA viewport. Green is reserved
-for an explicitly complete observation; partial states use text plus the system
-warning color.
+window size, and uses 1200 x 760 as its design QA viewport. Observation status
+uses green only for an explicitly complete observation; partial states use text
+plus the system warning color.
 
 ## Verification
 
@@ -119,11 +140,13 @@ sorting and escaping, overflow behavior, and a real Core scan over a synthetic
 temporary fixture.
 
 The optional native snapshot harness renders representative empty, scanning,
-light result, dark result, 900 x 620 result, and 900 x 620 partial-result states
-without scanning a real directory:
+classifying, light and dark results, 900 x 620 complete and partial results,
+and expanded policy evidence at default and minimum sizes without scanning a
+real directory:
 
 ```shell
-env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots swift test
+env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots \
+  swift test --filter VisualSnapshotTests
 ```
 
 The Swift Package does not yet define an Xcode UI-testing bundle. Keyboard and

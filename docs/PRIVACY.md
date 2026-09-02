@@ -15,6 +15,8 @@ DevSift is designed to work locally and reveal as little as possible.
 - The app does not save or upload reports. It displays root-relative item paths
   and keeps the selected absolute root only in the current in-memory window
   state.
+- Classification runs locally over in-memory scan observations. It does not
+  reopen files, read contents, invoke package managers, or make network calls.
 
 ## Sensitive output
 
@@ -32,6 +34,11 @@ selected absolute root in text or JSON. JSON retains exact relative filename
 bytes as Base64, so reports can still reveal sensitive names and must be
 reviewed before sharing. Redirecting standard output is the explicit export
 action; DevSift never writes a report file on its own.
+
+Classification output is also root-relative, but adds tool attribution, rule
+identifiers, evidence findings, policy results, and one captured reference
+timestamp. These details may reveal installed tools and work patterns and must
+be reviewed before sharing.
 
 The app displays the selected root path so the user can verify scope, then shows
 top-level rows as root-relative names. Closing the window discards its in-memory
