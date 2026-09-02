@@ -5,6 +5,85 @@ import Testing
 
 @Suite("devsift executable integration")
 struct CLIIntegrationTests {
+  @Test("The executable classifies a synthetic fixture without mutation or root disclosure")
+  func syntheticJSONClassification() async throws {
+    let fixture = try TemporaryCLIFixture()
+    defer { fixture.remove() }
+
+    let uv = fixture.root.appendingPathComponent("uv", isDirectory: true)
+    let build = fixture.root.appendingPathComponent(".build", isDirectory: true)
+    try FileManager.default.createDirectory(at: uv, withIntermediateDirectories: false)
+    try FileManager.default.createDirectory(at: build, withIntermediateDirectories: false)
+    try Data("// package".utf8).write(
+      to: fixture.root.appendingPathComponent("Package.swift")
+    )
+    try Data([0xA1]).write(to: fixture.root.appendingPathComponent("mystery.bin"))
+    try Data([0xB2]).write(to: fixture.root.appendingPathComponent("line\ncache"))
+    let beforeClassification = try fixture.snapshot()
+
+    let result = try await runDevSift(
+      ["classify", "--json", fixture.root.path],
+      currentDirectory: fixture.parent
+    )
+
+    #expect(result.exitCode == 0)
+    #expect(result.terminationReason == .exit)
+    #expect(result.standardError.isEmpty)
+    #expect(result.standardOutput.contains(fixture.root.path) == false)
+
+    let data = try #require(result.standardOutput.data(using: .utf8))
+    let document = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
+    #expect(document.schema == "devsift.classification")
+    #expect(document.schemaVersion == 1)
+    #expect(document.pathStyle == "root-relative")
+    #expect(document.scanIsComplete)
+    #expect(document.summary.decisionCount == "5")
+    #expect(document.decisions.count == 5)
+    #expect(document.decisions.allSatisfy { $0.disposition == "protected" })
+    #expect(
+      document.decisions.first(where: { $0.path.display == "uv" })?.matchState
+        == "possible-match"
+    )
+    #expect(
+      document.decisions.first(where: { $0.path.display == ".build" })?.ruleRevision?.identifier
+        == "devsift.swiftpm.build"
+    )
+    #expect(
+      document.decisions.first(where: { $0.path.display == "mystery.bin" })?.matchState
+        == "unrecognized"
+    )
+    let newlineDecision = try #require(
+      document.decisions.first(where: { $0.path.display == "line\ncache" })
+    )
+    #expect(
+      newlineDecision.path.rawComponentsBase64
+        == [Data("line\ncache".utf8).base64EncodedString()]
+    )
+    #expect(newlineDecision.observation != nil)
+    #expect(newlineDecision.observation?.apparentAllocatedBytes.isEmpty == false)
+
+    #expect(try fixture.snapshot() == beforeClassification)
+  }
+
+  @Test("Classification text escapes terminal-control path content")
+  func terminalSafeClassificationText() async throws {
+    let fixture = try TemporaryCLIFixture()
+    defer { fixture.remove() }
+
+    try Data([0x01]).write(to: fixture.root.appendingPathComponent("line\ncache"))
+    let result = try await runDevSift(
+      ["classify", fixture.root.path],
+      currentDirectory: fixture.parent
+    )
+
+    #expect(result.exitCode == 0)
+    #expect(result.terminationReason == .exit)
+    #expect(result.standardError.isEmpty)
+    #expect(result.standardOutput.contains("Path: \"line\\ncache\""))
+    #expect(result.standardOutput.contains("line\ncache") == false)
+    #expect(result.standardOutput.contains(fixture.root.path) == false)
+  }
+
   @Test("The executable scans a synthetic fixture deterministically without mutation")
   func syntheticJSONScan() async throws {
     let fixture = try TemporaryCLIFixture()
@@ -77,6 +156,25 @@ struct CLIIntegrationTests {
 
     let result = try await runDevSift(
       ["scan", "--", "-cache"],
+      currentDirectory: fixture.parent
+    )
+
+    #expect(result.exitCode == 0)
+    #expect(result.terminationReason == .exit)
+    #expect(result.standardOutput.contains("Scan completeness: complete"))
+    #expect(result.standardError.isEmpty)
+  }
+
+  @Test("Classify double dash allows a dash-prefixed relative root")
+  func classifyDashPrefixedRoot() async throws {
+    let fixture = try TemporaryCLIFixture()
+    defer { fixture.remove() }
+
+    let dashRoot = fixture.parent.appendingPathComponent("-cache", isDirectory: true)
+    try FileManager.default.createDirectory(at: dashRoot, withIntermediateDirectories: false)
+
+    let result = try await runDevSift(
+      ["classify", "--", "-cache"],
       currentDirectory: fixture.parent
     )
 
@@ -160,7 +258,9 @@ struct CLIIntegrationTests {
     defer { fixture.remove() }
 
     let beforeCommand = try fixture.snapshot()
-    for command in ["clean", "delete", "remove", "purge", "quarantine"] {
+    for command in [
+      "clean", "cleanup", "delete", "erase", "prune", "remove", "purge", "quarantine",
+    ] {
       let result = try await runDevSift(
         [command, fixture.root.path],
         currentDirectory: fixture.parent
