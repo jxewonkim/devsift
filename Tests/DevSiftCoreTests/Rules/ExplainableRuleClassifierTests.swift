@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import DevSiftCore
@@ -226,6 +227,108 @@ struct ExplainableRuleClassifierTests {
     }
   }
 
+  @Test("Every built-in rejects an exact raw-name near miss")
+  func builtInNearMisses() async throws {
+    let classifier = ExplainableRuleClassifier()
+    let cases: [(exact: String, near: String, root: String)] = [
+      ("uv", "UV", "Caches"),
+      ("_cacache", "_cacache ", "Caches"),
+      ("Homebrew", "homebrew", "Caches"),
+      ("DerivedData", "Deriveddata", "Xcode"),
+      (".build", ".Build", "Project"),
+      ("17.4", "17", "iOS DeviceSupport"),
+    ]
+
+    for testCase in cases {
+      let exact = try await classifier.classify(
+        observations: [
+          ruleObservation(
+            name: Array(testCase.exact.utf8),
+            selectedRootBasename: Array(testCase.root.utf8)
+          )
+        ],
+        referenceUnixSeconds: 4_000_000
+      )
+      let near = try await classifier.classify(
+        observations: [
+          ruleObservation(
+            name: Array(testCase.near.utf8),
+            selectedRootBasename: Array(testCase.root.utf8)
+          )
+        ],
+        referenceUnixSeconds: 4_000_000
+      )
+
+      #expect(exact.evaluations.first?.matchState == .matched)
+      #expect(near.evaluations.first?.matchState == .unrecognized)
+      #expect(near.evaluations.first?.disposition == .protected)
+    }
+  }
+
+  @Test("Built-in seven-day and thirty-day thresholds are inclusive")
+  func builtInAgeBoundaries() async throws {
+    let classifier = ExplainableRuleClassifier()
+    let reference: Int64 = 4_000_000
+    let cases: [(name: String, root: String, seconds: Int64)] = [
+      ("uv", "Caches", 7 * 24 * 60 * 60),
+      ("17.4", "iOS DeviceSupport", 30 * 24 * 60 * 60),
+    ]
+
+    for testCase in cases {
+      let exact = try await classifier.classify(
+        observations: [
+          ruleObservation(
+            name: Array(testCase.name.utf8),
+            selectedRootBasename: Array(testCase.root.utf8),
+            facts: satisfiedRuleFacts(
+              modificationUnixSeconds: reference - testCase.seconds
+            )
+          )
+        ],
+        referenceUnixSeconds: reference
+      )
+      let tooRecent = try await classifier.classify(
+        observations: [
+          ruleObservation(
+            name: Array(testCase.name.utf8),
+            selectedRootBasename: Array(testCase.root.utf8),
+            facts: satisfiedRuleFacts(
+              modificationUnixSeconds: reference - testCase.seconds + 1
+            )
+          )
+        ],
+        referenceUnixSeconds: reference
+      )
+
+      #expect(exact.evaluations.first?.matchState == .matched)
+      #expect(tooRecent.evaluations.first?.matchState == .possibleMatch)
+      #expect(tooRecent.evaluations.first?.disposition == .protected)
+    }
+  }
+
+  @Test("Age subtraction overflow fails closed")
+  func ageSubtractionOverflow() async throws {
+    let definition = syntheticDefinition(id: "devsift.test.age-overflow")
+    let classifier = try ExplainableRuleClassifier(rules: [SyntheticRule(definition: definition)])
+    let report = try await classifier.classify(
+      observations: [
+        ruleObservation(
+          name: Array("candidate".utf8),
+          facts: satisfiedRuleFacts(modificationUnixSeconds: .min)
+        )
+      ],
+      referenceUnixSeconds: .max
+    )
+    let evaluation = try #require(report.evaluations.first)
+
+    #expect(evaluation.matchState == .possibleMatch)
+    #expect(evaluation.disposition == .protected)
+    #expect(
+      evaluation.findings.first { $0.kind == .age }?.state
+        == .unknown(.invalidMetadata)
+    )
+  }
+
   @Test("Multiple lexical matches conflict and remain protected")
   func conflictProtection() async throws {
     let first = SyntheticRule(definition: syntheticDefinition(id: "devsift.test.first"))
@@ -241,6 +344,60 @@ struct ExplainableRuleClassifierTests {
     #expect(report.evaluations.allSatisfy { $0.matchState == .conflict })
     #expect(report.evaluations.allSatisfy { $0.disposition == .protected })
     #expect(report.evaluations.first?.matchingRules.count == 2)
+  }
+
+  @Test("Malformed recognized findings take precedence over a rule conflict")
+  func invalidRulePrecedesConflict() async throws {
+    let invalid = SyntheticRule(
+      definition: syntheticDefinition(id: "devsift.test.invalid"),
+      findings: []
+    )
+    let valid = SyntheticRule(definition: syntheticDefinition(id: "devsift.test.valid"))
+    let classifier = try ExplainableRuleClassifier(rules: [valid, invalid])
+
+    let report = try await classifier.classify(
+      observations: [ruleObservation(name: Array("candidate".utf8))],
+      referenceUnixSeconds: 100
+    )
+
+    #expect(report.evaluations.count == 1)
+    #expect(report.evaluations.first?.matchState == .invalidRule)
+    #expect(report.evaluations.first?.disposition == .protected)
+    #expect(report.evaluations.first?.rule == nil)
+    #expect(report.evaluations.first?.matchingRules.count == 2)
+  }
+
+  @Test("Duplicate exact raw-path observations emit one order-independent conflict")
+  func duplicateObservations() async throws {
+    let classifier = ExplainableRuleClassifier()
+    let first = ruleObservation(
+      name: Array("uv".utf8),
+      facts: satisfiedRuleFacts(modificationUnixSeconds: 0)
+    )
+    let second = ruleObservation(
+      name: Array("uv".utf8),
+      facts: RuleObservationFacts()
+    )
+
+    let forward = try await classifier.classify(
+      observations: [first, second],
+      referenceUnixSeconds: 1_000_000
+    )
+    let reversed = try await classifier.classify(
+      observations: [second, first],
+      referenceUnixSeconds: 1_000_000
+    )
+
+    #expect(forward == reversed)
+    #expect(forward.evaluations.count == 1)
+    #expect(forward.evaluations.first?.matchState == .conflict)
+    #expect(forward.evaluations.first?.disposition == .protected)
+    #expect(forward.evaluations.first?.rule == nil)
+    #expect(forward.evaluations.first?.matchingRules.isEmpty == true)
+    #expect(
+      forward.evaluations.first?.findings.first?.identifier
+        == testCheckIdentifier("duplicate-observation")
+    )
   }
 
   @Test("Rule and observation registration order cannot change output")
@@ -287,6 +444,64 @@ struct ExplainableRuleClassifierTests {
       // Expected.
     } catch {
       Issue.record("Expected CancellationError, received \(error)")
+    }
+  }
+
+  @Test("Observation count accepts its boundary and rejects one more before classification")
+  func observationCountBound() async throws {
+    let classifier = ExplainableRuleClassifier()
+    let observation = ruleObservation(name: Array("uv".utf8))
+    let boundary = Array(
+      repeating: observation,
+      count: RuleCatalogLimits.maximumObservations
+    )
+
+    let boundaryReport = try await classifier.classify(
+      observations: boundary,
+      referenceUnixSeconds: 1_000_000
+    )
+    #expect(boundaryReport.evaluations.count == 1)
+    #expect(boundaryReport.evaluations.first?.matchState == .conflict)
+
+    do {
+      _ = try await classifier.classify(
+        observations: boundary + [observation],
+        referenceUnixSeconds: 1_000_000
+      )
+      Issue.record("Expected the observation-count bound to reject the request")
+    } catch let error as RuleClassificationError {
+      #expect(
+        error
+          == .tooManyObservations(
+            maximum: RuleCatalogLimits.maximumObservations,
+            actual: RuleCatalogLimits.maximumObservations + 1
+          )
+      )
+    }
+
+    let overLimitReport = completeScanReport(
+      topLevelItems: Array(
+        repeating: observation.summary,
+        count: RuleCatalogLimits.maximumObservations + 1
+      )
+    )
+    do {
+      _ = try await classifier.classify(
+        RuleClassificationRequest(
+          root: URL(fileURLWithPath: "/synthetic/Caches", isDirectory: true),
+          report: overLimitReport,
+          referenceUnixSeconds: 1_000_000
+        )
+      )
+      Issue.record("Expected the public adapter boundary to reject the request")
+    } catch let error as RuleClassificationError {
+      #expect(
+        error
+          == .tooManyObservations(
+            maximum: RuleCatalogLimits.maximumObservations,
+            actual: RuleCatalogLimits.maximumObservations + 1
+          )
+      )
     }
   }
 

@@ -21,6 +21,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
   public func classify(
     _ request: RuleClassificationRequest
   ) async throws -> RuleClassificationReport {
+    try Self.validateObservationCount(request.report.topLevelItems.count)
     let observations = ScanReportRuleAdapter.observations(for: request)
     return try await classify(
       observations: observations,
@@ -32,16 +33,32 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     observations: [RuleObservation],
     referenceUnixSeconds: Int64
   ) async throws -> RuleClassificationReport {
+    try Self.validateObservationCount(observations.count)
     var result: [RuleEvaluation] = []
+    let orderedObservations = observations.sorted(by: observationOrder)
+    var index = orderedObservations.startIndex
 
-    for observation in observations.sorted(by: observationOrder) {
+    while index < orderedObservations.endIndex {
       try Task.checkCancellation()
-      result.append(
-        contentsOf: evaluations(
-          for: observation,
-          referenceUnixSeconds: referenceUnixSeconds
+      let path = orderedObservations[index].summary.path
+      var endIndex = orderedObservations.index(after: index)
+      while endIndex < orderedObservations.endIndex,
+        orderedObservations[endIndex].summary.path == path
+      {
+        endIndex = orderedObservations.index(after: endIndex)
+      }
+
+      if orderedObservations.distance(from: index, to: endIndex) > 1 {
+        result.append(duplicateObservationEvaluation(for: path))
+      } else {
+        result.append(
+          contentsOf: evaluations(
+            for: orderedObservations[index],
+            referenceUnixSeconds: referenceUnixSeconds
+          )
         )
-      )
+      }
+      index = endIndex
     }
 
     return RuleClassificationReport(
@@ -78,6 +95,9 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
 
     guard !recognized.isEmpty else {
       return [unrecognizedEvaluation(for: observation)]
+    }
+    if recognized.contains(where: { $0.orderedRuleFindings == nil }) {
+      return [invalidRuleAggregate(for: observation, assessments: recognized)]
     }
     guard recognized.count == 1, let assessed = recognized.first else {
       return [conflictEvaluation(for: observation, assessments: recognized)]
@@ -226,6 +246,55 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     )
   }
 
+  private func invalidRuleAggregate(
+    for observation: RuleObservation,
+    assessments: [AssessedRule]
+  ) -> RuleEvaluation {
+    let revisions = assessments.map { $0.rule.definition.revision }.sorted()
+    return RuleEvaluation(
+      path: observation.summary.path,
+      rule: nil,
+      matchingRules: revisions,
+      displayName: "Invalid rule result",
+      responsibleTool: "Rule catalog",
+      matchState: .invalidRule,
+      disposition: .protected,
+      reproducibility: .unknown,
+      findings: [
+        RuleFinding(
+          identifier: AutomaticCheckIdentifier.ruleValidity,
+          kind: .ruleValidity,
+          state: .failed,
+          explanation:
+            "At least one recognized rule returned missing, duplicate, unexpected, mismatched, oversized, or empty findings."
+        )
+      ],
+      explanation: "A recognized rule result was invalid, so this item remains protected."
+    )
+  }
+
+  private func duplicateObservationEvaluation(for path: ScanRelativePath) -> RuleEvaluation {
+    RuleEvaluation(
+      path: path,
+      rule: nil,
+      matchingRules: [],
+      displayName: "Duplicate observation",
+      responsibleTool: "Rule classifier",
+      matchState: .conflict,
+      disposition: .protected,
+      reproducibility: .unknown,
+      findings: [
+        RuleFinding(
+          identifier: AutomaticCheckIdentifier.duplicateObservation,
+          kind: .conflict,
+          state: .failed,
+          explanation: "The classifier received the same exact raw path more than once."
+        )
+      ],
+      explanation: "Duplicate observations conflict, so this raw path remains protected."
+    )
+  }
+
   private func makeEvaluation(
     definition: RuleDefinition,
     observation: RuleObservation,
@@ -252,7 +321,16 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     _ findings: [RuleFinding],
     for definition: RuleDefinition
   ) -> [RuleFinding]? {
-    guard findings.allSatisfy({ !$0.explanation.trimmedForRuleValidation.isEmpty }) else {
+    guard findings.count <= RuleCatalogLimits.maximumRuntimeFindingsPerRule else {
+      return nil
+    }
+    guard
+      findings.allSatisfy({ finding in
+        finding.explanation.utf8.count
+          <= RuleCatalogLimits.maximumRuntimeFindingTextUTF8Bytes
+          && !finding.explanation.trimmedForRuleValidation.isEmpty
+      })
+    else {
       return nil
     }
 
@@ -465,6 +543,13 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
   }
 
   private static func validateCatalog(_ rules: [any ExplainableRule]) throws {
+    guard rules.count <= RuleCatalogLimits.maximumRules else {
+      throw RuleCatalogValidationError.tooManyRules(
+        maximum: RuleCatalogLimits.maximumRules,
+        actual: rules.count
+      )
+    }
+
     var ruleIdentifiers = Set<RuleIdentifier>()
 
     for rule in rules {
@@ -474,18 +559,40 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
       guard ruleIdentifiers.insert(identifier).inserted else {
         throw RuleCatalogValidationError.duplicateRuleIdentifier(identifier)
       }
+      guard definition.checks.count <= RuleCatalogLimits.maximumChecksPerRule else {
+        throw RuleCatalogValidationError.tooManyChecks(
+          rule: identifier,
+          maximum: RuleCatalogLimits.maximumChecksPerRule,
+          actual: definition.checks.count
+        )
+      }
+      try validateDefinitionText(
+        definition.displayName,
+        field: "display-name",
+        rule: identifier
+      )
       guard !definition.displayName.trimmedForRuleValidation.isEmpty else {
         throw RuleCatalogValidationError.emptyDefinitionField(
           rule: identifier,
           field: "display-name"
         )
       }
+      try validateDefinitionText(
+        definition.responsibleTool,
+        field: "responsible-tool",
+        rule: identifier
+      )
       guard !definition.responsibleTool.trimmedForRuleValidation.isEmpty else {
         throw RuleCatalogValidationError.emptyDefinitionField(
           rule: identifier,
           field: "responsible-tool"
         )
       }
+      try validateDefinitionText(
+        definition.recognitionExplanation,
+        field: "recognition-explanation",
+        rule: identifier
+      )
       guard !definition.recognitionExplanation.trimmedForRuleValidation.isEmpty else {
         throw RuleCatalogValidationError.emptyDefinitionField(
           rule: identifier,
@@ -507,13 +614,25 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
 
       var checkIdentifiers = Set<CheckIdentifier>()
       var hasPositiveEvidence = false
+      var hasExclusion = false
       for check in definition.checks {
+        guard !AutomaticCheckIdentifier.all.contains(check.identifier) else {
+          throw RuleCatalogValidationError.reservedCheckIdentifier(
+            rule: identifier,
+            check: check.identifier
+          )
+        }
         guard checkIdentifiers.insert(check.identifier).inserted else {
           throw RuleCatalogValidationError.duplicateCheckIdentifier(
             rule: identifier,
             check: check.identifier
           )
         }
+        try validateDefinitionText(
+          check.explanation,
+          field: "check-explanation",
+          rule: identifier
+        )
         guard !check.explanation.trimmedForRuleValidation.isEmpty else {
           throw RuleCatalogValidationError.emptyDefinitionField(
             rule: identifier,
@@ -521,10 +640,46 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
           )
         }
         hasPositiveEvidence = hasPositiveEvidence || check.kind == .positiveEvidence
+        hasExclusion = hasExclusion || check.kind == .exclusion
       }
       guard hasPositiveEvidence else {
         throw RuleCatalogValidationError.missingPositiveEvidence(identifier)
       }
+      guard hasExclusion else {
+        throw RuleCatalogValidationError.missingExclusion(identifier)
+      }
+
+      if definition.eligibleDisposition == .reclaimable {
+        guard case .minimumSeconds(let seconds) = definition.ageRequirement, seconds > 0 else {
+          throw RuleCatalogValidationError.reclaimableRuleRequiresMinimumAge(identifier)
+        }
+        guard definition.activityRequirement == .mustBeInactive else {
+          throw RuleCatalogValidationError.reclaimableRuleRequiresInactiveCheck(identifier)
+        }
+      }
+    }
+  }
+
+  private static func validateObservationCount(_ count: Int) throws {
+    guard count <= RuleCatalogLimits.maximumObservations else {
+      throw RuleClassificationError.tooManyObservations(
+        maximum: RuleCatalogLimits.maximumObservations,
+        actual: count
+      )
+    }
+  }
+
+  private static func validateDefinitionText(
+    _ text: String,
+    field: String,
+    rule: RuleIdentifier
+  ) throws {
+    guard text.utf8.count <= RuleCatalogLimits.maximumDefinitionTextUTF8Bytes else {
+      throw RuleCatalogValidationError.definitionTextTooLong(
+        rule: rule,
+        field: field,
+        maximumBytes: RuleCatalogLimits.maximumDefinitionTextUTF8Bytes
+      )
     }
   }
 
@@ -539,7 +694,7 @@ private struct AssessedRule {
   let orderedRuleFindings: [RuleFinding]?
 }
 
-private enum AutomaticCheckIdentifier {
+enum AutomaticCheckIdentifier {
   static let lexicalRecognition = makeCheckIdentifier("lexical-recognition")
   static let reproducibility = makeCheckIdentifier("reproducibility")
   static let age = makeCheckIdentifier("age-requirement")
@@ -554,6 +709,25 @@ private enum AutomaticCheckIdentifier {
   static let hardLinksComplete = makeCheckIdentifier("hard-links-complete")
   static let ruleConflict = makeCheckIdentifier("rule-conflict")
   static let ruleValidity = makeCheckIdentifier("rule-validity")
+  static let duplicateObservation = makeCheckIdentifier("duplicate-observation")
+
+  static let all: Set<CheckIdentifier> = [
+    lexicalRecognition,
+    reproducibility,
+    age,
+    activity,
+    reportComplete,
+    itemComplete,
+    topLevelOutputComplete,
+    traversalDetailsRetained,
+    issuesComplete,
+    allocationKnown,
+    sizeDidNotOverflow,
+    hardLinksComplete,
+    ruleConflict,
+    ruleValidity,
+    duplicateObservation,
+  ]
 }
 
 func makeRuleIdentifier(_ rawValue: String) -> RuleIdentifier {

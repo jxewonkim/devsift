@@ -362,6 +362,19 @@ public struct RuleClassificationReport: Hashable, Sendable {
   }
 }
 
+public enum RuleCatalogLimits {
+  public static let maximumRules = 128
+  public static let maximumChecksPerRule = 64
+  public static let maximumObservations = 50_000
+  public static let maximumDefinitionTextUTF8Bytes = 1_024
+  public static let maximumRuntimeFindingsPerRule = 64
+  public static let maximumRuntimeFindingTextUTF8Bytes = 1_024
+}
+
+public enum RuleClassificationError: Error, Equatable, Sendable {
+  case tooManyObservations(maximum: Int, actual: Int)
+}
+
 public protocol RuleClassifying: Sendable {
   func classify(_ request: RuleClassificationRequest) async throws -> RuleClassificationReport
 }
@@ -370,16 +383,25 @@ public protocol ExplainableRule: Sendable {
   var definition: RuleDefinition { get }
 
   /// Performs only deterministic recognition and fact projection.
-  /// Implementations do not receive a URL or filesystem capability.
+  /// Implementations do not receive a URL or filesystem capability. Custom
+  /// implementations are trusted in-process code; result bounds cannot stop a
+  /// rule that does not return from this method.
   func assess(_ observation: RuleObservation) -> RuleAssessment
 }
 
 public enum RuleCatalogValidationError: Error, Equatable, Sendable {
+  case tooManyRules(maximum: Int, actual: Int)
+  case tooManyChecks(rule: RuleIdentifier, maximum: Int, actual: Int)
+  case definitionTextTooLong(rule: RuleIdentifier, field: String, maximumBytes: Int)
   case duplicateRuleIdentifier(RuleIdentifier)
   case duplicateCheckIdentifier(rule: RuleIdentifier, check: CheckIdentifier)
+  case reservedCheckIdentifier(rule: RuleIdentifier, check: CheckIdentifier)
   case missingPositiveEvidence(RuleIdentifier)
   case emptyDefinitionField(rule: RuleIdentifier, field: String)
   case invalidEligibleDisposition(RuleIdentifier)
   case reclaimableRuleIsNotReproducible(RuleIdentifier)
+  case reclaimableRuleRequiresMinimumAge(RuleIdentifier)
+  case reclaimableRuleRequiresInactiveCheck(RuleIdentifier)
+  case missingExclusion(RuleIdentifier)
   case zeroMinimumAge(RuleIdentifier)
 }

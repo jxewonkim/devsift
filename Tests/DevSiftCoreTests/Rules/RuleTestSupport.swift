@@ -100,8 +100,8 @@ func syntheticDefinition(
   id: String,
   disposition: RuleDisposition = .reclaimable,
   reproducibility: RuleReproducibility = .reproducible,
-  age: RuleAgeRequirement = .notRequired,
-  activity: RuleActivityRequirement = .notRequired,
+  age: RuleAgeRequirement = .minimumSeconds(1),
+  activity: RuleActivityRequirement = .mustBeInactive,
   checks: [RuleCheckDefinition]? = nil
 ) -> RuleDefinition {
   RuleDefinition(
@@ -122,7 +122,12 @@ func syntheticDefinition(
           identifier: testCheckIdentifier("synthetic-evidence"),
           kind: .positiveEvidence,
           explanation: "Synthetic evidence is satisfied."
-        )
+        ),
+        RuleCheckDefinition(
+          identifier: testCheckIdentifier("synthetic-exclusion"),
+          kind: .exclusion,
+          explanation: "Synthetic exclusions are absent."
+        ),
       ]
   )
 }
