@@ -55,6 +55,35 @@ struct AllocatedSizeScannerTests {
     #expect(nestedDirectory.recursiveSize.logicalBytes >= 4)
   }
 
+  @Test("Summaries retain the newest inode time without following symlink targets")
+  func newestContentModificationTime() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let cache = try fixture.makeDirectory("cache")
+    let nested = try fixture.makeDirectory("cache/nested")
+    let payload = try fixture.write("cache/nested/payload.bin", bytes: [1])
+    let empty = try fixture.makeDirectory("empty")
+    let outsideTarget = try fixture.write("newer.bin", bytes: [2], under: fixture.outside)
+    let link = try fixture.makeSymbolicLink("cache/link", destination: outsideTarget)
+
+    try fixture.setModificationTime(900, for: outsideTarget)
+    try fixture.setModificationTime(350, for: link, followSymbolicLinks: false)
+    try fixture.setModificationTime(400, for: payload)
+    try fixture.setModificationTime(300, for: nested)
+    try fixture.setModificationTime(200, for: cache)
+    try fixture.setModificationTime(500, for: empty)
+    try fixture.setModificationTime(100, for: fixture.root)
+
+    let report = try await AllocatedSizeScanner().scan(root: fixture.root)
+    let cacheSummary = try summary(named: "cache", in: report)
+    let emptySummary = try summary(named: "empty", in: report)
+
+    #expect(report.root.newestContentModificationUnixSeconds == 500)
+    #expect(cacheSummary.newestContentModificationUnixSeconds == 400)
+    #expect(emptySummary.newestContentModificationUnixSeconds == 500)
+  }
+
   @Test("Cross-item hard links keep apparent bytes without per-item exclusive credit")
   func reportsCrossItemHardLinks() async throws {
     let fixture = try ScannerFixture()
@@ -259,7 +288,8 @@ struct AllocatedSizeScannerTests {
         ),
         allocatedSizeIsKnown: metadata.allocatedSizeIsKnown,
         hardLinkCount: metadata.hardLinkCount,
-        mayShareFileContent: metadata.mayShareFileContent
+        mayShareFileContent: metadata.mayShareFileContent,
+        modificationUnixSeconds: metadata.modificationUnixSeconds
       )
     })
 
@@ -293,7 +323,8 @@ struct AllocatedSizeScannerTests {
         size: StorageSize(logicalBytes: .max, allocatedBytes: .max),
         allocatedSizeIsKnown: true,
         hardLinkCount: metadata.hardLinkCount,
-        mayShareFileContent: metadata.mayShareFileContent
+        mayShareFileContent: metadata.mayShareFileContent,
+        modificationUnixSeconds: metadata.modificationUnixSeconds
       )
     })
 

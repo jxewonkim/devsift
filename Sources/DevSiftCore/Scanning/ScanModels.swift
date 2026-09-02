@@ -152,6 +152,9 @@ public struct ScanItemSummary: Hashable, Sendable {
   public let sharedContentMetadataUnavailableCount: UInt64
   public let unobservedHardLinkFileCount: UInt64
   public let nonExclusiveHardLinkFileCount: UInt64
+  /// Greatest inode modification timestamp observed for this summary. A value
+  /// on an incomplete summary is not proof that no newer descendant exists.
+  public let newestContentModificationUnixSeconds: Int64?
   public let sizeOverflowed: Bool
   public let isComplete: Bool
 
@@ -166,6 +169,7 @@ public struct ScanItemSummary: Hashable, Sendable {
     sharedContentMetadataUnavailableCount: UInt64,
     unobservedHardLinkFileCount: UInt64,
     nonExclusiveHardLinkFileCount: UInt64,
+    newestContentModificationUnixSeconds: Int64? = nil,
     sizeOverflowed: Bool = false,
     isComplete: Bool
   ) {
@@ -179,6 +183,7 @@ public struct ScanItemSummary: Hashable, Sendable {
     self.sharedContentMetadataUnavailableCount = sharedContentMetadataUnavailableCount
     self.unobservedHardLinkFileCount = unobservedHardLinkFileCount
     self.nonExclusiveHardLinkFileCount = nonExclusiveHardLinkFileCount
+    self.newestContentModificationUnixSeconds = newestContentModificationUnixSeconds
     self.sizeOverflowed = sizeOverflowed
     self.isComplete = isComplete
   }

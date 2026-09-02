@@ -32,6 +32,7 @@ struct FileMetadata: Equatable, Sendable {
   let allocatedSizeIsKnown: Bool
   let hardLinkCount: UInt64
   let mayShareFileContent: Bool?
+  let modificationUnixSeconds: Int64
 
   init(
     kind: FileSystemEntryKind,
@@ -39,7 +40,8 @@ struct FileMetadata: Equatable, Sendable {
     size: StorageSize,
     allocatedSizeIsKnown: Bool,
     hardLinkCount: UInt64,
-    mayShareFileContent: Bool?
+    mayShareFileContent: Bool?,
+    modificationUnixSeconds: Int64
   ) {
     self.kind = kind
     self.identity = identity
@@ -47,6 +49,7 @@ struct FileMetadata: Equatable, Sendable {
     self.allocatedSizeIsKnown = allocatedSizeIsKnown
     self.hardLinkCount = hardLinkCount
     self.mayShareFileContent = mayShareFileContent
+    self.modificationUnixSeconds = modificationUnixSeconds
   }
 
   /// Reads the selected root without following its final component.
@@ -127,6 +130,7 @@ struct FileMetadata: Equatable, Sendable {
     )
     allocatedSizeIsKnown = allocatedBytes != nil
     hardLinkCount = UInt64(information.st_nlink)
+    modificationUnixSeconds = Int64(information.st_mtimespec.tv_sec)
 
     // Foundation's clone-sharing resource key is path based. Reading it after
     // descriptor-relative validation would reintroduce a path race, so the
