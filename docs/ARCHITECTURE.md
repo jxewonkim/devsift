@@ -19,7 +19,10 @@ state.
 
 Planned modules are:
 
-- **Scanning:** read-only enumeration and allocated-size measurement;
+- **Scanning:** read-only enumeration and allocated-size measurement. The
+  current scanner streams metadata into root and top-level summaries rather
+  than retaining every path. It anchors traversal to directory descriptors and
+  resolves every child relative to its already-open parent;
 - **Rules:** versioned, explainable candidate classification;
 - **Planning:** deterministic immutable dry-run manifests;
 - **Execution:** revalidation and recoverable quarantine, introduced only after
@@ -54,6 +57,15 @@ reclaim estimates use allocated bytes where the filesystem exposes them and
 label estimates when exact accounting is not possible. Hard links, sparse
 files, packages, clones, and filesystem snapshots require explicit handling and
 tests rather than naive recursive summation.
+
+The scanner reports apparent bytes separately from hard-link-exclusive
+allocated bytes. A hard-linked regular-file inode receives that credit only
+when all of its links were observed inside the same summary boundary; links
+crossing top-level items or leaving the selected root remain explicitly
+non-exclusive. This field does not claim to resolve clone or snapshot sharing.
+APFS clones are not deduplicated because file-level APIs do not expose block
+ownership. A reported allocated size is therefore a point-in-time estimate, not
+a guaranteed reclaimable byte count.
 
 ## Evolution rule
 
