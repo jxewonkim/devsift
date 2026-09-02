@@ -134,18 +134,32 @@ classification are available in Core, CLI, and app without any mutation API.
 
 ## Phase 6: dry-run plans
 
-Commit sequence begins with `feat(planner): create immutable cleanup manifests`.
+Status: the first Core-only planning increment is implemented. It creates
+deterministic immutable draft manifests in memory and adds no CLI or app
+surface, serialization, export, approval, or filesystem mutation.
 
-- Convert approved candidates into deterministic immutable plans.
-- Record expected identity and allocated bytes.
-- Add plan diffing and export with privacy-aware paths.
+Implemented first commit: `feat(planner): create immutable cleanup manifests`.
+
+- Convert explicit path-and-rule-revision selections over validated matched
+  `reclaimable` or `review-required` decisions into deterministic immutable
+  draft manifests.
+- Record expected root and candidate identities, exact root-relative raw paths,
+  rule and evidence state, and observed allocation estimates.
+- Require the built-in classifier's exact in-memory source-request binding so
+  evidence cannot be mixed with a different scan's identities or sizes.
+- Keep selection distinct from approval and retain the requirement for fresh
+  execution-time revalidation.
+- Add plan diffing, privacy-aware export, and frontend review in later
+  increments.
 
 The recorded identity is comparison evidence, not mutation authority. A plan
 must not convert an observer's successful identity or marker check into
-permission to clean.
+permission to clean. Planning performs no filesystem I/O and the current
+manifest deliberately has no Codable, import, or export contract.
 
-Gate: planning remains read-only and a stale or edited candidate invalidates
-execution.
+Gate: planning remains read-only and deterministic, selected ineligible input
+fails closed, and a stale or edited candidate must invalidate future approval
+or execution.
 
 Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 

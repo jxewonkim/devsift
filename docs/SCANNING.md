@@ -67,9 +67,9 @@ snapshots, compression, and concurrent changes can all make a later change in
 free volume space differ from either measurement.
 
 DevSift never labels a scan total as guaranteed reclaimable space. The rule
-classifier consumes the bounded report as a separate read-only layer, and
-future planning and execution-time revalidation remain separate again. See the
-[rules contract](RULES.md).
+classifier and Core draft planner consume the bounded report as separate
+read-only layers, and execution-time revalidation remains separate again. See
+the [rules contract](RULES.md) and [planning contract](PLANNING.md).
 
 The command-line projection, including human labels, JSON schema, stream
 behavior, and exit codes, is documented in the [CLI contract](CLI.md).
@@ -97,8 +97,9 @@ not retain one timestamp per descendant and performs no later path-based probe.
 An inode modification time is not a last-access time and can be changed by a
 user or process. It does not establish inactivity, ownership, generated
 content, or cleanup safety. A scan is not a filesystem snapshot, so a file may
-change after its individual observation. Planning and execution must revalidate
-the approved object and policy evidence before any future mutation.
+change after its individual observation. Draft planning must not treat this
+aggregate as current authority; future approval and execution must require
+fresh policy and object revalidation before any mutation.
 
 This aggregate is currently a Core-only input to rule findings. Scan JSON v2
 does not emit the raw timestamp; classification JSON v1 exposes the resulting
@@ -116,10 +117,11 @@ fails closed rather than presenting a partially bound set.
 This value exists only to let a bounded descriptor-relative evidence observer
 verify that a reopened root or candidate is the object that was scanned. It is
 not a durable identifier, trusted-location or ownership evidence, a cleanup
-capability, or deletion authority. Inodes can be reused; every future plan and
-execution must reopen and revalidate containment, kind, identity, and policy
-evidence immediately before mutation. Scan JSON v2 and classification JSON v1
-do not emit raw scan-time identities.
+capability, or deletion authority. Inodes can be reused; a draft plan carries
+these values only as comparison evidence, and future execution must reopen and
+revalidate containment, kind, identity, and policy evidence immediately before
+mutation. Scan JSON v2 and classification JSON v1 do not emit raw scan-time
+identities.
 
 ## App presentation contract
 

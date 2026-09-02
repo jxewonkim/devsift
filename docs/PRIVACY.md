@@ -24,6 +24,9 @@ DevSift is designed to work locally and reveal as little as possible.
   inspect metadata for an exact `workspace-state.json` child. It does not read
   file contents, follow symbolic-link targets, invoke package managers, or make
   network calls.
+- Core draft planning runs only over already constructed scan and
+  classification values. It performs no filesystem or network I/O, stores no
+  absolute root URL, and is not exposed by the CLI or app.
 
 ## Sensitive output
 
@@ -49,12 +52,31 @@ be reviewed before sharing. The current scan and classification JSON schemas do
 not expose a candidate's raw modification-time aggregate or scan-time identity;
 classification emits only the resulting findings and its reference timestamp.
 
+The built-in classifier retains a non-public copy of its exact source request
+inside the in-memory Core report so planning cannot mix one scan's evidence
+with another scan's identities or sizes. That binding includes the selected
+root URL. It is not part of CLI or app output, is not Codable or exported, and
+must be discarded with the current analysis session; access control does not
+make it non-sensitive.
+
+An in-memory draft manifest contains exact root-relative raw path components,
+root and candidate identities, observed allocation estimates, rule revisions,
+and policy evidence. Those values remain sensitive even without an absolute
+root URL. The current Core model is not Codable, is not persisted or uploaded,
+and has no CLI or app import or export surface.
+
 The app displays the selected root path so the user can verify scope, then shows
 top-level rows as root-relative names. Closing the window discards its in-memory
 selection and report. The opt-in developer snapshot harness uses only synthetic
 paths and is never run automatically by the application.
 
 ## Future changes
+
+A future plan export requires a separate, versioned frontend-owned privacy
+contract. It must keep export explicit, define path redaction and exact-byte
+handling, bound untrusted input before any import, and decide separately which
+identity fields—if any—belong in review and execution documents. Adding
+export must not silently make Core domain models Codable.
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

@@ -16,9 +16,11 @@ storage created by their tools. It favors evidence and user control over opaque
 
 ## Core jobs
 
-The current pre-alpha implements the first job and a conservative foundation
-for jobs 2 and 3. It can recognize selected path shapes and explain why missing
-evidence keeps them protected. Jobs 4 and 5 remain later product direction.
+The current pre-alpha implements the first job, a conservative foundation for
+jobs 2 and 3, and the first Core-only in-memory foundation for job 4. It can
+recognize selected path shapes, explain why missing evidence keeps them
+protected, and build an immutable draft from explicitly selected eligible
+classifications. Frontend plan review and job 5 remain later product direction.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -61,10 +63,16 @@ The long-term workflow is:
 1. **Scan** an explicitly selected root without modifying it.
 2. **Explain** candidates using versioned rules and visible evidence.
 3. **Plan** an immutable dry run with estimated reclaimed bytes.
-4. **Revalidate** identity, containment, and active-use conditions.
-5. **Quarantine** approved candidates using a recoverable operation.
-6. **Report** completed, changed, failed, and skipped items.
-7. **Purge** quarantined data only as a later, explicit action.
+4. **Approve** the exact reviewed draft as a separate explicit action.
+5. **Revalidate** identity, containment, and active-use conditions.
+6. **Quarantine** approved candidates using a recoverable operation.
+7. **Report** completed, changed, failed, and skipped items.
+8. **Purge** quarantined data only as a later, explicit action.
+
+The current planning increment stops at an in-memory Core draft. A selection
+binds one exact root-relative raw path to one exact rule revision, but does not
+approve it. The CLI and app do not yet create, diff, persist, export, approve,
+or execute manifests.
 
 ## Non-goals
 
