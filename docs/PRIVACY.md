@@ -22,6 +22,12 @@ DevSift will prefer redacted or root-relative display where practical. Exported
 reports must be explicit user actions and should support privacy-preserving
 output. Real reports must not be committed as examples or test fixtures.
 
+The scan CLI emits only root-relative report paths and does not repeat the
+selected absolute root in text or JSON. JSON retains exact relative filename
+bytes as Base64, so reports can still reveal sensitive names and must be
+reviewed before sharing. Redirecting standard output is the explicit export
+action; DevSift never writes a report file on its own.
+
 ## Future changes
 
 Any feature that introduces networking, update checks, telemetry, crash upload,

@@ -42,6 +42,8 @@ still inside its approved root.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
 - Scan code cannot mutate files.
+- The scan CLI exposes no cleanup, delete, move, quarantine, or permission-
+  escalation command; complete and partial reports remain read-only.
 - Core logic does not construct or execute shell commands.
 - Failure to read metadata produces a visible error or skip, never permission
   escalation or an unsafe assumption.

@@ -26,5 +26,9 @@ let package = Package(
       name: "DevSiftCoreTests",
       dependencies: ["DevSiftCore"]
     ),
+    .testTarget(
+      name: "DevSiftCLITests",
+      dependencies: ["DevSiftCLI", "DevSiftCore"]
+    ),
   ]
 )

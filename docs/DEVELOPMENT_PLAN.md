@@ -47,6 +47,9 @@ and spaces. Nothing outside a temporary fixture changes.
 
 ## Phase 3: scan CLI
 
+Status: implemented with dependency-free argument parsing, root-relative text
+and JSON output, stable exit codes, and synthetic subprocess tests.
+
 Commit: `feat(cli): expose read-only scans as text and JSON`
 
 - Add `devsift scan <path>`.

@@ -35,6 +35,12 @@ The CLI parses explicit commands, invokes DevSiftCore, and renders human-readabl
 or versioned JSON output. Results go to standard output and diagnostics to
 standard error. The CLI does not implement independent filesystem rules.
 
+The executable has a thin process entry point over a testable async runner.
+Arguments, filesystem requests, rendering, and exit mapping are exercised
+without replacing global standard streams. JSON uses a CLI-owned versioned DTO
+rather than making Core domain models directly serializable. Report paths are
+root-relative, and exact path-component bytes are retained as Base64.
+
 ### DevSift app
 
 The macOS app provides explicit folder selection, progress and cancellation,

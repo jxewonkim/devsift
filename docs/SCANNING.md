@@ -61,6 +61,9 @@ free volume space differ from either measurement.
 DevSift never labels a scan total as guaranteed reclaimable space. Future
 cleanup rules and execution-time revalidation are separate layers.
 
+The command-line projection, including human labels, JSON schema, stream
+behavior, and exit codes, is documented in the [CLI contract](CLI.md).
+
 ## Containment and traversal
 
 - The selected root must be an absolute local `file:` URL with no remote host,
