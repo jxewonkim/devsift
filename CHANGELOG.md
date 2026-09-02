@@ -28,3 +28,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - JSON scan schema version 2, adding the per-summary `sizeOverflowed` flag;
   text output now withholds overflowed totals instead of formatting saturation
   as an exact byte count.
+- A versioned explainable-rule model and conservative classifier with
+  structured evidence, exclusions, age, activity, reproducibility, scan-
+  integrity, conflict, and invalid-rule findings.
+- Initial rules for uv, npm, Homebrew, Xcode DerivedData and iOS DeviceSupport,
+  and SwiftPM build output. Uncollected runtime evidence remains protected.
+- Read-only `devsift classify` text and JSON output plus native dashboard policy
+  explanations; no planning or filesystem mutation action was added.
+- Classification JSON schema version 1, including a bounded `scanIntegrity`
+  projection with decimal-string counts and explicit uncertainty flags.
+- Shared fail-closed validation for classifier output, including reference-time
+  and scan-report binding, path coverage, rule-specific evidence, diagnostics,
+  and aggregate output bounds before either frontend renders a result.

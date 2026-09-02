@@ -6,7 +6,7 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
                  scan -> rules -> plan -> executor
-                   now      later    later    later
+                   now      now      later    later
 ```
 
 ## Components
@@ -17,13 +17,15 @@ The core owns domain models and filesystem behavior. It must not depend on
 SwiftUI, command-line formatting, shell commands, analytics, or application
 state.
 
-Planned modules are:
+Core layers are:
 
 - **Scanning:** read-only enumeration and allocated-size measurement. The
   current scanner streams metadata into root and top-level summaries rather
   than retaining every path. It anchors traversal to directory descriptors and
   resolves every child relative to its already-open parent;
-- **Rules:** versioned, explainable candidate classification;
+- **Rules:** versioned, deterministic candidate recognition, evidence findings,
+  and conservative policy classification. Rules receive observations rather
+  than filesystem URLs; the central classifier alone computes dispositions;
 - **Planning:** deterministic immutable dry-run manifests;
 - **Execution:** revalidation and recoverable quarantine, introduced only after
   the earlier layers are stable;
@@ -33,7 +35,8 @@ Planned modules are:
 
 The CLI parses explicit commands, invokes DevSiftCore, and renders human-readable
 or versioned JSON output. Results go to standard output and diagnostics to
-standard error. The CLI does not implement independent filesystem rules.
+standard error. The `scan` and `classify` schemas are versioned independently.
+The CLI does not implement independent filesystem rules.
 
 The executable has a thin process entry point over a testable async runner.
 Arguments, filesystem requests, rendering, and exit mapping are exercised
@@ -43,23 +46,31 @@ root-relative, and exact path-component bytes are retained as Base64.
 
 ### DevSift app
 
-The current macOS app provides explicit folder selection, indeterminate scan
-activity, cancellation, rescan, observation results, partial-result details,
-and accessibility. Candidate explanations and plan review belong to later rule
-and planning phases.
+The current macOS app provides explicit folder selection, distinct
+indeterminate scan and policy-analysis states, cancellation, rescan,
+observation results, partial-result details, explainable policy assessments,
+and accessibility. Plan review belongs to the later planning phase.
 
-Each window owns a `@MainActor` observable view model with an injected
-`FileSystemScanning` capability. It passes the file importer's selected URL
-unchanged to DevSiftCore. A scan UUID prevents a cancelled or superseded task
-from publishing a late result over the current state. Security-scoped access is
-held until the Core scan and presentation preparation finish, then balanced on
-success, failure, or cancellation.
+Each window owns a `@MainActor` observable view model with injected
+`FileSystemScanning` and `RuleClassifying` capabilities. It passes the file
+importer's selected URL unchanged to DevSiftCore. A scan UUID prevents a
+cancelled or superseded task from publishing a late result over the current
+state. Security-scoped access is held until Core scanning, classification, and
+presentation preparation finish, then balanced on success, failure, or
+cancellation.
+
+The app and CLI validate every returned `RuleClassificationReport` against the
+request's reference time and original `ScanReport` before rendering it. This
+shared Core boundary checks path coverage, scan-report structure, common
+finding states, semantic invariants, and aggregate resource limits; malformed
+output never reaches a frontend-specific projection.
 
 ## Dependency rules
 
 - Frontends may depend on DevSiftCore; DevSiftCore never imports a frontend.
 - Filesystem capabilities are injected so tests can use controlled fixtures.
 - Domain values use stable identifiers and deterministic ordering.
+- Display strings are never path identity; rules compare exact raw components.
 - Concurrency supports cancellation and bounded work.
 - External dependencies require a written reason and supply-chain review.
 - The initial workspace avoids third-party runtime dependencies.
@@ -68,10 +79,9 @@ success, failure, or cancellation.
 
 DevSift distinguishes logical file size from observed allocated disk usage. The
 current UI displays observations and does not calculate reclaim estimates.
-Future rules and plans must derive any estimate separately and label its
-uncertainty. Hard links, sparse files, packages, clones, and filesystem
-snapshots require explicit handling and tests rather than naive recursive
-summation.
+Rules and future plans derive policy separately and label uncertainty. Hard
+links, sparse files, packages, clones, and filesystem snapshots require
+explicit handling and tests rather than naive recursive summation.
 
 The scanner reports apparent bytes separately from hard-link-exclusive
 allocated bytes. A hard-linked regular-file inode receives that credit only
@@ -87,3 +97,9 @@ a guaranteed reclaimable byte count.
 Scanning, classification, planning, and execution remain separate stages. A
 future optimization must not combine them in a way that allows discovery code
 to mutate the filesystem or bypass plan review.
+
+The current scan-to-rule adapter projects only facts already present in the
+bounded `ScanReport`; it performs no additional filesystem I/O. A future fact
+observer must preserve descriptor-relative traversal and identity checks rather
+than reconstructing descendant `URL` values from untrusted names. See the
+[rules contract](RULES.md).

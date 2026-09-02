@@ -7,24 +7,69 @@ struct ScanResultView: View {
   let presentation: ScanPresentation
 
   @State private var selectedItem: ScanRelativePath?
-  @State private var notesAreExpanded = false
+  @State private var policyDetailsAreExpanded: Bool
+
+  init(
+    root: URL,
+    presentation: ScanPresentation,
+    policyDetailsInitiallyExpanded: Bool = false
+  ) {
+    self.root = root
+    self.presentation = presentation
+    _selectedItem = State(
+      initialValue: policyDetailsInitiallyExpanded ? presentation.items.first?.id : nil
+    )
+    _policyDetailsAreExpanded = State(initialValue: policyDetailsInitiallyExpanded)
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      resultHeading
-      SummaryBand(presentation: presentation)
+    ScrollView(.vertical) {
+      VStack(alignment: .leading, spacing: 12) {
+        resultHeading
+        SummaryBand(presentation: presentation)
 
-      if shouldShowObservationNotice {
-        ObservationNotice(presentation: presentation)
+        if shouldShowObservationNotice {
+          ObservationNotice(presentation: presentation)
+        }
+
+        topLevelContent
+
+        if let selectedRow {
+          PolicyExplanationDisclosure(
+            row: selectedRow,
+            isExpanded: $policyDetailsAreExpanded
+          )
+        } else if !presentation.items.isEmpty {
+          PolicySelectionPrompt()
+        }
+
+        AccountingFootnote(presentation: presentation)
       }
-
-      topLevelContent
-
-      AccountingFootnote(presentation: presentation)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 28)
+      .padding(.top, 16)
+      .padding(.bottom, 10)
     }
-    .padding(.horizontal, 28)
-    .padding(.top, 16)
-    .padding(.bottom, 10)
+    .defaultScrollAnchor(.top)
+    .onChange(of: selectedItem) { _, _ in
+      policyDetailsAreExpanded = false
+    }
+    .onChange(of: presentation) { _, newPresentation in
+      guard let selectedItem else {
+        return
+      }
+      if !newPresentation.items.contains(where: { $0.id == selectedItem }) {
+        self.selectedItem = nil
+        policyDetailsAreExpanded = false
+      }
+    }
+  }
+
+  private var selectedRow: ScanItemRow? {
+    guard let selectedItem else {
+      return nil
+    }
+    return presentation.items.first { $0.id == selectedItem }
   }
 
   private var resultHeading: some View {
@@ -83,7 +128,7 @@ struct ScanResultView: View {
         HStack {
           Text("Largest observed items")
             .font(.headline)
-          Text("Apparent allocation, largest first")
+          Text("Scanner observation · independent policy assessment")
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
@@ -104,13 +149,13 @@ struct ScanResultView: View {
             }
             .help(row.displayPath)
           }
-          .width(min: 180, ideal: 240, max: 520)
+          .width(min: 145, ideal: 205, max: 420)
 
           TableColumn("Kind") { row in
             Text(row.summary.kind.displayName)
               .foregroundStyle(.secondary)
           }
-          .width(min: 60, ideal: 72, max: 90)
+          .width(min: 52, ideal: 62, max: 80)
 
           TableColumn("Allocation") { row in
             SizeCell(
@@ -120,7 +165,7 @@ struct ScanResultView: View {
                 || row.summary.unknownAllocatedItemCount > 0
             )
           }
-          .width(min: 110, ideal: 120, max: 140)
+          .width(min: 92, ideal: 105, max: 120)
 
           TableColumn("Link-adjusted") { row in
             SizeCell(
@@ -132,15 +177,15 @@ struct ScanResultView: View {
                 || row.summary.unobservedHardLinkFileCount > 0
             )
           }
-          .width(min: 110, ideal: 120, max: 140)
+          .width(min: 96, ideal: 108, max: 124)
 
           TableColumn("Entries") { row in
             Text(row.summary.counts.total.formatted())
               .monospacedDigit()
           }
-          .width(min: 55, ideal: 64, max: 80)
+          .width(min: 50, ideal: 58, max: 70)
 
-          TableColumn("Status") { row in
+          TableColumn("Observation") { row in
             Label(
               row.observationIsComplete ? "Complete" : "Partial",
               systemImage: row.observationIsComplete
@@ -149,11 +194,18 @@ struct ScanResultView: View {
             .labelStyle(.titleAndIcon)
             .foregroundStyle(row.observationIsComplete ? .green : .orange)
           }
-          .width(min: 80, ideal: 88, max: 104)
+          .width(min: 80, ideal: 86, max: 98)
+
+          TableColumn("Policy") { row in
+            PolicyBadge(policy: row.policy)
+          }
+          .width(min: 84, ideal: 92, max: 108)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
-        .frame(minHeight: 180)
-        .accessibilityLabel("Largest observed top-level items")
+        .frame(height: tableHeight)
+        .accessibilityLabel(
+          "Largest observed top-level items with observation and policy status"
+        )
       }
     }
   }
@@ -162,6 +214,183 @@ struct ScanResultView: View {
     !presentation.observationIsComplete
       || !presentation.report.issues.isEmpty
       || presentation.report.suppressedIssueCount > 0
+  }
+
+  private var tableHeight: CGFloat {
+    policyDetailsAreExpanded || shouldShowObservationNotice ? 120 : 180
+  }
+}
+
+private struct PolicySelectionPrompt: View {
+  var body: some View {
+    Label(
+      "Select an observed item to inspect its policy explanation.",
+      systemImage: "list.bullet.rectangle"
+    )
+    .font(.callout)
+    .foregroundStyle(.secondary)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    .accessibilityHint("The Policy column remains visible for every item")
+  }
+}
+
+private struct PolicyBadge: View {
+  let policy: PolicyDecisionPresentation
+
+  var body: some View {
+    Label(policy.badgeTitle, systemImage: policy.systemImage)
+      .font(.caption.weight(.medium))
+      .lineLimit(1)
+      .foregroundStyle(foregroundColor)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 3)
+      .background(foregroundColor.opacity(0.1), in: Capsule())
+      .accessibilityLabel(policy.accessibilityLabel)
+  }
+
+  private var foregroundColor: Color {
+    switch policy.disposition {
+    case .reclaimable:
+      .green
+    case .reviewRequired:
+      .orange
+    case .protected:
+      .blue
+    }
+  }
+}
+
+private struct PolicyExplanationDisclosure: View {
+  let row: ScanItemRow
+  @Binding var isExpanded: Bool
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $isExpanded) {
+      VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(row.policy.displayName)
+            .font(.callout.weight(.semibold))
+          Text(row.policy.responsibleTool)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+        }
+
+        if !row.policy.ruleRevisionLabels.isEmpty {
+          Text(row.policy.ruleRevisionLabels.joined(separator: " · "))
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
+
+        Text("Match state: \(row.policy.matchStateDisplayName)")
+          .font(.caption2.weight(.medium))
+          .foregroundStyle(.secondary)
+
+        Text(row.policy.explanation)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        if row.policy.findings.isEmpty {
+          Label(
+            "No structured rule evidence is available for this item.",
+            systemImage: "questionmark.circle"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        } else {
+          LazyVStack(alignment: .leading, spacing: 7) {
+            ForEach(Array(row.policy.findings.enumerated()), id: \.offset) { _, finding in
+              PolicyFindingRow(finding: finding)
+            }
+          }
+          .accessibilityLabel("Structured policy evidence")
+        }
+
+        Label(
+          "Advisory only — this release cannot clean, approve, quarantine, or delete files.",
+          systemImage: "lock.shield"
+        )
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+      }
+      .padding(.top, 8)
+    } label: {
+      HStack(spacing: 8) {
+        Text("Policy explanation")
+          .font(.callout.weight(.medium))
+        Text(row.displayPath)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+        Spacer()
+        PolicyBadge(policy: row.policy)
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+    }
+    .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+    .accessibilityHint(PolicyDisclosureAccessibility.hint(isExpanded: isExpanded))
+  }
+}
+
+enum PolicyDisclosureAccessibility {
+  static func hint(isExpanded: Bool) -> String {
+    isExpanded
+      ? "Collapses the rule identifier, explanation, and structured evidence"
+      : "Expands the rule identifier, explanation, and structured evidence"
+  }
+}
+
+private struct PolicyFindingRow: View {
+  let finding: RuleFinding
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 8) {
+      Image(systemName: finding.state.systemImage)
+        .foregroundStyle(stateColor)
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 6) {
+          Text(finding.kind.displayName)
+            .font(.caption.weight(.medium))
+          Text(finding.identifier.rawValue)
+            .font(.caption2.monospaced())
+            .foregroundStyle(.tertiary)
+          Spacer()
+          Text(finding.state.displayName)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(stateColor)
+        }
+        Text(finding.explanation)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .accessibilityElement(children: .combine)
+  }
+
+  private var stateColor: Color {
+    switch finding.state {
+    case .satisfied:
+      .green
+    case .failed:
+      .red
+    case .unknown:
+      .orange
+    }
   }
 }
 
@@ -411,7 +640,8 @@ private struct ObservationNotice: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 9)
     .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-    .accessibilityHint("Expands partial scan details and retained issues")
+    .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+    .accessibilityHint(ObservationDisclosureAccessibility.hint(isExpanded: isExpanded))
   }
 
   private var noticeTitle: String {
@@ -465,6 +695,14 @@ private struct UnavailableResultsView: View {
       RoundedRectangle(cornerRadius: 10, style: .continuous)
         .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
     }
+  }
+}
+
+enum ObservationDisclosureAccessibility {
+  static func hint(isExpanded: Bool) -> String {
+    isExpanded
+      ? "Collapses partial scan details and retained issues"
+      : "Expands partial scan details and retained issues"
   }
 }
 

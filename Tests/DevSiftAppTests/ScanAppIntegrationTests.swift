@@ -33,6 +33,9 @@ struct ScanAppIntegrationTests {
     }
     #expect(resultRoot == root)
     #expect(presentation.report.root.counts.regularFiles == 1)
+    #expect(presentation.items.first?.id.rawComponents == [Array("inside.txt".utf8)])
+    #expect(presentation.items.first?.policy.matchState == .unrecognized)
+    #expect(presentation.items.first?.policy.disposition == .protected)
     #expect(try Data(contentsOf: root.appendingPathComponent("inside.txt")) == beforeInside)
     #expect(try Data(contentsOf: outside) == beforeOutside)
   }

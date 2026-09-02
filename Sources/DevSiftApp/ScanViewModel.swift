@@ -4,12 +4,15 @@ import Observation
 
 enum ScanFailure: Equatable, Sendable {
   case scan(ScanError)
+  case classification
   case unexpected
 
   var title: String {
     switch self {
     case .scan:
       "This folder could not be scanned"
+    case .classification:
+      "Policy analysis could not be completed"
     case .unexpected:
       "The scan could not be completed"
     }
@@ -19,6 +22,8 @@ enum ScanFailure: Equatable, Sendable {
     switch self {
     case .scan(let error):
       error.errorDescription ?? "The selected folder could not be read."
+    case .classification:
+      "The storage observation finished, but its read-only policy report is unavailable. No files were changed."
     case .unexpected:
       "An unexpected error occurred. No files were changed."
     }
@@ -28,6 +33,7 @@ enum ScanFailure: Equatable, Sendable {
 enum ScanDashboardPhase: Equatable, Sendable {
   case empty
   case scanning(URL)
+  case classifying(URL)
   case result(URL, ScanPresentation)
   case cancelled(URL)
   case failed(URL, ScanFailure)
@@ -36,7 +42,7 @@ enum ScanDashboardPhase: Equatable, Sendable {
     switch self {
     case .empty:
       nil
-    case .scanning(let root), .result(let root, _), .cancelled(let root),
+    case .scanning(let root), .classifying(let root), .result(let root, _), .cancelled(let root),
       .failed(let root, _):
       root
     }
@@ -49,19 +55,36 @@ final class ScanViewModel {
   private(set) var phase: ScanDashboardPhase = .empty
 
   @ObservationIgnored private let scanner: any FileSystemScanning
+  @ObservationIgnored private let classifier: any RuleClassifying
   @ObservationIgnored private let limits: ScanLimits
   @ObservationIgnored private let securityScope: any SecurityScopedResourceAccessing
+  @ObservationIgnored private let referenceUnixSeconds: @Sendable () -> Int64
   @ObservationIgnored private var activeScanID: UUID?
   @ObservationIgnored private var scanTask: Task<Void, Never>?
 
   init(
     scanner: any FileSystemScanning = AllocatedSizeScanner(),
+    classifier: any RuleClassifying = ExplainableRuleClassifier(),
     limits: ScanLimits = ScanLimits(),
-    securityScope: any SecurityScopedResourceAccessing = FoundationSecurityScopedResourceAccess()
+    securityScope: any SecurityScopedResourceAccessing = FoundationSecurityScopedResourceAccess(),
+    referenceUnixSeconds: @escaping @Sendable () -> Int64 = {
+      Int64(Date().timeIntervalSince1970)
+    }
   ) {
     self.scanner = scanner
+    self.classifier = classifier
     self.limits = limits
     self.securityScope = securityScope
+    self.referenceUnixSeconds = referenceUnixSeconds
+  }
+
+  var isWorking: Bool {
+    switch phase {
+    case .scanning, .classifying:
+      return true
+    default:
+      return false
+    }
   }
 
   var isScanning: Bool {
@@ -72,7 +95,7 @@ final class ScanViewModel {
   }
 
   var canRescan: Bool {
-    phase.root != nil && !isScanning
+    phase.root != nil && !isWorking
   }
 
   @discardableResult
@@ -84,8 +107,10 @@ final class ScanViewModel {
     phase = .scanning(root)
 
     let scanner = scanner
+    let classifier = classifier
     let limits = limits
     let securityScope = securityScope
+    let referenceUnixSeconds = referenceUnixSeconds
     let task = Task { [weak self] in
       do {
         try Task.checkCancellation()
@@ -98,7 +123,31 @@ final class ScanViewModel {
 
         let report = try await scanner.scan(ScanRequest(root: root, limits: limits))
         try Task.checkCancellation()
-        let presentation = try await ScanPresentation.prepare(report: report)
+        guard self?.beginClassification(scanID: scanID, root: root) == true else {
+          return
+        }
+
+        let classificationRequest = RuleClassificationRequest(
+          root: root,
+          report: report,
+          referenceUnixSeconds: referenceUnixSeconds()
+        )
+        let classification: RuleClassificationReport
+        do {
+          classification = try await classifier.classify(classificationRequest)
+          try classification.validate(for: classificationRequest)
+        } catch is CancellationError {
+          throw CancellationError()
+        } catch {
+          self?.finish(scanID: scanID, phase: .failed(root, .classification))
+          return
+        }
+
+        try Task.checkCancellation()
+        let presentation = try await ScanPresentation.prepare(
+          report: report,
+          classification: classification
+        )
         try Task.checkCancellation()
         self?.finish(scanID: scanID, phase: .result(root, presentation))
       } catch is CancellationError {
@@ -122,7 +171,11 @@ final class ScanViewModel {
   }
 
   func cancelScan() {
-    guard case .scanning(let root) = phase else {
+    let root: URL
+    switch phase {
+    case .scanning(let activeRoot), .classifying(let activeRoot):
+      root = activeRoot
+    default:
       return
     }
 
@@ -149,5 +202,13 @@ final class ScanViewModel {
     activeScanID = nil
     scanTask = nil
     self.phase = phase
+  }
+
+  private func beginClassification(scanID: UUID, root: URL) -> Bool {
+    guard scanID == activeScanID else {
+      return false
+    }
+    phase = .classifying(root)
+    return true
   }
 }

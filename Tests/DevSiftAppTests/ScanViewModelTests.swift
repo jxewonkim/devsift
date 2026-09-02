@@ -21,6 +21,7 @@ struct ScanViewModelTests {
 
     #expect(model.phase == .empty)
     #expect(model.isScanning == false)
+    #expect(model.isWorking == false)
     #expect(model.canRescan == false)
     #expect(await recorder.requests().isEmpty)
   }
@@ -32,10 +33,13 @@ struct ScanViewModelTests {
       root: AppTestReportFactory.item(logicalBytes: 2_048, allocatedBytes: 4_096)
     )
     let recorder = ScanRequestRecorder()
+    let classificationRecorder = RuleClassificationRequestRecorder()
     let scope = SecurityScopeSpy()
     let model = ScanViewModel(
       scanner: ImmediateScanner(outcome: .report(report), recorder: recorder),
-      securityScope: scope
+      classifier: ImmediateRuleClassifier(recorder: classificationRecorder),
+      securityScope: scope,
+      referenceUnixSeconds: { 1_700_000_000 }
     )
 
     let task = model.startScan(at: root)
@@ -43,6 +47,11 @@ struct ScanViewModelTests {
 
     let requests = await recorder.requests()
     #expect(requests == [ScanRequest(root: root)])
+    let classificationRequests = await classificationRecorder.requests()
+    #expect(classificationRequests.count == 1)
+    #expect(classificationRequests.first?.root == root)
+    #expect(classificationRequests.first?.report == report)
+    #expect(classificationRequests.first?.referenceUnixSeconds == 1_700_000_000)
     #expect(scope.snapshot() == .init(starts: [root], stops: [root]))
     guard case .result(let resultRoot, let presentation) = model.phase else {
       Issue.record("Expected a result phase")
@@ -50,7 +59,49 @@ struct ScanViewModelTests {
     }
     #expect(resultRoot == root)
     #expect(presentation.report == report)
+    #expect(presentation.classification.referenceUnixSeconds == 1_700_000_000)
     #expect(presentation.observationIsComplete)
+  }
+
+  @Test("Security-scoped access remains active until policy classification finishes")
+  func securityScopeCoversClassification() async throws {
+    let root = URL(fileURLWithPath: "/private/tmp/policy-scope", isDirectory: true)
+    let report = AppTestReportFactory.report(
+      topLevelItems: [
+        AppTestReportFactory.item(rawComponents: [Array("DerivedData".utf8)])
+      ]
+    )
+    let classifier = GatedRuleClassifier()
+    let scope = SecurityScopeSpy()
+    let model = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(report)),
+      classifier: classifier,
+      securityScope: scope,
+      referenceUnixSeconds: { 123 }
+    )
+
+    let task = model.startScan(at: root)
+    try #require(await classifier.waitUntilStarted(root))
+
+    #expect(model.phase == .classifying(root))
+    #expect(model.isWorking)
+    #expect(scope.snapshot() == .init(starts: [root], stops: []))
+    let request = try #require(await classifier.request(root))
+    #expect(request.root == root)
+    #expect(request.report == report)
+    #expect(request.referenceUnixSeconds == 123)
+
+    try await classifier.resolve(root, with: .classify)
+    await task.value
+
+    guard case .result(let resultRoot, let presentation) = model.phase else {
+      Issue.record("Expected a classified result")
+      return
+    }
+    #expect(resultRoot == root)
+    #expect(presentation.items.first?.policy.matchState == .possibleMatch)
+    #expect(presentation.items.first?.policy.disposition == .protected)
+    #expect(scope.snapshot() == .init(starts: [root], stops: [root]))
   }
 
   @Test("A security scope that is not needed does not block an otherwise readable URL")
@@ -82,8 +133,15 @@ struct ScanViewModelTests {
       AppTestReportFactory.report(root: AppTestReportFactory.item(isComplete: false)),
       AppTestReportFactory.report(topLevelItemsWereSuppressed: true),
       AppTestReportFactory.report(hardLinkAccountingIsComplete: false),
-      AppTestReportFactory.report(traversalDetailsWereDiscarded: true),
-      AppTestReportFactory.report(suppressedIssueCount: 1),
+      AppTestReportFactory.report(
+        topLevelItemsWereSuppressed: true,
+        hardLinkAccountingIsComplete: false,
+        traversalDetailsWereDiscarded: true
+      ),
+      AppTestReportFactory.report(
+        root: AppTestReportFactory.item(isComplete: false),
+        suppressedIssueCount: 1
+      ),
     ]
 
     for (index, report) in reports.enumerated() {
@@ -147,6 +205,113 @@ struct ScanViewModelTests {
     #expect(failure.message.contains("NSError") == false)
   }
 
+  @Test("Classifier cancellation and failure remain safe terminal states")
+  func classifierTerminalStates() async {
+    let root = URL(fileURLWithPath: "/private/tmp/policy-terminal-state", isDirectory: true)
+    let report = AppTestReportFactory.report()
+
+    let cancelledScope = SecurityScopeSpy()
+    let cancelled = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(report)),
+      classifier: ImmediateRuleClassifier(outcome: .cancelled),
+      securityScope: cancelledScope
+    )
+    await cancelled.startScan(at: root).value
+    #expect(cancelled.phase == .cancelled(root))
+    #expect(cancelledScope.snapshot() == .init(starts: [root], stops: [root]))
+
+    let failedScope = SecurityScopeSpy()
+    let failed = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(report)),
+      classifier: ImmediateRuleClassifier(outcome: .unexpected),
+      securityScope: failedScope
+    )
+    await failed.startScan(at: root).value
+    #expect(failed.phase == .failed(root, .classification))
+    #expect(failedScope.snapshot() == .init(starts: [root], stops: [root]))
+    guard case .failed(_, let failure) = failed.phase else {
+      return
+    }
+    #expect(failure.message.contains(root.path) == false)
+    #expect(failure.message.contains("NSError") == false)
+  }
+
+  @Test("A classifier report with a mismatched reference time fails closed")
+  func mismatchedClassificationReferenceTime() async {
+    let root = URL(fileURLWithPath: "/private/tmp/mismatched-policy-time", isDirectory: true)
+    let scope = SecurityScopeSpy()
+    let model = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(AppTestReportFactory.report())),
+      classifier: ImmediateRuleClassifier(
+        outcome: .report(
+          RuleClassificationReport(referenceUnixSeconds: 101, evaluations: [])
+        )
+      ),
+      securityScope: scope,
+      referenceUnixSeconds: { 100 }
+    )
+
+    await model.startScan(at: root).value
+
+    #expect(model.phase == .failed(root, .classification))
+    #expect(scope.snapshot() == .init(starts: [root], stops: [root]))
+    guard case .failed(_, let failure) = model.phase else {
+      Issue.record("An invalid classifier report must not reach presentation")
+      return
+    }
+    #expect(failure.message == ScanFailure.classification.message)
+    #expect(failure.message.contains("reference") == false)
+    #expect(failure.message.contains("101") == false)
+  }
+
+  @Test("Classifier reports with missing or extra evaluations fail closed")
+  func invalidClassificationPathCoverage() async throws {
+    let referenceUnixSeconds: Int64 = 100
+    let item = AppTestReportFactory.item(rawComponents: [Array("ordinary".utf8)])
+    let reportWithItem = AppTestReportFactory.report(topLevelItems: [item])
+    let missing = RuleClassificationReport(
+      referenceUnixSeconds: referenceUnixSeconds,
+      evaluations: []
+    )
+    let extra = try await ExplainableRuleClassifier().classify(
+      RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/private/tmp/extra-policy-source", isDirectory: true),
+        report: reportWithItem,
+        referenceUnixSeconds: referenceUnixSeconds
+      )
+    )
+    let fixtures: [(ScanReport, RuleClassificationReport)] = [
+      (reportWithItem, missing),
+      (AppTestReportFactory.report(), extra),
+    ]
+
+    for (index, fixture) in fixtures.enumerated() {
+      let root = URL(
+        fileURLWithPath: "/private/tmp/invalid-policy-coverage-\(index)",
+        isDirectory: true
+      )
+      let scope = SecurityScopeSpy()
+      let model = ScanViewModel(
+        scanner: ImmediateScanner(outcome: .report(fixture.0)),
+        classifier: ImmediateRuleClassifier(outcome: .report(fixture.1)),
+        securityScope: scope,
+        referenceUnixSeconds: { referenceUnixSeconds }
+      )
+
+      await model.startScan(at: root).value
+
+      #expect(model.phase == .failed(root, .classification))
+      #expect(scope.snapshot() == .init(starts: [root], stops: [root]))
+      guard case .failed(_, let failure) = model.phase else {
+        Issue.record("An invalid classifier report must not reach presentation")
+        continue
+      }
+      #expect(failure.message == ScanFailure.classification.message)
+      #expect(failure.message.contains("ordinary") == false)
+      #expect(failure.message.contains("evaluation") == false)
+    }
+  }
+
   @Test("Scanner failures map to bounded presentation errors")
   func failureMapping() async {
     let errors: [ScanError] = [
@@ -161,14 +326,17 @@ struct ScanViewModelTests {
     for (index, error) in errors.enumerated() {
       let root = URL(fileURLWithPath: "/private/tmp/error-\(index)", isDirectory: true)
       let scope = SecurityScopeSpy()
+      let classificationRecorder = RuleClassificationRequestRecorder()
       let model = ScanViewModel(
         scanner: ImmediateScanner(outcome: .scanError(error)),
+        classifier: ImmediateRuleClassifier(recorder: classificationRecorder),
         securityScope: scope
       )
 
       await model.startScan(at: root).value
 
       #expect(model.phase == .failed(root, .scan(error)))
+      #expect(await classificationRecorder.requests().isEmpty)
       #expect(scope.snapshot() == .init(starts: [root], stops: [root]))
       guard case .failed(_, let failure) = model.phase else {
         continue
@@ -230,6 +398,70 @@ struct ScanViewModelTests {
     }
     #expect(root == secondRoot)
     #expect(presentation.report == secondReport)
+    #expect(
+      scope.snapshot()
+        == .init(starts: [firstRoot, secondRoot], stops: [secondRoot, firstRoot])
+    )
+  }
+
+  @Test("Cancelling policy analysis is immediate and ignores its late result")
+  func cancellationDuringClassificationIgnoresLateResult() async throws {
+    let root = URL(fileURLWithPath: "/private/tmp/cancelled-policy", isDirectory: true)
+    let classifier = GatedRuleClassifier()
+    let scope = SecurityScopeSpy()
+    let model = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(AppTestReportFactory.report())),
+      classifier: classifier,
+      securityScope: scope
+    )
+
+    let task = model.startScan(at: root)
+    try #require(await classifier.waitUntilStarted(root))
+    #expect(model.phase == .classifying(root))
+
+    model.cancelScan()
+    model.cancelScan()
+    #expect(model.phase == .cancelled(root))
+    #expect(scope.snapshot() == .init(starts: [root], stops: []))
+
+    try await classifier.resolve(root, with: .classify)
+    await task.value
+
+    #expect(model.phase == .cancelled(root))
+    #expect(scope.snapshot() == .init(starts: [root], stops: [root]))
+  }
+
+  @Test("A newer policy classification wins when an older one returns late")
+  func newerClassificationWins() async throws {
+    let firstRoot = URL(fileURLWithPath: "/private/tmp/first-policy", isDirectory: true)
+    let secondRoot = URL(fileURLWithPath: "/private/tmp/second-policy", isDirectory: true)
+    let report = AppTestReportFactory.report(
+      topLevelItems: [AppTestReportFactory.item(rawComponents: [Array("uv".utf8)])]
+    )
+    let classifier = GatedRuleClassifier()
+    let scope = SecurityScopeSpy()
+    let model = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(report)),
+      classifier: classifier,
+      securityScope: scope
+    )
+
+    let firstTask = model.startScan(at: firstRoot)
+    try #require(await classifier.waitUntilStarted(firstRoot))
+    let secondTask = model.startScan(at: secondRoot)
+    try #require(await classifier.waitUntilStarted(secondRoot))
+
+    try await classifier.resolve(secondRoot, with: .classify)
+    await secondTask.value
+    try await classifier.resolve(firstRoot, with: .unexpected)
+    await firstTask.value
+
+    guard case .result(let root, let presentation) = model.phase else {
+      Issue.record("Expected the newer policy result")
+      return
+    }
+    #expect(root == secondRoot)
+    #expect(presentation.report == report)
     #expect(
       scope.snapshot()
         == .init(starts: [firstRoot, secondRoot], stops: [secondRoot, firstRoot])

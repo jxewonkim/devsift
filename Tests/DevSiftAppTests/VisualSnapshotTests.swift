@@ -51,28 +51,39 @@ struct VisualSnapshotTests {
     try await gatedScanner.resolve(scanRoot, with: .report(AppTestReportFactory.report()))
     await scanningTask.value
 
+    let gatedClassifier = GatedRuleClassifier()
+    let classifyingModel = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(representativeReport())),
+      classifier: gatedClassifier,
+      securityScope: SecurityScopeSpy()
+    )
+    let classifyingTask = classifyingModel.startScan(at: scanRoot)
+    try #require(await gatedClassifier.waitUntilStarted(scanRoot))
+    try render(
+      ScanDashboardView(viewModel: classifyingModel),
+      appearance: .aqua,
+      to: outputDirectory.appendingPathComponent("classifying-light.png")
+    )
+    try await gatedClassifier.resolve(scanRoot, with: .classify)
+    await classifyingTask.value
+
     let resultModel = ScanViewModel(
       scanner: ImmediateScanner(outcome: .report(representativeReport())),
       securityScope: SecurityScopeSpy()
     )
     await resultModel.startScan(at: scanRoot).value
     try render(
-      ScanDashboardView(viewModel: resultModel),
-      appearance: .aqua,
-      to: outputDirectory.appendingPathComponent("result-light.png")
-    )
-    try render(
-      ScanDashboardView(viewModel: resultModel),
-      appearance: .darkAqua,
-      to: outputDirectory.appendingPathComponent("result-dark.png")
-    )
-    try render(
-      ScanDashboardView(viewModel: resultModel),
+      ScanDashboardView(
+        viewModel: resultModel,
+        policyDetailsInitiallyExpanded: true
+      ),
       appearance: .aqua,
       size: CGSize(width: 900, height: 620),
-      to: outputDirectory.appendingPathComponent("result-minimum-light.png")
+      to: outputDirectory.appendingPathComponent("policy-expanded-minimum-light.png")
     )
 
+    // Capture both constrained variants before the wider result windows so
+    // AppKit cannot carry a prior table scroll offset into their view cache.
     let partialRoot = URL(
       fileURLWithPath:
         "/private/tmp/DevSiftVisualFixture/a-long-synthetic-root-name-for-minimum-window-checks",
@@ -89,6 +100,31 @@ struct VisualSnapshotTests {
       size: CGSize(width: 900, height: 620),
       to: outputDirectory.appendingPathComponent("partial-minimum-light.png")
     )
+
+    try render(
+      ScanDashboardView(
+        viewModel: resultModel,
+        policyDetailsInitiallyExpanded: true
+      ),
+      appearance: .aqua,
+      to: outputDirectory.appendingPathComponent("policy-expanded-light.png")
+    )
+    try render(
+      ScanDashboardView(viewModel: resultModel),
+      appearance: .aqua,
+      to: outputDirectory.appendingPathComponent("result-light.png")
+    )
+    try render(
+      ScanDashboardView(viewModel: resultModel),
+      appearance: .darkAqua,
+      to: outputDirectory.appendingPathComponent("result-dark.png")
+    )
+    try render(
+      ScanDashboardView(viewModel: resultModel),
+      appearance: .aqua,
+      size: CGSize(width: 900, height: 620),
+      to: outputDirectory.appendingPathComponent("result-minimum-light.png")
+    )
   }
 
   private func render(
@@ -102,6 +138,9 @@ struct VisualSnapshotTests {
         view
         .frame(width: size.width, height: size.height)
         .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
+        .transaction { transaction in
+          transaction.disablesAnimations = true
+        }
     )
     let window = NSWindow(
       contentRect: CGRect(origin: .zero, size: size),
@@ -112,11 +151,23 @@ struct VisualSnapshotTests {
     window.isReleasedWhenClosed = false
     window.appearance = NSAppearance(named: appearance)
     window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer {
+      window.makeFirstResponder(nil)
+      window.orderOut(nil)
+      window.contentView = nil
+      window.close()
+      RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
     hostingView.frame = window.contentView?.bounds ?? CGRect(origin: .zero, size: size)
-    window.contentView?.layoutSubtreeIfNeeded()
-    window.displayIfNeeded()
-    hostingView.layoutSubtreeIfNeeded()
-    hostingView.displayIfNeeded()
+    for _ in 0..<10 {
+      hostingView.needsLayout = true
+      window.contentView?.layoutSubtreeIfNeeded()
+      window.displayIfNeeded()
+      hostingView.layoutSubtreeIfNeeded()
+      hostingView.displayIfNeeded()
+      RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
 
     guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
       throw SnapshotError.couldNotCreateBitmap
@@ -126,15 +177,14 @@ struct VisualSnapshotTests {
       throw SnapshotError.couldNotEncodePNG
     }
     try data.write(to: destination, options: .atomic)
-    window.close()
   }
 
   private func representativeReport() -> ScanReport {
     let rows = [
-      row("build-artifacts", gibibytes: 45.5, entries: 4_280),
-      row("device-support", gibibytes: 11.3, entries: 1_420),
-      row("tool-caches", gibibytes: 10.0, entries: 1_160),
-      row("derived-data", gibibytes: 5.7, entries: 840),
+      row("DerivedData", gibibytes: 45.5, entries: 4_280),
+      row("17.4 (21E217)", gibibytes: 11.3, entries: 1_420),
+      row("_cacache", gibibytes: 10.0, entries: 1_160),
+      row("Homebrew", gibibytes: 5.7, entries: 840),
       row(
         "windows-installer.iso",
         gibibytes: 4.9,
@@ -160,7 +210,7 @@ struct VisualSnapshotTests {
 
   private func representativePartialReport() -> ScanReport {
     let partialRow = row(
-      "a-long-synthetic-cache-name-with-an-observation-issue",
+      "uv",
       gibibytes: 6.4,
       entries: 420,
       isComplete: false

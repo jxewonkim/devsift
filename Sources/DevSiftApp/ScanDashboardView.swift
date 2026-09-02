@@ -7,48 +7,36 @@ struct ScanDashboardView: View {
   @State private var viewModel: ScanViewModel
   @State private var folderImporterIsPresented = false
   @State private var folderImportFailureIsPresented = false
+  private let policyDetailsInitiallyExpanded: Bool
 
-  init(viewModel: ScanViewModel = ScanViewModel()) {
+  init(
+    viewModel: ScanViewModel = ScanViewModel(),
+    policyDetailsInitiallyExpanded: Bool = false
+  ) {
     _viewModel = State(initialValue: viewModel)
+    self.policyDetailsInitiallyExpanded = policyDetailsInitiallyExpanded
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      dashboardHeader
-      Divider()
+    GeometryReader { window in
+      VStack(spacing: 0) {
+        dashboardHeader
+        Divider()
+        dashboardContent
+          .frame(
+            width: window.size.width,
+            height: max(0, window.size.height - DashboardLayout.chromeHeight)
+          )
+          .clipped()
 
-      Group {
-        switch viewModel.phase {
-        case .empty:
-          EmptyScanView(selectFolder: selectFolder)
-        case .scanning(let root):
-          ScanningView(root: root)
-        case .result(let root, let presentation):
-          ScanResultView(root: root, presentation: presentation)
-        case .cancelled(let root):
-          ScanMessageView(
-            systemImage: "stop.circle",
-            title: "Scan cancelled",
-            message: "The scan stopped without changing files.",
-            root: root,
-            primaryTitle: "Scan Again",
-            primaryAction: { viewModel.rescan() }
-          )
-        case .failed(let root, let failure):
-          ScanMessageView(
-            systemImage: "exclamationmark.triangle",
-            title: failure.title,
-            message: failure.message,
-            root: root,
-            primaryTitle: "Try Again",
-            primaryAction: { viewModel.rescan() }
-          )
-        }
+        Divider()
+        safetyFooter
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-      Divider()
-      safetyFooter
+      .frame(
+        width: window.size.width,
+        height: window.size.height,
+        alignment: .top
+      )
     }
     .frame(minWidth: 900, minHeight: 620)
     .background(Color(nsColor: .windowBackgroundColor))
@@ -80,6 +68,42 @@ struct ScanDashboardView: View {
     .onDisappear(perform: viewModel.stopForWindowClosure)
   }
 
+  @ViewBuilder
+  private var dashboardContent: some View {
+    switch viewModel.phase {
+    case .empty:
+      EmptyScanView(selectFolder: selectFolder)
+    case .scanning(let root):
+      ScanningView(root: root)
+    case .classifying(let root):
+      ClassifyingView(root: root)
+    case .result(let root, let presentation):
+      ScanResultView(
+        root: root,
+        presentation: presentation,
+        policyDetailsInitiallyExpanded: policyDetailsInitiallyExpanded
+      )
+    case .cancelled(let root):
+      ScanMessageView(
+        systemImage: "stop.circle",
+        title: "Scan cancelled",
+        message: "The scan stopped without changing files.",
+        root: root,
+        primaryTitle: "Scan Again",
+        primaryAction: { viewModel.rescan() }
+      )
+    case .failed(let root, let failure):
+      ScanMessageView(
+        systemImage: "exclamationmark.triangle",
+        title: failure.title,
+        message: failure.message,
+        root: root,
+        primaryTitle: "Try Again",
+        primaryAction: { viewModel.rescan() }
+      )
+    }
+  }
+
   private var dashboardHeader: some View {
     HStack(spacing: 14) {
       Label {
@@ -102,12 +126,12 @@ struct ScanDashboardView: View {
         .accessibilityHint("Scans the same selected folder again")
       }
 
-      if viewModel.isScanning {
+      if viewModel.isWorking {
         Button(role: .cancel, action: viewModel.cancelScan) {
           Label("Cancel", systemImage: "xmark")
         }
         .keyboardShortcut(.escape, modifiers: [])
-        .accessibilityHint("Stops the scan at the next cancellation checkpoint")
+        .accessibilityHint(DashboardAccessibility.cancelHint)
       }
 
       if showsHeaderFolderButton {
@@ -121,7 +145,7 @@ struct ScanDashboardView: View {
     }
     .controlSize(.regular)
     .padding(.horizontal, 28)
-    .frame(height: 64)
+    .frame(height: DashboardLayout.headerHeight)
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
@@ -142,7 +166,7 @@ struct ScanDashboardView: View {
     }
     .font(.caption)
     .padding(.horizontal, 28)
-    .frame(height: 36)
+    .frame(height: DashboardLayout.footerHeight)
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
@@ -152,6 +176,8 @@ struct ScanDashboardView: View {
       "Ready"
     case .scanning:
       "Scan in progress"
+    case .classifying:
+      "Policy analysis in progress"
     case .result(_, let presentation):
       presentation.observationIsComplete ? "Complete observation" : "Partial observation"
     case .cancelled:
@@ -163,7 +189,7 @@ struct ScanDashboardView: View {
 
   private var showsHeaderFolderButton: Bool {
     switch viewModel.phase {
-    case .empty, .scanning:
+    case .empty, .scanning, .classifying:
       false
     default:
       true
@@ -191,6 +217,13 @@ struct ScanDashboardView: View {
       folderImportFailureIsPresented = true
     }
   }
+}
+
+private enum DashboardLayout {
+  static let headerHeight: CGFloat = 64
+  static let footerHeight: CGFloat = 36
+  static let dividerHeight: CGFloat = 1
+  static let chromeHeight = headerHeight + footerHeight + (dividerHeight * 2)
 }
 
 enum FolderImportDecision: Equatable {
@@ -317,6 +350,50 @@ private struct ScanningView: View {
 
       Spacer(minLength: 0)
     }
+  }
+}
+
+private struct ClassifyingView: View {
+  let root: URL
+
+  var body: some View {
+    VStack(spacing: 22) {
+      ZStack {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+          .fill(Color.accentColor.opacity(0.08))
+          .frame(width: 104, height: 104)
+        Image(systemName: "checklist")
+          .font(.system(size: 44, weight: .light))
+          .foregroundStyle(.tint)
+      }
+      .accessibilityHidden(true)
+
+      VStack(spacing: 8) {
+        Text("Analyzing policies for \(SafeDisplayText.fileName(of: root))…")
+          .font(.system(size: 28, weight: .semibold))
+          .lineLimit(1)
+          .accessibilityAddTraits(.isHeader)
+        Text(
+          "The storage scan has finished. DevSift is comparing exact filesystem names with versioned, read-only rules."
+        )
+        .font(.title3)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 620)
+      }
+
+      ProgressView()
+        .controlSize(.small)
+        .accessibilityLabel("Analyzing read-only storage policies")
+
+      Label(
+        "Missing ownership, age, activity, or location evidence stays protected.",
+        systemImage: "lock.shield"
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
+    }
+    .padding(40)
   }
 }
 

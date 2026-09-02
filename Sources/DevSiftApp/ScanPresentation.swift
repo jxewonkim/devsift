@@ -4,6 +4,7 @@ import Foundation
 struct ScanItemRow: Hashable, Identifiable, Sendable {
   let summary: ScanItemSummary
   let displayPath: String
+  let policy: PolicyDecisionPresentation
 
   var id: ScanRelativePath {
     summary.path
@@ -16,8 +17,279 @@ struct ScanItemRow: Hashable, Identifiable, Sendable {
   }
 }
 
+struct PolicyDecisionPresentation: Hashable, Sendable {
+  let evaluations: [RuleEvaluation]
+  private let integrity: PolicyResultIntegrity
+
+  init(evaluations: [RuleEvaluation]) {
+    self.evaluations = evaluations.sorted { left, right in
+      Self.revisionSortKey(left) < Self.revisionSortKey(right)
+    }
+    integrity = Self.validate(evaluations)
+  }
+
+  var evaluation: RuleEvaluation? {
+    evaluations.count == 1 ? evaluations[0] : nil
+  }
+
+  var disposition: RuleDisposition {
+    guard !isMalformed else {
+      return .protected
+    }
+    return evaluation?.disposition ?? .protected
+  }
+
+  var matchState: RuleMatchState {
+    guard !isMalformed else {
+      return .invalidRule
+    }
+    return evaluation?.matchState ?? .unrecognized
+  }
+
+  var isMalformed: Bool {
+    malformedReason != nil
+  }
+
+  var malformedReason: String? {
+    guard case .malformed(let reason) = integrity else {
+      return nil
+    }
+    return reason
+  }
+
+  var badgeTitle: String {
+    switch disposition {
+    case .reclaimable:
+      "Reclaimable"
+    case .reviewRequired:
+      "Review"
+    case .protected:
+      "Protected"
+    }
+  }
+
+  var systemImage: String {
+    switch disposition {
+    case .reclaimable:
+      "checkmark.seal.fill"
+    case .reviewRequired:
+      "eye.fill"
+    case .protected:
+      "lock.shield.fill"
+    }
+  }
+
+  var matchStateDisplayName: String {
+    if isMalformed {
+      return "Malformed result"
+    }
+
+    return switch matchState {
+    case .matched:
+      "Matched"
+    case .possibleMatch:
+      "Possible match"
+    case .unrecognized:
+      "Unrecognized"
+    case .conflict:
+      "Conflict"
+    case .invalidRule:
+      "Invalid rule"
+    }
+  }
+
+  var displayName: String {
+    if isMalformed {
+      return "Malformed policy result"
+    }
+    return evaluation?.displayName ?? "Unrecognized data"
+  }
+
+  var responsibleTool: String {
+    if isMalformed {
+      return "Policy result validation"
+    }
+    return evaluation?.responsibleTool ?? "Unknown"
+  }
+
+  var explanation: String {
+    if let malformedReason {
+      return "\(malformedReason) The item remains protected."
+    }
+    return evaluation?.explanation
+      ?? "No policy result was returned for this exact raw path, so the item remains protected."
+  }
+
+  var ruleRevisionLabels: [String] {
+    let revisions = evaluations.flatMap { evaluation in
+      [evaluation.rule].compactMap { $0 } + evaluation.matchingRules
+    }
+    return Array(Set(revisions)).sorted().map { revision in
+      "\(revision.identifier.rawValue)@\(revision.version.rawValue)"
+    }
+  }
+
+  var findings: [RuleFinding] {
+    evaluation?.findings ?? []
+  }
+
+  var accessibilityLabel: String {
+    "Policy disposition: \(badgeTitle). Match state: \(matchStateDisplayName). \(explanation)"
+  }
+
+  private static func revisionSortKey(_ evaluation: RuleEvaluation) -> String {
+    if let rule = evaluation.rule {
+      return "\(rule.identifier.rawValue)@\(rule.version.rawValue)"
+    }
+    return evaluation.matchingRules.map { revision in
+      "\(revision.identifier.rawValue)@\(revision.version.rawValue)"
+    }.joined(separator: ",")
+  }
+
+  private static func validate(_ evaluations: [RuleEvaluation]) -> PolicyResultIntegrity {
+    guard evaluations.count == 1, let evaluation = evaluations.first else {
+      if evaluations.isEmpty {
+        return .malformed("No policy evaluation was returned for this exact raw path.")
+      }
+      return .malformed(
+        "Multiple policy evaluations were returned for this exact raw path."
+      )
+    }
+
+    guard !evaluation.findings.isEmpty else {
+      return .malformed("The policy evaluation contains no structured findings.")
+    }
+
+    switch evaluation.matchState {
+    case .matched:
+      guard evaluation.disposition == .reclaimable || evaluation.disposition == .reviewRequired
+      else {
+        return .malformed("A matched policy evaluation reported a protected disposition.")
+      }
+      guard let rule = evaluation.rule else {
+        return .malformed("A matched policy evaluation did not identify its rule revision.")
+      }
+      guard evaluation.matchingRules == [rule] else {
+        return .malformed(
+          "A matched policy evaluation did not name exactly the same single rule revision."
+        )
+      }
+      guard evaluation.findings.allSatisfy(\.isSatisfied) else {
+        return .malformed("A matched policy evaluation contains an unsatisfied finding.")
+      }
+      guard
+        evaluation.findings.contains(where: {
+          $0.kind == .positiveEvidence && $0.isSatisfied
+        })
+      else {
+        return .malformed("A matched policy evaluation contains no positive evidence.")
+      }
+      guard
+        evaluation.findings.contains(where: {
+          $0.kind == .exclusion && $0.isSatisfied
+        })
+      else {
+        return .malformed("A matched policy evaluation contains no satisfied exclusion check.")
+      }
+      guard evaluation.reproducibility != .unknown else {
+        return .malformed("A matched policy evaluation has unknown reproducibility.")
+      }
+      if evaluation.disposition == .reclaimable,
+        evaluation.reproducibility != .reproducible
+      {
+        return .malformed(
+          "A reclaimable policy evaluation did not establish reproducibility."
+        )
+      }
+      return .valid
+
+    case .possibleMatch:
+      guard evaluation.disposition == .protected else {
+        return .malformed("A possible match reported a non-protected disposition.")
+      }
+      guard let rule = evaluation.rule else {
+        return .malformed("A possible match did not identify its rule revision.")
+      }
+      guard evaluation.matchingRules == [rule] else {
+        return .malformed(
+          "A possible match did not name exactly the same single rule revision."
+        )
+      }
+      guard evaluation.findings.contains(where: { !$0.isSatisfied }) else {
+        return .malformed("A possible match did not contain a blocking finding.")
+      }
+      return .valid
+
+    case .unrecognized:
+      guard evaluation.disposition == .protected else {
+        return .malformed("An unrecognized result reported a non-protected disposition.")
+      }
+      guard evaluation.rule == nil, evaluation.matchingRules.isEmpty else {
+        return .malformed("An unrecognized result unexpectedly identified a matching rule.")
+      }
+      guard evaluation.findings.contains(where: { !$0.isSatisfied }) else {
+        return .malformed("An unrecognized result did not contain a blocking finding.")
+      }
+      return .valid
+
+    case .conflict:
+      guard evaluation.disposition == .protected else {
+        return .malformed("A conflicting result reported a non-protected disposition.")
+      }
+      guard evaluation.rule == nil else {
+        return .malformed("A conflicting result unexpectedly selected one rule revision.")
+      }
+      guard evaluation.matchingRules.count != 1 else {
+        return .malformed("A conflicting result identified only one matching rule revision.")
+      }
+      guard Set(evaluation.matchingRules).count == evaluation.matchingRules.count else {
+        return .malformed("A conflicting result repeated a matching rule revision.")
+      }
+      guard evaluation.findings.contains(where: { !$0.isSatisfied }) else {
+        return .malformed("A conflicting result did not contain a blocking finding.")
+      }
+      return .valid
+
+    case .invalidRule:
+      guard evaluation.disposition == .protected else {
+        return .malformed("An invalid-rule result reported a non-protected disposition.")
+      }
+      if let rule = evaluation.rule {
+        guard evaluation.matchingRules == [rule] else {
+          return .malformed(
+            "An invalid-rule result did not name exactly the same single rule revision."
+          )
+        }
+      } else {
+        guard !evaluation.matchingRules.isEmpty else {
+          return .malformed("An invalid-rule result did not identify an affected rule revision.")
+        }
+        guard Set(evaluation.matchingRules).count == evaluation.matchingRules.count else {
+          return .malformed("An invalid-rule result repeated an affected rule revision.")
+        }
+      }
+      guard evaluation.findings.contains(where: { !$0.isSatisfied }) else {
+        return .malformed("An invalid-rule result did not contain a blocking finding.")
+      }
+      return .valid
+    }
+  }
+}
+
+private enum PolicyResultIntegrity: Hashable, Sendable {
+  case valid
+  case malformed(String)
+}
+
+extension RuleFinding {
+  fileprivate var isSatisfied: Bool {
+    state == .satisfied
+  }
+}
+
 struct ScanPresentation: Equatable, Sendable {
   let report: ScanReport
+  let classification: RuleClassificationReport
   let items: [ScanItemRow]
 
   var metricsAreAvailable: Bool {
@@ -66,7 +338,10 @@ struct ScanPresentation: Equatable, Sendable {
     return messages
   }
 
-  static func prepare(report: ScanReport) async throws -> ScanPresentation {
+  static func prepare(
+    report: ScanReport,
+    classification: RuleClassificationReport
+  ) async throws -> ScanPresentation {
     let worker = Task.detached(priority: .userInitiated) {
       try Task.checkCancellation()
 
@@ -78,10 +353,22 @@ struct ScanPresentation: Equatable, Sendable {
       }
       try Task.checkCancellation()
 
+      let evaluationsByPath = Dictionary(
+        grouping: classification.evaluations,
+        by: \RuleEvaluation.path
+      )
+
       return ScanPresentation(
         report: report,
+        classification: classification,
         items: sortedItems.map {
-          ScanItemRow(summary: $0, displayPath: SafeDisplayText.path($0.path))
+          ScanItemRow(
+            summary: $0,
+            displayPath: SafeDisplayText.path($0.path),
+            policy: PolicyDecisionPresentation(
+              evaluations: evaluationsByPath[$0.path, default: []]
+            )
+          )
         }
       )
     }
@@ -210,16 +497,21 @@ enum StorageByteFormatter {
 }
 
 enum DashboardAccessibility {
+  static let cancelHint =
+    "Stops the active scan or policy analysis at the next cancellation checkpoint"
+
   static func announcement(for phase: ScanDashboardPhase) -> String? {
     switch phase {
     case .empty:
       nil
     case .scanning(let root):
       "Scanning \(SafeDisplayText.fileName(of: root)). File contents are never opened."
+    case .classifying(let root):
+      "Storage scan finished. Analyzing read-only policies for \(SafeDisplayText.fileName(of: root))."
     case .result(_, let presentation):
       presentation.observationIsComplete
-        ? "Scan complete within configured limits. Results are ready."
-        : "Partial scan. Some entries or accounting details were not observed. Results are ready."
+        ? "Scan and read-only policy analysis complete. Results are ready."
+        : "Partial scan and read-only policy analysis complete. Some observation details are unavailable. Results are ready."
     case .cancelled:
       "Scan cancelled. No files were changed."
     case .failed(_, let failure):
@@ -307,6 +599,80 @@ extension ScanOperation {
       "Read metadata"
     case .measureSize:
       "Measure size"
+    }
+  }
+}
+
+extension RuleFindingKind {
+  var displayName: String {
+    switch self {
+    case .lexicalRecognition:
+      "Name recognition"
+    case .positiveEvidence:
+      "Required evidence"
+    case .exclusion:
+      "Protected-content check"
+    case .reproducibility:
+      "Reproducibility"
+    case .age:
+      "Age requirement"
+    case .activity:
+      "Activity requirement"
+    case .scanIntegrity:
+      "Observation integrity"
+    case .conflict:
+      "Rule conflict"
+    case .ruleValidity:
+      "Rule validity"
+    }
+  }
+}
+
+extension RuleFindingState {
+  var displayName: String {
+    switch self {
+    case .satisfied:
+      "Satisfied"
+    case .failed:
+      "Failed"
+    case .unknown(let reason):
+      "Unknown · \(reason.displayName)"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .satisfied:
+      "checkmark.circle.fill"
+    case .failed:
+      "xmark.circle.fill"
+    case .unknown:
+      "questionmark.circle.fill"
+    }
+  }
+}
+
+extension RuleUnknownReason {
+  var displayName: String {
+    switch self {
+    case .notCollected:
+      "not collected"
+    case .unsupported:
+      "unsupported"
+    case .permissionDenied:
+      "permission denied"
+    case .incompleteScan:
+      "incomplete scan"
+    case .changedDuringObservation:
+      "changed during observation"
+    case .resourceLimit:
+      "resource limit"
+    case .clockSkew:
+      "clock skew"
+    case .invalidMetadata:
+      "invalid metadata"
+    case .unspecified:
+      "unspecified"
     }
   }
 }

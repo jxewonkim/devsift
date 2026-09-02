@@ -23,20 +23,28 @@ enum CLIExitCode {
 
 struct CLIApplication {
   private let scanner: any FileSystemScanning
+  private let classifier: any RuleClassifying
   private let currentDirectory: URL
   private let scanLimits: ScanLimits
+  private let referenceUnixSeconds: @Sendable () -> Int64
 
   init(
     scanner: any FileSystemScanning = AllocatedSizeScanner(),
+    classifier: any RuleClassifying = ExplainableRuleClassifier(),
     currentDirectory: URL = URL(
       fileURLWithPath: FileManager.default.currentDirectoryPath,
       isDirectory: true
     ),
-    scanLimits: ScanLimits = ScanLimits()
+    scanLimits: ScanLimits = ScanLimits(),
+    referenceUnixSeconds: @escaping @Sendable () -> Int64 = {
+      Int64(Date().timeIntervalSince1970.rounded(.down))
+    }
   ) {
     self.scanner = scanner
+    self.classifier = classifier
     self.currentDirectory = currentDirectory
     self.scanLimits = scanLimits
+    self.referenceUnixSeconds = referenceUnixSeconds
   }
 
   func run(arguments: [String]) async -> CLIResult {
@@ -55,7 +63,7 @@ struct CLIApplication {
         exitCode: CLIExitCode.success,
         standardOutput: """
           \(DevSiftStatus.current.summary)
-          Read-only scanning is available. This build cannot delete, move, or modify files.
+          Read-only scanning and policy classification are available. This build cannot delete, move, or modify files.
           """ + "\n",
         standardError: ""
       )
@@ -81,9 +89,89 @@ struct CLIApplication {
         standardError: ""
       )
 
+    case .classifyHelp:
+      return CLIResult(
+        exitCode: CLIExitCode.success,
+        standardOutput: CLIHelp.classify + "\n",
+        standardError: ""
+      )
+
     case .scan(let path, let format):
       return await scan(path: path, format: format)
+
+    case .classify(let path, let format):
+      return await classify(path: path, format: format)
     }
+  }
+
+  private func classify(path: String, format: CLIOutputFormat) async -> CLIResult {
+    let root = resolvedRoot(for: path)
+    let request = ScanRequest(root: root, limits: scanLimits)
+    var phase = ClassificationPipelinePhase.scanning
+
+    do {
+      let scanReport = try await scanner.scan(request)
+      try Task.checkCancellation()
+      phase = .classifying
+      let classificationRequest = RuleClassificationRequest(
+        root: root,
+        report: scanReport,
+        referenceUnixSeconds: referenceUnixSeconds()
+      )
+      let classificationReport = try await classifier.classify(
+        classificationRequest
+      )
+      try Task.checkCancellation()
+      try classificationReport.validate(for: classificationRequest)
+
+      let output: String
+      switch format {
+      case .text:
+        output = ClassificationTextRenderer.render(
+          report: classificationReport,
+          scanReport: scanReport
+        )
+      case .json:
+        output = try ClassificationJSONRenderer.render(
+          report: classificationReport,
+          scanReport: scanReport
+        )
+      }
+      try Task.checkCancellation()
+
+      if scanReport.isComplete {
+        return CLIResult(
+          exitCode: CLIExitCode.success,
+          standardOutput: output,
+          standardError: ""
+        )
+      }
+
+      return CLIResult(
+        exitCode: CLIExitCode.partialResult,
+        standardOutput: output,
+        standardError:
+          "devsift: classification completed from partial scan results; inspect the report for details.\n"
+      )
+    } catch {
+      if error is CancellationError || Task.isCancelled {
+        let operation = phase == .scanning ? "scan" : "classification"
+        return CLIResult(
+          exitCode: CLIExitCode.cancelled,
+          standardOutput: "",
+          standardError: "devsift: \(operation) cancelled.\n"
+        )
+      }
+      if case .scanning = phase, let scanError = error as? ScanError {
+        return scanErrorResult(scanError, path: path)
+      }
+      return internalError()
+    }
+  }
+
+  private enum ClassificationPipelinePhase {
+    case scanning
+    case classifying
   }
 
   private func scan(path: String, format: CLIOutputFormat) async -> CLIResult {
@@ -168,9 +256,32 @@ struct CLIApplication {
       message = "output format may be specified only once"
     case .scanHelpCannotBeCombined:
       message = "scan help cannot be combined with a path or other options"
+    case .missingClassifyPath:
+      message = "classify requires exactly one path"
+    case .emptyClassifyPath:
+      message = "classify path must not be empty"
+    case .multipleClassifyPaths:
+      message = "classify accepts exactly one path"
+    case .unknownClassifyOption(let option):
+      message = "unknown classify option \(TerminalText.quoted(option))"
+    case .missingClassifyFormatValue:
+      message = "--format requires text or json"
+    case .invalidClassifyFormat(let value):
+      message = "invalid output format \(TerminalText.quoted(value)); expected text or json"
+    case .duplicateClassifyFormatOption:
+      message = "output format may be specified only once"
+    case .classifyHelpCannotBeCombined:
+      message = "classify help cannot be combined with a path or other options"
     }
 
-    let usage = error.isScanError ? CLIHelp.scanUsage : CLIHelp.mainUsage
+    let usage: String
+    if error.isScanError {
+      usage = CLIHelp.scanUsage
+    } else if error.isClassifyError {
+      usage = CLIHelp.classifyUsage
+    } else {
+      usage = CLIHelp.mainUsage
+    }
     return CLIResult(
       exitCode: CLIExitCode.usage,
       standardOutput: "",
@@ -237,6 +348,8 @@ struct CLIApplication {
 enum CLIHelp {
   static let mainUsage = "Usage: devsift <command>"
   static let scanUsage = "Usage: devsift scan [--format text|json] [--json] [--] <path>"
+  static let classifyUsage =
+    "Usage: devsift classify [--format text|json] [--json] [--] <path>"
 
   static let main = """
     OVERVIEW: Explainable, local-first storage analysis for macOS.
@@ -244,12 +357,14 @@ enum CLIHelp {
     USAGE: devsift <command>
 
     COMMANDS:
+      classify    Classify top-level items with explainable, fail-closed rules
       scan        Analyze one explicit directory without changing it
       status      Show the current safety mode (default)
       version     Show the development version
       help        Show this help
 
     Run 'devsift scan --help' for scan options.
+    Run 'devsift classify --help' for classification options.
     This build cannot delete, move, or modify files.
     """
 
@@ -271,5 +386,25 @@ enum CLIHelp {
 
     This command reads filesystem metadata only. It never reads file contents
     and cannot delete, move, or modify files.
+    """
+
+  static let classify = """
+    OVERVIEW: Scan and classify one explicit directory without changing it.
+
+    USAGE: devsift classify [--format text|json] [--json] [--] <path>
+
+    OPTIONS:
+      --format <text|json>  Select the output format (default: text)
+      --json                Alias for --format json
+      --                     Treat the remaining argument as the path
+      -h, --help             Show this help
+
+    The directory is scanned first, then each retained top-level item receives
+    one deterministic rule decision. Paths in output are root-relative. Missing,
+    failed, conflicting, or incomplete evidence always remains protected. A
+    classification derived from a partial scan exits with status 2.
+
+    This command reads filesystem metadata only. A classification is not deletion
+    authorization, and this build cannot delete, move, or modify files.
     """
 }

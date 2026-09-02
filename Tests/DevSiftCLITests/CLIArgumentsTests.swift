@@ -37,6 +37,26 @@ struct CLIArgumentsTests {
     )
   }
 
+  @Test("Classify accepts text and JSON formats in either option position")
+  func classifyFormats() throws {
+    #expect(
+      try CLIArguments.parse(["classify", "fixture"])
+        == .classify(path: "fixture", format: .text)
+    )
+    #expect(
+      try CLIArguments.parse(["classify", "--format", "json", "fixture"])
+        == .classify(path: "fixture", format: .json)
+    )
+    #expect(
+      try CLIArguments.parse(["classify", "fixture", "--format=text"])
+        == .classify(path: "fixture", format: .text)
+    )
+    #expect(
+      try CLIArguments.parse(["classify", "fixture", "--json"])
+        == .classify(path: "fixture", format: .json)
+    )
+  }
+
   @Test("Double dash preserves dash-prefixed and help-like paths")
   func optionsTerminator() throws {
     #expect(
@@ -47,6 +67,14 @@ struct CLIArgumentsTests {
       try CLIArguments.parse(["scan", "--", "--help"])
         == .scan(path: "--help", format: .text)
     )
+    #expect(
+      try CLIArguments.parse(["classify", "--", "-cache"])
+        == .classify(path: "-cache", format: .text)
+    )
+    #expect(
+      try CLIArguments.parse(["classify", "--", "--help"])
+        == .classify(path: "--help", format: .text)
+    )
   }
 
   @Test("Scan help is scoped and cannot hide invalid combinations")
@@ -56,6 +84,16 @@ struct CLIArgumentsTests {
     #expect(
       parseError(["scan", "folder", "--help"])
         == .scanHelpCannotBeCombined
+    )
+  }
+
+  @Test("Classify help is scoped and cannot hide invalid combinations")
+  func classifyHelp() throws {
+    #expect(try CLIArguments.parse(["classify", "--help"]) == .classifyHelp)
+    #expect(try CLIArguments.parse(["classify", "-h"]) == .classifyHelp)
+    #expect(
+      parseError(["classify", "folder", "--help"])
+        == .classifyHelpCannotBeCombined
     )
   }
 
@@ -71,7 +109,25 @@ struct CLIArgumentsTests {
       parseError(["scan", "--json", "--format", "json", "one"])
         == .duplicateFormatOption
     )
-    for command in ["clean", "delete", "remove", "purge", "quarantine"] {
+    #expect(parseError(["classify"]) == .missingClassifyPath)
+    #expect(parseError(["classify", ""]) == .emptyClassifyPath)
+    #expect(parseError(["classify", "one", "two"]) == .multipleClassifyPaths)
+    #expect(
+      parseError(["classify", "--wat", "one"])
+        == .unknownClassifyOption("--wat")
+    )
+    #expect(parseError(["classify", "--format"]) == .missingClassifyFormatValue)
+    #expect(
+      parseError(["classify", "--format", "yaml", "one"])
+        == .invalidClassifyFormat("yaml")
+    )
+    #expect(
+      parseError(["classify", "--json", "--format", "json", "one"])
+        == .duplicateClassifyFormatOption
+    )
+    for command in [
+      "clean", "cleanup", "delete", "erase", "prune", "remove", "purge", "quarantine",
+    ] {
       #expect(parseError([command, "one"]) == .unknownCommand(command))
     }
     #expect(parseError(["status", "extra"]) == .unexpectedArguments(command: "status"))
