@@ -15,6 +15,7 @@ struct RuleClassificationReportValidationTests {
       referenceUnixSeconds: 1_000_000
     )
     let result = try await ExplainableRuleClassifier().classify(request)
+    #expect(result.isSourceBound(to: request))
     try result.validate(for: request)
 
     let duplicateRequest = RuleClassificationRequest(
