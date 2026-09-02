@@ -98,6 +98,11 @@ extension RuleClassificationReport {
   /// request. Custom classifiers are trusted in-process code, but callers can
   /// use this method to reject bounded yet structurally inconsistent output.
   public func validate(for request: RuleClassificationRequest) throws {
+    if let sourceRequestBinding {
+      guard sourceRequestBinding == request else {
+        throw RuleClassificationReportValidationError.sourceRequestMismatch
+      }
+    }
     guard referenceUnixSeconds == request.referenceUnixSeconds else {
       throw RuleClassificationReportValidationError.referenceTimeMismatch(
         expected: request.referenceUnixSeconds,

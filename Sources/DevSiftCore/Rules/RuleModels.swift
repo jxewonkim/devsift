@@ -360,10 +360,42 @@ public struct RuleClassificationRequest: Hashable, Sendable {
 public struct RuleClassificationReport: Hashable, Sendable {
   public let referenceUnixSeconds: Int64
   public let evaluations: [RuleEvaluation]
+  /// Exact in-memory source binding retained by the built-in classifier.
+  ///
+  /// This is intentionally not public output. It prevents a classification
+  /// from being paired with a different scan request that happens to contain
+  /// the same paths and reference time.
+  let sourceRequestBinding: RuleClassificationRequest?
 
+  /// Creates an unbound report for trusted custom presentation flows.
+  /// `CleanupPlanner` accepts only reports sealed to their exact request by an
+  /// `ExplainableRuleClassifier` invocation.
   public init(referenceUnixSeconds: Int64, evaluations: [RuleEvaluation]) {
     self.referenceUnixSeconds = referenceUnixSeconds
     self.evaluations = evaluations
+    sourceRequestBinding = nil
+  }
+
+  init(
+    referenceUnixSeconds: Int64,
+    evaluations: [RuleEvaluation],
+    sourceRequestBinding: RuleClassificationRequest?
+  ) {
+    self.referenceUnixSeconds = referenceUnixSeconds
+    self.evaluations = evaluations
+    self.sourceRequestBinding = sourceRequestBinding
+  }
+
+  func binding(to request: RuleClassificationRequest) -> RuleClassificationReport {
+    RuleClassificationReport(
+      referenceUnixSeconds: referenceUnixSeconds,
+      evaluations: evaluations,
+      sourceRequestBinding: request
+    )
+  }
+
+  func isSourceBound(to request: RuleClassificationRequest) -> Bool {
+    sourceRequestBinding == request
   }
 }
 
@@ -414,6 +446,7 @@ public enum RuleEvaluationInvariant: String, CaseIterable, Hashable, Sendable {
 
 public enum RuleClassificationReportValidationError: Error, Equatable, Sendable {
   case referenceTimeMismatch(expected: Int64, actual: Int64)
+  case sourceRequestMismatch
   case tooManyInputItems(maximum: Int, actual: Int)
   case tooManyEvaluations(maximum: Int, actual: Int)
   case rootSummaryPathIsNotRoot(ScanRelativePath)
@@ -466,6 +499,8 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
 public protocol RuleClassifying: Sendable {
   /// Custom implementations are trusted in-process code. Consumers should
   /// validate returned reports against the request before presenting them.
+  /// Reports built with the public report initializer are intentionally
+  /// unbound and cannot be consumed by `CleanupPlanner`.
   func classify(_ request: RuleClassificationRequest) async throws -> RuleClassificationReport
 }
 

@@ -6,7 +6,7 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
                  scan -> rules -> plan -> executor
-                   now      now      later    later
+                   now      now   Core now    later
 ```
 
 ## Components
@@ -28,7 +28,10 @@ Core layers are:
 - **Rules:** versioned, deterministic candidate recognition, evidence findings,
   and conservative policy classification. Rules receive observations rather
   than filesystem URLs; the central classifier alone computes dispositions;
-- **Planning:** deterministic immutable dry-run manifests;
+- **Planning:** a pure Core transformation from explicit path-and-rule
+  selections over a validated classification into deterministic, immutable
+  in-memory draft manifests. Planning performs no filesystem I/O, and selection
+  is not approval;
 - **Execution:** revalidation and recoverable quarantine, introduced only after
   the earlier layers are stable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
@@ -38,7 +41,8 @@ Core layers are:
 The CLI parses explicit commands, invokes DevSiftCore, and renders human-readable
 or versioned JSON output. Results go to standard output and diagnostics to
 standard error. The `scan` and `classify` schemas are versioned independently.
-The CLI does not implement independent filesystem rules.
+The CLI does not implement independent filesystem rules. It currently has no
+plan command or manifest serialization contract.
 
 The executable has a thin process entry point over a testable async runner.
 Arguments, filesystem requests, rendering, and exit mapping are exercised
@@ -51,7 +55,8 @@ root-relative, and exact path-component bytes are retained as Base64.
 The current macOS app provides explicit folder selection, distinct
 indeterminate scan and policy-analysis states, cancellation, rescan,
 observation results, partial-result details, explainable policy assessments,
-and accessibility. Plan review belongs to the later planning phase.
+and accessibility. Draft-manifest creation and plan review are not exposed in
+the app yet.
 
 Each window owns a `@MainActor` observable view model with injected
 `FileSystemScanning` and `RuleClassifying` capabilities. It passes the file
@@ -67,6 +72,16 @@ shared Core boundary checks path coverage, scan-report structure, common
 finding states, semantic invariants, and aggregate resource limits; malformed
 output never reaches a frontend-specific projection.
 
+The Core planner repeats that validation at its own boundary before joining an
+explicit `CleanupCandidateSelection` to a scan summary and rule evaluation by
+exact raw path and revision. It also requires the built-in classifier's
+non-public exact source-request binding so one scan's evidence cannot be paired
+with another scan's identities or sizes. It accepts only matched `reclaimable`
+or `review-required` decisions, preserves their evidence and expected
+identities, and fails the whole request if any selection is invalid or
+ambiguous. The result does not include the absolute root URL and cannot
+authorize execution.
+
 ## Dependency rules
 
 - Frontends may depend on DevSiftCore; DevSiftCore never imports a frontend.
@@ -81,9 +96,10 @@ output never reaches a frontend-specific projection.
 
 DevSift distinguishes logical file size from observed allocated disk usage. The
 current UI displays observations and does not calculate reclaim estimates.
-Rules and future plans derive policy separately and label uncertainty. Hard
-links, sparse files, packages, clones, and filesystem snapshots require
-explicit handling and tests rather than naive recursive summation.
+Rules derive policy; draft plans preserve explicitly selected validated
+decisions and their uncertainty. Hard links, sparse files, packages, clones,
+and filesystem snapshots require explicit handling and tests rather than naive
+recursive summation.
 
 The scanner reports apparent bytes separately from hard-link-exclusive
 allocated bytes. A hard-linked regular-file inode receives that credit only
@@ -100,6 +116,14 @@ Scanning, classification, planning, and execution remain separate stages. A
 future optimization must not combine them in a way that allows discovery code
 to mutate the filesystem or bypass plan review.
 
+The current planner receives no filesystem capability or descendant URL. It
+copies only validated, bounded values into an in-memory draft: the root identity
+without its absolute URL, exact root-relative raw paths, expected candidate
+identity and kind, rule revision, policy evidence, and observed allocation
+estimates. `CleanupCandidateSelection` identifies a requested path and rule
+revision; it is not approval. Codable export, persistence, diffing, frontend
+review, approval, and execution are separate future boundaries.
+
 The current scan-to-rule adapter projects only facts already present in the
 bounded `ScanReport`; it performs no additional filesystem I/O. Rules consume
 the modification-time aggregate only for complete item summaries. A separate,
@@ -109,9 +133,11 @@ root and candidate against their scan-time identities. For an exact SwiftPM
 `workspace-state.json` child without following symbolic-link targets.
 
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
-not persistent object identities or deletion authority. They do not establish
-trusted location, ownership, or cleanup eligibility, and future planning or
-execution must revalidate containment, kind, identity, and policy evidence.
+not persistent object identities or deletion authority. Copying them into a
+draft manifest does not establish trusted location, ownership, approval, or
+cleanup authority, and future execution must revalidate containment, kind,
+identity, and policy evidence.
 Any observer added for the remaining facts must preserve descriptor-relative
 traversal and identity checks rather than reconstructing descendant `URL`
-values from untrusted names. See the [rules contract](RULES.md).
+values from untrusted names. See the [rules contract](RULES.md) and
+[planning contract](PLANNING.md).

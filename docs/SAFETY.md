@@ -27,9 +27,24 @@ evidence, expected identity, rule version, and estimated allocated bytes. Before
 any mutation, DevSift must revalidate that the item is still the same item and
 still inside its approved root.
 
+The current Core planner produces only an immutable draft. An explicit
+`CleanupCandidateSelection` binds an exact root-relative raw path to an exact
+rule revision, but selection is not approval. Approval, execution, quarantine,
+and deletion APIs do not exist in this phase.
+
 ## Hard invariants
 
 - A scan root is explicit; there is no implicit whole-disk cleanup.
+- Planning is a pure transformation over bounded, validated scan and
+  classification values. It performs no filesystem I/O and has no mutation
+  capability.
+- A selected candidate must resolve unambiguously to one matched evaluation
+  with a `Reclaimable` or `Review required` disposition and only satisfied
+  findings. Selection cannot override `Protected`, unknown, partial,
+  conflicting, invalid, or incomplete state.
+- A draft manifest is not approval or an execution capability. It stores no
+  absolute root URL, and copying expected identities into it grants no path
+  authority.
 - Directory enumeration is anchored to an opened root descriptor. Descendants
   are opened relative to verified parent descriptors and symbolic links are not
   followed.
@@ -100,12 +115,24 @@ SwiftPM `.build` directory, inspect only the metadata of an exact
 insufficient: every remaining unknown required fact keeps the real candidate
 protected. See the complete [rules contract](RULES.md).
 
+The planner validates that classification again before processing any
+selection. It requires the classifier's exact in-memory source-request binding,
+then joins selections to retained scan summaries and evaluations by exact raw
+path and rule revision. This prevents cross-scan evidence and identity mixing.
+It rejects duplicate or ambiguous inputs and fails the complete request rather
+than silently omitting an ineligible selected item. Its immutable output retains
+evidence for later review, but does not re-observe the filesystem or make
+previously unknown evidence known. See the [planning contract](PLANNING.md).
+
 ## Test boundary
 
 All filesystem tests use newly created temporary directories and synthetic
 fixtures. Tests never point at a real home directory, tool cache, project,
 simulator, virtual machine, or browser profile. Mutation tests must assert that
 nothing outside the fixture changed.
+
+Planner tests additionally verify that constructed or synthetic fixture state
+is unchanged before and after planning, including when validation fails.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

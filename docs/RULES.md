@@ -142,6 +142,13 @@ produces a known missing marker. Symbolic-link targets are never followed.
 Permission, resource-limit, invalid-metadata, incomplete, or changed-object
 cases remain structured unknowns.
 
+The built-in classifier seals its returned Core report to the exact in-memory
+`RuleClassificationRequest`. Validation rejects that report if it is later
+paired with a different root URL, scan report, or reference time. The binding
+is not part of CLI JSON, and a report created with the public unbound initializer
+can still support a trusted custom presentation flow, but the cleanup planner
+will not accept it.
+
 A scan-time identity binds that read-only observation to the inode that was
 scanned. It is not proof of trusted location or ownership, is not durable
 filesystem identity, and grants no planning, cleanup, or deletion authority.

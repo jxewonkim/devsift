@@ -40,7 +40,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     let report = try await classify(
       observations: observations,
       referenceUnixSeconds: request.referenceUnixSeconds
-    )
+    ).binding(to: request)
     try report.validate(for: request)
     return report
   }

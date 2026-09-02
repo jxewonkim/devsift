@@ -35,7 +35,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   and SwiftPM build output. Remaining uncollected runtime evidence stays
   protected.
 - Read-only `devsift classify` text and JSON output plus native dashboard policy
-  explanations; no planning or filesystem mutation action was added.
+  explanations; no frontend planning or filesystem mutation action was added.
 - Classification JSON schema version 1, including a bounded `scanIntegrity`
   projection with decimal-string counts and explicit uncertainty flags.
 - Shared fail-closed validation for classifier output, including reference-time
@@ -55,6 +55,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   only metadata for an exact regular-file `workspace-state.json` marker without
   following symbolic-link targets. A satisfied marker remains Protected while
   other required evidence is unavailable.
+- A Core-only cleanup planner that converts explicit exact-path and rule-
+  revision selections over validated eligible classifications into
+  deterministic immutable draft manifests. Drafts retain expected identities,
+  policy evidence, and observed allocation estimates without storing an
+  absolute root URL or performing filesystem I/O. Selection is not approval,
+  and no Codable, export, frontend, or mutation surface is included.
+- Exact non-public source-request binding on built-in classification results so
+  planning cannot combine one scan's evidence with another scan's identities or
+  size observations.
 
 ### Changed
 
