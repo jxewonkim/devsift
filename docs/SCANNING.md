@@ -104,6 +104,23 @@ This aggregate is currently a Core-only input to rule findings. Scan JSON v2
 does not emit the raw timestamp; classification JSON v1 exposes the resulting
 finding state and explanation, not the candidate timestamp itself.
 
+## Scan-time identity
+
+The root and each retained top-level summary also carry the `(device, inode)`
+of that summary's own inode as `scanTimeIdentity`. It is not an aggregate of
+descendant identities. Hard-linked top-level paths may legitimately have the
+same identity, while a symbolic-link summary records the link inode rather than
+its target. The scanner retains root and top-level identities together or
+fails closed rather than presenting a partially bound set.
+
+This value exists only to let a bounded descriptor-relative evidence observer
+verify that a reopened root or candidate is the object that was scanned. It is
+not a durable identifier, trusted-location or ownership evidence, a cleanup
+capability, or deletion authority. Inodes can be reused; every future plan and
+execution must reopen and revalidate containment, kind, identity, and policy
+evidence immediately before mutation. Scan JSON v2 and classification JSON v1
+do not emit raw scan-time identities.
+
 ## App presentation contract
 
 The native dashboard maps Core scan values without deriving cleanup eligibility

@@ -89,11 +89,16 @@ Status: implemented as a conservative classification foundation. Built-in
 rules can recognize exact raw path shapes and explain every missing or
 failed check. A descriptor-relative increment now retains a conservative newest
 observed inode modification time per summary and projects it into age findings
-for complete items. The current scan adapter still does not collect the
-trusted-location, ownership, marker, reliable-activity, or protected-descendant
-evidence required to promote a real candidate, so unknown facts remain
-protected. An identity-bound observer for those remaining facts is a later
-Phase 5 increment.
+for complete items. Summaries also retain their own scan-time identity, and a
+bounded identity-bound observer can now verify the metadata of an exact
+`workspace-state.json` marker inside an exact SwiftPM `.build` candidate. This
+advances that rule to revision 2 and the CLI catalog to version 2.
+
+The scan-time identity only binds this read-only reobservation; it is not
+cleanup or deletion authority. Trusted-location, ownership, reliable-activity,
+and protected-descendant evidence remain uncollected, so even a satisfied age
+and generated-marker finding leaves the real candidate `Protected`. Observers
+for those remaining facts are later Phase 5 increments.
 
 Implemented commit sequence:
 
@@ -108,7 +113,12 @@ Implemented commit sequence:
 - `feat(rules): project observed candidate age`;
 - `test(frontends): verify observed age stays protected`;
 - `fix(scanner): keep age evidence conservative`;
-- `docs(rules): document observed age evidence`.
+- `docs(rules): document observed age evidence`;
+- `feat(scanner): retain scan-time inode identities`;
+- `refactor(rules): preflight scan reports before observation`;
+- `feat(rules): add descriptor-bound evidence observer`;
+- `feat(rules): bind SwiftPM marker evidence`;
+- `docs(rules): document identity-bound marker evidence`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.
@@ -130,6 +140,10 @@ Commit sequence begins with `feat(planner): create immutable cleanup manifests`.
 - Record expected identity and allocated bytes.
 - Add plan diffing and export with privacy-aware paths.
 
+The recorded identity is comparison evidence, not mutation authority. A plan
+must not convert an observer's successful identity or marker check into
+permission to clean.
+
 Gate: planning remains read-only and a stale or edited candidate invalidates
 execution.
 
@@ -146,7 +160,9 @@ Commit sequence begins with `feat(cleaner): quarantine revalidated candidates`.
 
 Gate: adversarial tests cover symlink swaps, path races, mounts, partial
 failures, interruption, restore, and fixture-boundary integrity. A focused
-security review is required.
+security review is required. Revalidation must reopen the target and establish
+fresh containment, kind, identity, and policy evidence immediately before any
+mutation; scan-time inode identity alone is never sufficient.
 
 Milestone: `v0.3.0-alpha.1` -- quarantine-based cleanup. Permanent removal is a
 later, separately reviewed milestone.

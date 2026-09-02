@@ -41,9 +41,11 @@ devsift classify --json -- -leading-dash
 path one deterministic policy decision. It does not reuse a separate or stale
 scan report. For a complete retained item, the classifier can evaluate age from
 the conservative newest inode modification time observed during that scan.
-Trusted-location, ownership, generated-marker, activity, and protected-descendant
+For an exact SwiftPM `.build` candidate, an identity-bound observer can also
+check metadata for an exact regular-file `workspace-state.json` generated
+marker. Trusted-location, ownership, activity, and protected-descendant
 evidence remain uncollected, so real recognized candidates stay protected even
-when age is satisfied; see the [rules contract](RULES.md).
+when age and marker findings are satisfied; see the [rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits
@@ -134,9 +136,9 @@ decimal fields remain machine-readable, but must not be presented as exact
 totals. Schema version 2 adds this field. Version 1 did not carry an overflow
 flag and is no longer emitted by the pre-release CLI.
 
-Scan JSON v2 does not expose the Core summary's raw modification-time
-aggregate. Adding that wire field would require an explicit schema decision;
-the current age-evidence change does not alter the scan JSON shape.
+Scan JSON v2 does not expose the Core summary's raw modification-time aggregate
+or scan-time identity. Adding either wire field would require an explicit
+schema decision; the current evidence changes do not alter the scan JSON shape.
 
 Each path has a display value and an exact identity:
 
@@ -215,6 +217,12 @@ a schema example, not a promised scan result for an empty directory.
 `devsift classify --json` emits a separate CLI-owned contract. It does not
 change the existing scan schema.
 
+The classification JSON schema remains version 1. Its built-in catalog is
+version 2, which advances only `devsift.swiftpm.build` to rule revision 2 for
+the exact `workspace-state.json` marker semantic; every other built-in rule
+remains at revision 1. Catalog and rule revisions can change without changing
+the JSON key shape.
+
 The envelope contains:
 
 - `schema`: always `devsift.classification`;
@@ -247,9 +255,10 @@ hard-link-exclusive, and unknown-allocation counts plus completeness and
 overflow booleans.
 
 An age finding may now be satisfied, failed, or unknown from the in-memory scan
-aggregate. Classification JSON v1 does not emit the candidate's raw timestamp;
-it emits the existing finding state and explanation and continues to use the
-single `referenceUnixSeconds` value. Its wire shape is unchanged.
+aggregate. Classification JSON v1 does not emit the candidate's raw timestamp
+or scan-time identity; it emits the existing finding states and explanations
+and continues to use the single `referenceUnixSeconds` value. The SwiftPM
+marker finding uses that same existing shape, so the wire schema is unchanged.
 
 Every classification integer that can exceed a portable JSON integer range is
 encoded as a decimal string. Nullable fields are emitted explicitly as JSON
@@ -266,7 +275,7 @@ A shortened synthetic decision has this shape:
   "pathStyle": "root-relative",
   "catalog": {
     "identifier": "devsift.builtin-rules",
-    "version": "1",
+    "version": "2",
     "ruleCount": "6"
   },
   "referenceUnixSeconds": "1700000000",

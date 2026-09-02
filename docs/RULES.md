@@ -48,7 +48,7 @@ Each valid single-rule recognition receives structured findings for:
 - rule-specific evidence such as a sibling `Package.swift`;
 - reproducibility, minimum age, and tool activity;
 - complete scanning, retained output and issues, known allocation, arithmetic
-  overflow, and hard-link-accounting integrity.
+  overflow, hard-link-accounting integrity, and scan-identity rebinding.
 
 A failed or unknown required finding blocks eligibility. A partial report,
 partial item, suppressed top-level output, discarded traversal detail,
@@ -63,10 +63,16 @@ are reserved so rule findings cannot collide with common guards. If malformed
 findings and a multi-rule conflict occur together, invalid-rule reporting takes
 precedence; both outcomes remain protected.
 
-## Built-in catalog version 1
+## Built-in catalog version 2
 
 The initial catalog intentionally starts small. The eligible disposition shown
 below is a ceiling reached only after every required fact is known and passes.
+Catalog version 2 advances only `devsift.swiftpm.build` to rule revision 2 to
+define its generated marker as an exact regular-file `workspace-state.json`
+inside `.build`. Every other built-in rule remains at revision 1.
+The identity-rebinding finding is a classifier-owned integrity invariant, not
+a rule-specific definition change; it is covered by the catalog version rather
+than incrementing every individual rule revision.
 
 | Rule ID | Raw-byte recognition | Reproducibility | Eligible disposition | Minimum age | Additional policy |
 | --- | --- | --- | --- | ---: | --- |
@@ -74,7 +80,7 @@ below is a ceiling reached only after every required fact is known and passes.
 | `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Generated, tool-owned npm content cache; npm inactive |
 | `devsift.cache.homebrew` | direct child named exactly `Homebrew` | Conditional | Review required | 7 days | Trusted Homebrew cache container; Homebrew inactive |
 | `devsift.xcode.derived-data` | direct child named exactly `DerivedData` | Conditional | Review required | 7 days | Trusted Xcode container and generated-content evidence; Xcode inactive |
-| `devsift.swiftpm.build` | direct child named exactly `.build` | Conditional | Review required | 7 days | Exact regular-file `Package.swift` sibling plus generated-content evidence; build tooling inactive |
+| `devsift.swiftpm.build` | direct child named exactly `.build` | Conditional | Review required | 7 days | Exact regular-file `Package.swift` sibling and `.build/workspace-state.json` marker; build tooling inactive |
 | `devsift.xcode.ios-device-support` | version-like direct child of a selected root named exactly `iOS DeviceSupport` | Conditional | Review required | 30 days | Trusted Xcode container and generated-content evidence; Xcode inactive |
 
 All names are compared as filesystem bytes, not normalized display strings.
@@ -103,8 +109,9 @@ guarantee.
 The scan adapter consumes only the existing `ScanReport`. It does not reopen
 paths, read file contents, invoke tools, inspect processes, or reconstruct
 absolute child URLs. The report retains reliable top-level raw names, scan-
-integrity fields, and a bounded modification-time aggregate. The adapter can
-also infer an exact regular-file `Package.swift` sibling.
+integrity fields, each summary inode's scan-time identity, and a bounded
+modification-time aggregate. The adapter can also infer an exact regular-file
+`Package.swift` sibling.
 
 For each root and top-level summary, the descriptor-relative scan retains the
 greatest conservative whole-second upper bound of the candidate inode and all
@@ -123,26 +130,41 @@ inclusive: `reference - newest >= minimumAge` satisfies it.
 
 This timestamp is only the newest value observed during a non-snapshot scan.
 It is not proof of last use, tool inactivity, tool ownership, generated
-content, or the absence of protected descendants. Trusted-location, ownership,
-generated-marker, reliable-activity, and protected-descendant facts remain
-uncollected.
+content, or the absence of protected descendants.
+
+The current evidence observer reopens the selected root and every retained
+top-level candidate descriptor-relatively to verify their kinds and scan-time
+`(device, inode)` identities. It handles one deliberately narrow generated-
+marker case: for an exact top-level `.build` directory, it checks only metadata
+for an exact child named `workspace-state.json`. A stable same-device regular
+file produces a known present marker; a stably absent or different-kind entry
+produces a known missing marker. Symbolic-link targets are never followed.
+Permission, resource-limit, invalid-metadata, incomplete, or changed-object
+cases remain structured unknowns.
+
+A scan-time identity binds that read-only observation to the inode that was
+scanned. It is not proof of trusted location or ownership, is not durable
+filesystem identity, and grants no planning, cleanup, or deletion authority.
+Inodes can be reused, so any future execution must reopen and revalidate
+containment, kind, identity, and policy evidence immediately before mutation.
+Trusted-location, ownership, reliable-activity, and protected-descendant facts
+remain uncollected.
 
 Consequently, a real scan can recognize a possible built-in candidate, but
 those unavailable facts keep its disposition `Protected` even when its age
-finding is satisfied. Tests may construct synthetic complete evidence to
-verify the catalog's eligible outcomes; that does not weaken the runtime
-boundary. This evidence-availability change does not alter the built-in rule
-definitions, thresholds, or eligible dispositions, so their version-1
-revisions remain unchanged.
+and generated-marker findings are satisfied. Tests may construct synthetic
+complete evidence to verify the catalog's eligible outcomes; that does not
+weaken the runtime boundary. The SwiftPM marker semantic advances
+`devsift.swiftpm.build` to revision 2 and the CLI catalog to version 2; other
+rule definitions, thresholds, eligible dispositions, and revisions are
+unchanged.
 
-A future evidence observer must preserve the scanner's descriptor-relative
-safety model. Before a second pass can collect the remaining facts, reports
-must retain enough scan-time identity to bind a reopened root and candidate to
-the objects that were scanned. Such an observer must use operations such as
-`openat`, `fstatat`, `fstat`, and `O_NOFOLLOW`, stay on the approved device,
-bound all work, and report changed or unavailable facts as unknown. Rebuilding
-absolute descendant paths with string or `URL` concatenation is not acceptable
-authority for classification or cleanup.
+Any future observer for the remaining facts must preserve this
+descriptor-relative safety model. It must use operations such as `openat`,
+`fstatat`, `fstat`, and `O_NOFOLLOW`, stay on the approved device, bound all
+work, and report changed or unavailable facts as unknown. Rebuilding absolute
+descendant paths with string or `URL` concatenation is not acceptable authority
+for classification or cleanup.
 
 ## Determinism and versioning
 

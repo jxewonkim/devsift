@@ -53,6 +53,13 @@ still inside its approved root.
 - A newest observed inode modification time is not proof of inactivity,
   ownership, generated content, or the absence of protected descendants. An
   incomplete item never turns its partial maximum into known age evidence.
+- A scan-time `(device, inode)` pair is only a token for binding a later
+  read-only observation. It is not trusted-location or ownership evidence and
+  grants no cleanup or deletion authority; inode reuse requires immediate
+  revalidation before any future mutation.
+- A satisfied SwiftPM `workspace-state.json` marker proves only that the exact
+  metadata check passed. It does not override an unavailable required fact, so
+  the candidate remains `Protected`.
 - A candidate remains `Protected` when a required activity check reports active
   use or is unavailable.
 - A changed candidate is skipped during revalidation.
@@ -84,9 +91,12 @@ recognize raw path shapes and project declared evidence; they cannot directly
 grant a disposition. An unavailable required fact, invalid rule assessment,
 classification conflict, or incomplete scan produces `Protected`. A malformed
 returned report is rejected against the request's reference time and original
-`ScanReport` before either frontend renders it. The current adapter performs no
-extra filesystem probing. It may project the conservative newest inode time
-already retained by a complete scan summary, but a satisfied age check alone is
+`ScanReport` before either frontend renders it. The adapter performs no extra
+filesystem probing and may project the conservative newest inode time already
+retained by a complete scan summary. A separate bounded observer may rebind
+retained top-level candidates to their scan-time identities and, for an exact
+SwiftPM `.build` directory, inspect only the metadata of an exact
+`workspace-state.json` child. A satisfied age or marker check alone is
 insufficient: every remaining unknown required fact keeps the real candidate
 protected. See the complete [rules contract](RULES.md).
 
