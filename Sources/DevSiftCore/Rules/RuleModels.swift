@@ -371,8 +371,10 @@ public enum RuleCatalogLimits {
   public static let maximumRuntimeFindingTextUTF8Bytes = 1_024
   public static let maximumFindingsPerEvaluation = 80
   public static let maximumTotalEvaluationFindings = 1_000_000
+  public static let maximumTotalMatchingRuleRevisions = 100_000
   public static let maximumEvaluationMetadataUTF8Bytes = 4_096
   public static let maximumTotalReportTextUTF8Bytes = 64 * 1_024 * 1_024
+  public static let maximumTotalReportIdentityUTF8Bytes = 8 * 1_024 * 1_024
 }
 
 public enum RuleClassificationError: Error, Equatable, Sendable {
@@ -389,10 +391,14 @@ public enum RuleEvaluationInvariant: String, CaseIterable, Hashable, Sendable {
   case matchedDisposition = "matched-disposition"
   case matchedRuleIdentity = "matched-rule-identity"
   case matchedFindings = "matched-findings"
+  case matchedPositiveEvidence = "matched-positive-evidence"
+  case matchedExclusion = "matched-exclusion"
+  case matchedReproducibility = "matched-reproducibility"
   case reclaimableReproducibility = "reclaimable-reproducibility"
   case protectedDisposition = "protected-disposition"
   case possibleMatchRuleIdentity = "possible-match-rule-identity"
   case unrecognizedRuleIdentity = "unrecognized-rule-identity"
+  case unrecognizedDiagnostic = "unrecognized-diagnostic"
   case conflictRuleIdentity = "conflict-rule-identity"
   case conflictDiagnostic = "conflict-diagnostic"
   case invalidRuleIdentity = "invalid-rule-identity"
@@ -405,12 +411,18 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
   case referenceTimeMismatch(expected: Int64, actual: Int64)
   case tooManyInputItems(maximum: Int, actual: Int)
   case tooManyEvaluations(maximum: Int, actual: Int)
+  case topLevelItemCountMismatch(reported: UInt64, retained: Int)
+  case suppressedTopLevelItemsRetained(actual: Int)
+  case discardedTraversalStateIsInconsistent
+  case rootMarkedCompleteWithScanIssues
+  case completeReportContainsIncompleteItem(ScanRelativePath)
   case inputPathIsNotTopLevel(ScanRelativePath)
   case missingEvaluation(ScanRelativePath)
   case extraEvaluation(ScanRelativePath)
   case duplicateEvaluation(ScanRelativePath)
   case evaluationsOutOfOrder(previous: ScanRelativePath, current: ScanRelativePath)
   case tooManyMatchingRules(path: ScanRelativePath, maximum: Int, actual: Int)
+  case tooManyTotalMatchingRuleRevisions(maximum: Int, actual: Int)
   case matchingRulesNotSortedAndUnique(ScanRelativePath)
   case emptyMetadata(path: ScanRelativePath, field: RuleEvaluationMetadataField)
   case metadataTooLarge(path: ScanRelativePath, maximumBytes: Int, actualBytes: Int)
@@ -424,6 +436,7 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
     actualBytes: Int
   )
   case totalReportTextTooLong(maximumBytes: Int)
+  case totalReportIdentityTextTooLong(maximumBytes: Int)
   case duplicateFindingIdentifier(path: ScanRelativePath, finding: CheckIdentifier)
   case missingCommonFinding(path: ScanRelativePath, finding: CheckIdentifier)
   case commonFindingKindMismatch(

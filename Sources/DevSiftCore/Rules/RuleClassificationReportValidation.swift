@@ -23,6 +23,7 @@ extension RuleClassificationReport {
         actual: evaluations.count
       )
     }
+    try validateScanReportStructure(request.report)
 
     var totalFindingCount = 0
     for evaluation in evaluations {
@@ -82,6 +83,8 @@ extension RuleClassificationReport {
     }
 
     var totalTextBytes = 0
+    var totalIdentityTextBytes = 0
+    var totalMatchingRuleRevisions = 0
     for evaluation in evaluations {
       let inputCount = inputCounts[evaluation.path] ?? 0
       if inputCount > 1 {
@@ -90,8 +93,55 @@ extension RuleClassificationReport {
       try validateEvaluation(
         evaluation,
         inputItem: inputCount == 1 ? inputItems[evaluation.path] : nil,
+        inputWasDuplicated: inputCount > 1,
         scanReport: request.report,
-        totalTextBytes: &totalTextBytes
+        totalTextBytes: &totalTextBytes,
+        totalIdentityTextBytes: &totalIdentityTextBytes,
+        totalMatchingRuleRevisions: &totalMatchingRuleRevisions
+      )
+    }
+  }
+
+  private func validateScanReportStructure(_ report: ScanReport) throws {
+    if report.topLevelItemsWereSuppressed {
+      guard report.topLevelItems.isEmpty else {
+        throw RuleClassificationReportValidationError.suppressedTopLevelItemsRetained(
+          actual: report.topLevelItems.count
+        )
+      }
+    } else {
+      guard report.topLevelItemCount == UInt64(report.topLevelItems.count) else {
+        throw RuleClassificationReportValidationError.topLevelItemCountMismatch(
+          reported: report.topLevelItemCount,
+          retained: report.topLevelItems.count
+        )
+      }
+    }
+
+    if report.traversalDetailsWereDiscarded {
+      guard
+        report.topLevelItemsWereSuppressed,
+        report.topLevelItems.isEmpty,
+        report.topLevelItemCount == 0,
+        !report.hardLinkAccountingIsComplete
+      else {
+        throw RuleClassificationReportValidationError.discardedTraversalStateIsInconsistent
+      }
+    }
+
+    if report.root.isComplete,
+      !report.issues.isEmpty || report.suppressedIssueCount > 0
+    {
+      throw RuleClassificationReportValidationError.rootMarkedCompleteWithScanIssues
+    }
+
+    let incompletePaths = report.topLevelItems
+      .filter { !$0.isComplete }
+      .map(\.path)
+      .sorted()
+    if report.isComplete, let incompletePath = incompletePaths.first {
+      throw RuleClassificationReportValidationError.completeReportContainsIncompleteItem(
+        incompletePath
       )
     }
   }
@@ -99,8 +149,11 @@ extension RuleClassificationReport {
   private func validateEvaluation(
     _ evaluation: RuleEvaluation,
     inputItem: ScanItemSummary?,
+    inputWasDuplicated: Bool,
     scanReport: ScanReport,
-    totalTextBytes: inout Int
+    totalTextBytes: inout Int,
+    totalIdentityTextBytes: inout Int,
+    totalMatchingRuleRevisions: inout Int
   ) throws {
     let metadata: [(RuleEvaluationMetadataField, String)] = [
       (.displayName, evaluation.displayName),
@@ -141,9 +194,37 @@ extension RuleClassificationReport {
         evaluation.path
       )
     }
+    totalMatchingRuleRevisions = saturatingByteSum(
+      totalMatchingRuleRevisions,
+      evaluation.matchingRules.count
+    )
+    guard
+      totalMatchingRuleRevisions <= RuleCatalogLimits.maximumTotalMatchingRuleRevisions
+    else {
+      throw RuleClassificationReportValidationError.tooManyTotalMatchingRuleRevisions(
+        maximum: RuleCatalogLimits.maximumTotalMatchingRuleRevisions,
+        actual: totalMatchingRuleRevisions
+      )
+    }
+    if let rule = evaluation.rule {
+      try addReportIdentityBytes(
+        revisionIdentityUTF8Bytes(rule),
+        total: &totalIdentityTextBytes
+      )
+    }
+    for matchingRule in evaluation.matchingRules {
+      try addReportIdentityBytes(
+        revisionIdentityUTF8Bytes(matchingRule),
+        total: &totalIdentityTextBytes
+      )
+    }
 
     var findingsByIdentifier: [CheckIdentifier: RuleFinding] = [:]
     for finding in evaluation.findings {
+      try addReportIdentityBytes(
+        finding.identifier.rawValue.utf8.count,
+        total: &totalIdentityTextBytes
+      )
       let textBytes = finding.explanation.utf8.count
       guard textBytes <= RuleCatalogLimits.maximumRuntimeFindingTextUTF8Bytes else {
         throw RuleClassificationReportValidationError.findingTextTooLong(
@@ -168,7 +249,7 @@ extension RuleClassificationReport {
       try addReportTextBytes(textBytes, total: &totalTextBytes)
     }
 
-    try validateSemantics(evaluation)
+    try validateSemantics(evaluation, inputWasDuplicated: inputWasDuplicated)
     if evaluation.matchState == .matched || evaluation.matchState == .possibleMatch {
       guard let inputItem else {
         throw semanticError(evaluation, .duplicateObservationDecision)
@@ -182,7 +263,10 @@ extension RuleClassificationReport {
     }
   }
 
-  private func validateSemantics(_ evaluation: RuleEvaluation) throws {
+  private func validateSemantics(
+    _ evaluation: RuleEvaluation,
+    inputWasDuplicated: Bool
+  ) throws {
     let hasBlockingFinding = evaluation.findings.contains { finding in
       finding.state != .satisfied
     }
@@ -198,6 +282,27 @@ extension RuleClassificationReport {
       }
       guard !evaluation.findings.isEmpty, !hasBlockingFinding else {
         throw semanticError(evaluation, .matchedFindings)
+      }
+      guard
+        evaluation.findings.contains(where: { finding in
+          !AutomaticCheckIdentifier.all.contains(finding.identifier)
+            && finding.kind == .positiveEvidence
+            && finding.state == .satisfied
+        })
+      else {
+        throw semanticError(evaluation, .matchedPositiveEvidence)
+      }
+      guard
+        evaluation.findings.contains(where: { finding in
+          !AutomaticCheckIdentifier.all.contains(finding.identifier)
+            && finding.kind == .exclusion
+            && finding.state == .satisfied
+        })
+      else {
+        throw semanticError(evaluation, .matchedExclusion)
+      }
+      guard evaluation.reproducibility != .unknown else {
+        throw semanticError(evaluation, .matchedReproducibility)
       }
       guard
         evaluation.disposition != .reclaimable
@@ -220,8 +325,14 @@ extension RuleClassificationReport {
       guard evaluation.rule == nil, evaluation.matchingRules.isEmpty else {
         throw semanticError(evaluation, .unrecognizedRuleIdentity)
       }
-      guard hasBlockingFinding else {
-        throw semanticError(evaluation, .blockingFinding)
+      guard
+        hasFailedDiagnostic(
+          AutomaticCheckIdentifier.lexicalRecognition,
+          kind: .lexicalRecognition,
+          in: evaluation
+        )
+      else {
+        throw semanticError(evaluation, .unrecognizedDiagnostic)
       }
 
     case .conflict:
@@ -231,11 +342,16 @@ extension RuleClassificationReport {
       else {
         throw semanticError(evaluation, .conflictRuleIdentity)
       }
-      let diagnostic =
-        evaluation.matchingRules.isEmpty
-        ? AutomaticCheckIdentifier.duplicateObservation
-        : AutomaticCheckIdentifier.ruleConflict
-      guard hasBlockingDiagnostic(diagnostic, kind: .conflict, in: evaluation) else {
+      let diagnostic: CheckIdentifier
+      if evaluation.matchingRules.isEmpty {
+        guard inputWasDuplicated else {
+          throw semanticError(evaluation, .duplicateObservationDecision)
+        }
+        diagnostic = AutomaticCheckIdentifier.duplicateObservation
+      } else {
+        diagnostic = AutomaticCheckIdentifier.ruleConflict
+      }
+      guard hasFailedDiagnostic(diagnostic, kind: .conflict, in: evaluation) else {
         throw semanticError(evaluation, .conflictDiagnostic)
       }
       guard hasBlockingFinding else {
@@ -276,7 +392,7 @@ extension RuleClassificationReport {
       evaluation.disposition == .protected,
       evaluation.rule == nil,
       evaluation.matchingRules.isEmpty,
-      hasBlockingDiagnostic(
+      hasFailedDiagnostic(
         AutomaticCheckIdentifier.duplicateObservation,
         kind: .conflict,
         in: evaluation
@@ -327,6 +443,19 @@ extension RuleClassificationReport {
     try validateCommonFindingState(
       AutomaticCheckIdentifier.lexicalRecognition,
       expected: .satisfied,
+      evaluation: evaluation,
+      findings: findings
+    )
+    let expectedReproducibilityState: RuleFindingState =
+      switch evaluation.reproducibility {
+      case .reproducible, .conditional:
+        .satisfied
+      case .unknown:
+        .unknown(.unspecified)
+      }
+    try validateCommonFindingState(
+      AutomaticCheckIdentifier.reproducibility,
+      expected: expectedReproducibilityState,
       evaluation: evaluation,
       findings: findings
     )
@@ -415,6 +544,18 @@ extension RuleClassificationReport {
     }
   }
 
+  private func hasFailedDiagnostic(
+    _ identifier: CheckIdentifier,
+    kind: RuleFindingKind,
+    in evaluation: RuleEvaluation
+  ) -> Bool {
+    evaluation.findings.contains { finding in
+      finding.identifier == identifier
+        && finding.kind == kind
+        && finding.state == .failed
+    }
+  }
+
   private func semanticError(
     _ evaluation: RuleEvaluation,
     _ invariant: RuleEvaluationInvariant
@@ -429,6 +570,22 @@ extension RuleClassificationReport {
         maximumBytes: RuleCatalogLimits.maximumTotalReportTextUTF8Bytes
       )
     }
+  }
+
+  private func addReportIdentityBytes(_ bytes: Int, total: inout Int) throws {
+    total = saturatingByteSum(total, bytes)
+    guard total <= RuleCatalogLimits.maximumTotalReportIdentityUTF8Bytes else {
+      throw RuleClassificationReportValidationError.totalReportIdentityTextTooLong(
+        maximumBytes: RuleCatalogLimits.maximumTotalReportIdentityUTF8Bytes
+      )
+    }
+  }
+
+  private func revisionIdentityUTF8Bytes(_ revision: RuleRevision) -> Int {
+    saturatingByteSum(
+      revision.identifier.rawValue.utf8.count,
+      String(revision.version.rawValue).utf8.count
+    )
   }
 
   private func saturatingByteSum(_ left: Int, _ right: Int) -> Int {

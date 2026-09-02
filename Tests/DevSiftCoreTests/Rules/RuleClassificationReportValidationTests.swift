@@ -41,7 +41,7 @@ struct RuleClassificationReportValidationTests {
       topLevelItemCount: 1,
       topLevelItemsWereSuppressed: false,
       hardLinkAccountingIsComplete: false,
-      traversalDetailsWereDiscarded: true,
+      traversalDetailsWereDiscarded: false,
       issues: [],
       suppressedIssueCount: 1
     )
@@ -155,6 +155,102 @@ struct RuleClassificationReportValidationTests {
     )
   }
 
+  @Test("Malformed scan report structure is rejected before eligibility")
+  func malformedScanReportStructure() {
+    let item = ruleSummary(rawComponents: [Array("a".utf8)])
+    let partialItem = ruleSummary(
+      rawComponents: [Array("a".utf8)],
+      isComplete: false
+    )
+    let root = ruleSummary(rawComponents: [], isComplete: true)
+    let issue = ScanIssue(
+      path: .root,
+      operation: .listDirectory,
+      reason: .ioFailure,
+      impact: .descendantsSkipped
+    )
+
+    let malformedReports: [(ScanReport, RuleClassificationReportValidationError)] = [
+      (
+        ScanReport(
+          root: root,
+          topLevelItems: [item],
+          topLevelItemCount: 2,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .topLevelItemCountMismatch(reported: 2, retained: 1)
+      ),
+      (
+        ScanReport(
+          root: ruleSummary(rawComponents: [], isComplete: false),
+          topLevelItems: [item],
+          topLevelItemCount: 1,
+          topLevelItemsWereSuppressed: true,
+          hardLinkAccountingIsComplete: false,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .suppressedTopLevelItemsRetained(actual: 1)
+      ),
+      (
+        ScanReport(
+          root: ruleSummary(rawComponents: [], isComplete: false),
+          topLevelItems: [],
+          topLevelItemCount: 0,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: true,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .discardedTraversalStateIsInconsistent
+      ),
+      (
+        ScanReport(
+          root: root,
+          topLevelItems: [],
+          topLevelItemCount: 0,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [issue],
+          suppressedIssueCount: 0
+        ),
+        .rootMarkedCompleteWithScanIssues
+      ),
+      (
+        ScanReport(
+          root: root,
+          topLevelItems: [partialItem],
+          topLevelItemCount: 1,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .completeReportContainsIncompleteItem(validationPath("a"))
+      ),
+    ]
+
+    for (scanReport, expectedError) in malformedReports {
+      expectValidationError(
+        expectedError,
+        report: validationReport([]),
+        request: RuleClassificationRequest(
+          root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+          report: scanReport,
+          referenceUnixSeconds: 100
+        )
+      )
+    }
+  }
+
   @Test("Input, evaluation, per-evaluation, and total finding counts are bounded")
   func countBounds() {
     let baseRequest = validationRequest(names: ["a"])
@@ -225,6 +321,94 @@ struct RuleClassificationReportValidationTests {
     )
   }
 
+  @Test("Aggregate matching revisions and report identities are bounded")
+  func aggregateIdentityBounds() {
+    let revisions = (0..<4).map { index in
+      validationRevision("devsift.validation.conflict" + String(index))
+    }
+    let evaluationCount =
+      RuleCatalogLimits.maximumTotalMatchingRuleRevisions / revisions.count + 1
+    let names = (0..<evaluationCount).map { String(format: "item-%05d", $0) }
+    let items = names.map { name in
+      ruleSummary(rawComponents: [Array(name.utf8)])
+    }
+    let conflicts = names.map { name in
+      validationEvaluation(
+        path: validationPath(name),
+        rule: nil,
+        matchingRules: revisions,
+        matchState: .conflict,
+        disposition: .protected,
+        reproducibility: .unknown,
+        findings: [
+          validationFinding(
+            identifier: AutomaticCheckIdentifier.ruleConflict.rawValue,
+            kind: .conflict,
+            state: .failed
+          )
+        ]
+      )
+    }
+    expectValidationError(
+      .tooManyTotalMatchingRuleRevisions(
+        maximum: RuleCatalogLimits.maximumTotalMatchingRuleRevisions,
+        actual: evaluationCount * revisions.count
+      ),
+      report: validationReport(conflicts),
+      request: RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+        report: completeScanReport(topLevelItems: items),
+        referenceUnixSeconds: 100
+      )
+    )
+
+    let longRevisions = (0..<2).map { index in
+      let prefix = "r\(index)"
+      return validationRevision(prefix + String(repeating: "a", count: 128 - prefix.count))
+    }
+    let identityBytesPerEvaluation =
+      longRevisions.reduce(0) { total, revision in
+        total + revision.identifier.rawValue.utf8.count
+          + String(revision.version.rawValue).utf8.count
+      } + AutomaticCheckIdentifier.ruleConflict.rawValue.utf8.count
+    let identityEvaluationCount =
+      RuleCatalogLimits.maximumTotalReportIdentityUTF8Bytes / identityBytesPerEvaluation + 1
+    let identityNames = (0..<identityEvaluationCount).map {
+      String(format: "identity-%05d", $0)
+    }
+    let identityItems = identityNames.map { name in
+      ruleSummary(rawComponents: [Array(name.utf8)])
+    }
+    let identityConflicts = identityNames.map { name in
+      validationEvaluation(
+        path: validationPath(name),
+        rule: nil,
+        matchingRules: longRevisions,
+        matchState: .conflict,
+        disposition: .protected,
+        reproducibility: .unknown,
+        findings: [
+          validationFinding(
+            identifier: AutomaticCheckIdentifier.ruleConflict.rawValue,
+            kind: .conflict,
+            state: .failed
+          )
+        ]
+      )
+    }
+    expectValidationError(
+      .totalReportIdentityTextTooLong(
+        maximumBytes: RuleCatalogLimits.maximumTotalReportIdentityUTF8Bytes
+      ),
+      report: validationReport(identityConflicts),
+      request: RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+        report: completeScanReport(topLevelItems: identityItems),
+        referenceUnixSeconds: 100
+      )
+    )
+  }
+
   @Test("Metadata, finding text, and total report text are bounded")
   func textBounds() {
     let request = validationRequest(names: ["a"])
@@ -273,11 +457,11 @@ struct RuleClassificationReportValidationTests {
       repeating: "f",
       count: RuleCatalogLimits.maximumRuntimeFindingTextUTF8Bytes
     )
-    let commonFindings = validationCommonFindings(explanation: longFinding)
+    let requiredFindings = validationEligibleFindings(explanation: longFinding)
     let customFindingCount =
-      RuleCatalogLimits.maximumFindingsPerEvaluation - commonFindings.count
+      RuleCatalogLimits.maximumFindingsPerEvaluation - requiredFindings.count
     let findings =
-      commonFindings
+      requiredFindings
       + (0..<customFindingCount).map { index in
         validationFinding(identifier: "text-finding\(index)", explanation: longFinding)
       }
@@ -344,15 +528,117 @@ struct RuleClassificationReportValidationTests {
         finding: AutomaticCheckIdentifier.lexicalRecognition
       ),
       report: validationReport(
-        [validationEvaluation(findings: [validationFinding(identifier: "custom")])]
+        [
+          validationEvaluation(
+            findings: validationRuleSpecificFindings()
+              + [validationFinding(identifier: "custom")]
+          )
+        ]
       ),
       request: validationRequest(names: ["a"])
     )
   }
 
+  @Test("Matched results require rule-specific positive evidence and an exclusion")
+  func matchedEvidenceFloor() {
+    expectSemanticError(
+      .matchedPositiveEvidence,
+      evaluation: validationEvaluation(findings: validationCommonFindings())
+    )
+    expectSemanticError(
+      .matchedExclusion,
+      evaluation: validationEvaluation(
+        findings: validationCommonFindings()
+          + [
+            validationFinding(
+              identifier: "rule-positive-evidence",
+              kind: .positiveEvidence
+            )
+          ]
+      )
+    )
+    expectSemanticError(
+      .matchedPositiveEvidence,
+      evaluation: validationEvaluation(
+        findings: validationCommonFindings()
+          + [
+            validationFinding(
+              identifier: AutomaticCheckIdentifier.ruleValidity.rawValue,
+              kind: .positiveEvidence
+            ),
+            validationFinding(identifier: "rule-exclusion", kind: .exclusion),
+          ]
+      )
+    )
+  }
+
+  @Test("Automatic reproducibility state is bound to the reported reproducibility")
+  func reproducibilityBinding() {
+    expectSemanticError(
+      .matchedReproducibility,
+      evaluation: validationEvaluation(
+        disposition: .reviewRequired,
+        reproducibility: .unknown
+      )
+    )
+
+    let forgedUnknown = validationEvaluation(
+      matchState: .possibleMatch,
+      disposition: .protected,
+      reproducibility: .unknown,
+      findings: validationCommonFindings()
+        + [
+          validationFinding(
+            identifier: "rule-positive-evidence",
+            state: .failed
+          ),
+          validationFinding(identifier: "rule-exclusion", kind: .exclusion),
+        ]
+    )
+    expectValidationError(
+      .commonFindingStateMismatch(
+        path: validationPath("a"),
+        finding: AutomaticCheckIdentifier.reproducibility,
+        expected: .unknown(.unspecified),
+        actual: .satisfied
+      ),
+      report: validationReport([forgedUnknown]),
+      request: validationRequest(names: ["a"])
+    )
+
+    let correctUnknown = validationEvaluation(
+      matchState: .possibleMatch,
+      disposition: .protected,
+      reproducibility: .unknown,
+      findings: validationCommonFindings(
+        states: [AutomaticCheckIdentifier.reproducibility: .unknown(.unspecified)]
+      )
+        + [
+          validationFinding(
+            identifier: "rule-positive-evidence",
+            state: .failed
+          ),
+          validationFinding(identifier: "rule-exclusion", kind: .exclusion),
+        ]
+    )
+    do {
+      try validationReport([correctUnknown]).validate(
+        for: validationRequest(names: ["a"])
+      )
+      try validationReport([
+        validationEvaluation(
+          disposition: .reviewRequired,
+          reproducibility: .conditional
+        )
+      ]).validate(for: validationRequest(names: ["a"]))
+    } catch {
+      Issue.record("Expected conservative reproducibility reports to validate: \(error)")
+    }
+  }
+
   @Test("Common finding kinds and scan-integrity states are request-bound")
   func commonFindingValidation() {
-    var wrongKind = validationCommonFindings()
+    var wrongKind = validationEligibleFindings()
     wrongKind[0] = validationFinding(
       identifier: AutomaticCheckIdentifier.lexicalRecognition.rawValue,
       kind: .positiveEvidence
@@ -378,9 +664,9 @@ struct RuleClassificationReportValidationTests {
       root: ruleSummary(rawComponents: [], isComplete: false),
       topLevelItems: [partialItem],
       topLevelItemCount: 1,
-      topLevelItemsWereSuppressed: true,
+      topLevelItemsWereSuppressed: false,
       hardLinkAccountingIsComplete: false,
-      traversalDetailsWereDiscarded: true,
+      traversalDetailsWereDiscarded: false,
       issues: [],
       suppressedIssueCount: 1
     )
@@ -399,13 +685,22 @@ struct RuleClassificationReportValidationTests {
       AutomaticCheckIdentifier.sizeDidNotOverflow,
       AutomaticCheckIdentifier.hardLinksComplete,
     ]
-    let allFailed = Dictionary(
-      uniqueKeysWithValues: integrityIdentifiers.map { ($0, RuleFindingState.failed) }
-    )
+    let expectedStates: [CheckIdentifier: RuleFindingState] = [
+      AutomaticCheckIdentifier.reportComplete: .failed,
+      AutomaticCheckIdentifier.itemComplete: .failed,
+      AutomaticCheckIdentifier.topLevelOutputComplete: .satisfied,
+      AutomaticCheckIdentifier.traversalDetailsRetained: .satisfied,
+      AutomaticCheckIdentifier.issuesComplete: .failed,
+      AutomaticCheckIdentifier.allocationKnown: .failed,
+      AutomaticCheckIdentifier.sizeDidNotOverflow: .failed,
+      AutomaticCheckIdentifier.hardLinksComplete: .failed,
+    ]
 
     for identifier in integrityIdentifiers {
-      var forgedStates = allFailed
-      forgedStates[identifier] = .satisfied
+      let expectedState = expectedStates[identifier]!
+      let forgedState: RuleFindingState = expectedState == .satisfied ? .failed : .satisfied
+      var forgedStates = expectedStates
+      forgedStates[identifier] = forgedState
       let evaluation = validationEvaluation(
         matchState: .possibleMatch,
         disposition: .protected,
@@ -415,8 +710,8 @@ struct RuleClassificationReportValidationTests {
         .commonFindingStateMismatch(
           path: validationPath("a"),
           finding: identifier,
-          expected: .failed,
-          actual: .satisfied
+          expected: expectedState,
+          actual: forgedState
         ),
         report: validationReport([evaluation]),
         request: request
@@ -482,13 +777,19 @@ struct RuleClassificationReportValidationTests {
       )
     )
     expectSemanticError(
-      .conflictDiagnostic,
+      .duplicateObservationDecision,
       evaluation: validationEvaluation(
         rule: nil,
         matchingRules: [],
         matchState: .conflict,
         disposition: .protected,
-        findings: [validationFinding(state: .failed)]
+        findings: [
+          validationFinding(
+            identifier: AutomaticCheckIdentifier.duplicateObservation.rawValue,
+            kind: .conflict,
+            state: .failed
+          )
+        ]
       )
     )
     expectSemanticError(
@@ -502,12 +803,13 @@ struct RuleClassificationReportValidationTests {
       )
     )
     expectSemanticError(
-      .blockingFinding,
+      .unrecognizedDiagnostic,
       evaluation: validationEvaluation(
         rule: nil,
         matchingRules: [],
         matchState: .unrecognized,
-        disposition: .protected
+        disposition: .protected,
+        findings: [validationFinding(state: .failed)]
       )
     )
     expectSemanticError(
@@ -608,7 +910,7 @@ private func validationEvaluation(
     matchState: matchState,
     disposition: disposition,
     reproducibility: reproducibility,
-    findings: findings ?? validationCommonFindings(),
+    findings: findings ?? validationEligibleFindings(),
     explanation: explanation
   )
 }
@@ -695,6 +997,30 @@ private func validationCommonFindings(
       explanation: explanation
     ),
   ]
+}
+
+private func validationRuleSpecificFindings(
+  explanation: String = "The rule-specific finding is satisfied."
+) -> [RuleFinding] {
+  [
+    validationFinding(
+      identifier: "rule-positive-evidence",
+      kind: .positiveEvidence,
+      explanation: explanation
+    ),
+    validationFinding(
+      identifier: "rule-exclusion",
+      kind: .exclusion,
+      explanation: explanation
+    ),
+  ]
+}
+
+private func validationEligibleFindings(
+  explanation: String = "The classifier-owned finding is satisfied."
+) -> [RuleFinding] {
+  validationCommonFindings(explanation: explanation)
+    + validationRuleSpecificFindings(explanation: explanation)
 }
 
 private func validationReport(
