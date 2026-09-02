@@ -87,6 +87,18 @@ actor ScanRequestRecorder {
   }
 }
 
+actor RuleClassificationRequestRecorder {
+  private var storage: [RuleClassificationRequest] = []
+
+  func append(_ request: RuleClassificationRequest) {
+    storage.append(request)
+  }
+
+  func requests() -> [RuleClassificationRequest] {
+    storage
+  }
+}
+
 enum ImmediateScanOutcome: Sendable {
   case report(ScanReport)
   case scanError(ScanError)
@@ -122,6 +134,42 @@ struct ImmediateScanner: FileSystemScanning, Sendable {
 }
 
 struct AppTestUnexpectedError: Error, Sendable {}
+
+enum ImmediateRuleClassificationOutcome: Sendable {
+  case classify
+  case report(RuleClassificationReport)
+  case cancelled
+  case unexpected
+}
+
+struct ImmediateRuleClassifier: RuleClassifying, Sendable {
+  let outcome: ImmediateRuleClassificationOutcome
+  let recorder: RuleClassificationRequestRecorder
+
+  init(
+    outcome: ImmediateRuleClassificationOutcome = .classify,
+    recorder: RuleClassificationRequestRecorder = RuleClassificationRequestRecorder()
+  ) {
+    self.outcome = outcome
+    self.recorder = recorder
+  }
+
+  func classify(
+    _ request: RuleClassificationRequest
+  ) async throws -> RuleClassificationReport {
+    await recorder.append(request)
+    switch outcome {
+    case .classify:
+      return try await ExplainableRuleClassifier().classify(request)
+    case .report(let report):
+      return report
+    case .cancelled:
+      throw CancellationError()
+    case .unexpected:
+      throw AppTestUnexpectedError()
+    }
+  }
+}
 
 enum GatedScanOutcome: Sendable {
   case report(ScanReport)
@@ -180,6 +228,94 @@ actor GatedScanner: FileSystemScanning {
       continuation.resume(throwing: error)
     case .unexpected:
       continuation.resume(throwing: AppTestUnexpectedError())
+    }
+  }
+}
+
+enum GatedRuleClassificationOutcome: Sendable {
+  case classify
+  case unexpected
+}
+
+enum GatedRuleClassifierError: Error {
+  case missingOccurrence
+}
+
+actor GatedRuleClassifier: RuleClassifying {
+  private struct PendingClassification {
+    let request: RuleClassificationRequest
+    let continuation: CheckedContinuation<RuleClassificationReport, any Error>
+  }
+
+  private var pending: [URL: [PendingClassification]] = [:]
+  private var startCount: [URL: Int] = [:]
+
+  func classify(
+    _ request: RuleClassificationRequest
+  ) async throws -> RuleClassificationReport {
+    startCount[request.root, default: 0] += 1
+
+    return try await withCheckedThrowingContinuation { continuation in
+      pending[request.root, default: []].append(
+        PendingClassification(request: request, continuation: continuation)
+      )
+    }
+  }
+
+  func waitUntilStarted(
+    _ root: URL,
+    count: Int = 1,
+    timeout: Duration = .seconds(2)
+  ) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while startCount[root, default: 0] < count {
+      guard clock.now < deadline else {
+        return false
+      }
+      try? await clock.sleep(for: .milliseconds(10))
+    }
+    return true
+  }
+
+  func request(_ root: URL, occurrence: Int = 0) -> RuleClassificationRequest? {
+    guard let pending = pending[root], pending.indices.contains(occurrence) else {
+      return nil
+    }
+    return pending[occurrence].request
+  }
+
+  func resolve(
+    _ root: URL,
+    occurrence: Int = 0,
+    with outcome: GatedRuleClassificationOutcome
+  ) async throws {
+    guard var classifications = pending[root], classifications.indices.contains(occurrence) else {
+      let orphaned = pending.values.flatMap { $0 }
+      pending.removeAll()
+      for pendingClassification in orphaned {
+        pendingClassification.continuation.resume(
+          throwing: GatedRuleClassifierError.missingOccurrence
+        )
+      }
+      throw GatedRuleClassifierError.missingOccurrence
+    }
+
+    let pendingClassification = classifications.remove(at: occurrence)
+    pending[root] = classifications.isEmpty ? nil : classifications
+
+    switch outcome {
+    case .classify:
+      do {
+        let result = try await ExplainableRuleClassifier().classify(
+          pendingClassification.request
+        )
+        pendingClassification.continuation.resume(returning: result)
+      } catch {
+        pendingClassification.continuation.resume(throwing: error)
+      }
+    case .unexpected:
+      pendingClassification.continuation.resume(throwing: AppTestUnexpectedError())
     }
   }
 }
