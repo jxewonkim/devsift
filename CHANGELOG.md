@@ -17,3 +17,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - A read-only, cancellable allocated-size scanner with descriptor-anchored
   traversal, deterministic bounded reports, structured partial errors,
   cross-volume pruning, and conservative hard-link accounting.
+- A dependency-free `devsift scan <path>` command with deterministic,
+  terminal-safe text output, versioned root-relative JSON, explicit partial
+  results, stable exit codes, and synthetic executable integration tests.

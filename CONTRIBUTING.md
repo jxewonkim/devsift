@@ -36,6 +36,11 @@ Filesystem behavior is security-sensitive. Tests must:
 No test may invoke a real cleanup command against `/`, `/Users`, a home
 directory, `/Applications`, or another broad path.
 
+CLI integration tests execute the built `devsift` binary directly, never
+through a shell, and may scan only their own synthetic temporary fixture. Text
+goldens and the versioned JSON DTO must be updated deliberately when a visible
+output contract changes.
+
 ## Privacy and secrets
 
 Do not commit scan reports, cleanup manifests from real machines, absolute home

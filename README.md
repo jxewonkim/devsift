@@ -59,12 +59,15 @@ The current foundation workspace can be exercised with:
 swift build
 swift test
 swift run devsift status
+swift run devsift scan .
+swift run devsift scan --json ./synthetic-cache
 swift run DevSiftApp
 ```
 
-DevSiftCore now contains a read-only allocated-size scanner. The CLI and app
-still expose only their development status; scanner integration is the next
-milestone. See [the scanning contract](docs/SCANNING.md) for the API and limits.
+DevSiftCore contains a read-only allocated-size scanner, and the CLI exposes it
+as deterministic text and versioned JSON. The app remains a development shell.
+See the [CLI contract](docs/CLI.md) for output and exit behavior and the
+[scanning contract](docs/SCANNING.md) for the Core API and limits.
 
 Development uses small Conventional Commits. Every code commit must build and
 pass tests before it is pushed. Filesystem tests operate only inside temporary,
@@ -72,8 +75,8 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 
 ## Project status
 
-- Current phase: read-only scanner core
-- Current behavior: core scan API plus status-only CLI and app shell; no cleanup
+- Current phase: read-only scan CLI
+- Current behavior: core scan API plus text/JSON CLI; app shell; no cleanup
 - First release target: `v0.1.0-alpha.1`, read-only scan surfaces
 - Supported platform target: macOS 14 or newer
 - Implementation language: Swift 6
