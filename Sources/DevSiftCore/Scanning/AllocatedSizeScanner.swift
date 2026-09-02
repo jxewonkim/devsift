@@ -731,11 +731,11 @@ private struct SummaryAccumulator {
     }
     if metadata.kind == .regularFile {
       switch metadata.mayShareFileContent {
-      case true:
+      case .some(true):
         saturatingIncrement(&possibleSharedContentFileCount)
-      case nil:
+      case .none:
         saturatingIncrement(&sharedContentMetadataUnavailableCount)
-      case false:
+      case .some(false):
         break
       }
     }
