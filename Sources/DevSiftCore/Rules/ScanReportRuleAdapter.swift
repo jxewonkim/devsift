@@ -26,7 +26,7 @@ enum ScanReportRuleAdapter {
           trustedLocation: .unknown(.notCollected),
           toolOwnership: .unknown(.notCollected),
           generatedContentMarker: .unknown(.notCollected),
-          newestContentModificationUnixSeconds: .unknown(.notCollected),
+          newestContentModificationUnixSeconds: newestModificationObservation(for: item),
           activity: .unknown(.notCollected),
           protectedDescendantPresent: .unknown(.notCollected),
           siblingPackageManifestPresent: packageManifest
@@ -53,6 +53,21 @@ enum ScanReportRuleAdapter {
       return .unknown(.incompleteScan)
     }
     return .known(false)
+  }
+
+  private static func newestModificationObservation(
+    for item: ScanItemSummary
+  ) -> RuleObserved<Int64> {
+    guard item.isComplete else {
+      return .unknown(.incompleteScan)
+    }
+    guard let unixSeconds = item.newestContentModificationUnixSeconds else {
+      return .unknown(.notCollected)
+    }
+    guard unixSeconds >= 0 else {
+      return .unknown(.invalidMetadata)
+    }
+    return .known(unixSeconds)
   }
 
   private static func rawBasename(of url: URL) -> [UInt8]? {
