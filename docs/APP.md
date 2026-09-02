@@ -103,8 +103,12 @@ The app uses “Reclaimable” only as a rule disposition, never as a measured o
 guaranteed savings claim. It always explains that observed allocation is not
 guaranteed reclaimable. Hard links, APFS clones, snapshots, compression,
 unreadable paths, and concurrent changes can make actual free-space changes
-differ from the observation. In the current real-scan adapter, missing
-lifecycle evidence keeps recognized candidates Protected.
+differ from the observation. A real scan may show its age requirement as
+Satisfied from the newest inode modification time observed for a complete item.
+The app does not display that raw candidate timestamp, and the finding does not
+change disposition by itself. Missing trusted-location, ownership,
+generated-marker, activity, or protected-descendant evidence keeps the
+candidate Protected.
 
 “Complete observation” describes traversal within the configured limits. A
 partial observation can result from skipped entries, output bounds, incomplete
@@ -136,8 +140,9 @@ plus the system warning color.
 `DevSiftAppTests` covers initial privacy, exact request forwarding, success,
 every report-level partial flag, typed and unexpected failures, cancellation,
 late completion, newer-scan precedence, security-scope balance, presentation
-sorting and escaping, overflow behavior, and a real Core scan over a synthetic
-temporary fixture.
+sorting and escaping, overflow behavior, and real Core scans over synthetic
+temporary fixtures, including an age-satisfied candidate that remains
+Protected.
 
 The optional native snapshot harness renders representative empty, scanning,
 classifying, light and dark results, 900 x 620 complete and partial results,

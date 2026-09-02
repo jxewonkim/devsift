@@ -31,8 +31,11 @@ evidence keeps them protected. Jobs 4 and 5 remain later product direction.
 
 The first versioned catalog is present in Core, the CLI, and the app. Its
 eligible outcomes are policy ceilings for fully evidenced synthetic
-observations; the current real-scan adapter leaves lifecycle evidence unknown
-and therefore protected.
+observations. For a complete item, the current real-scan adapter can establish
+the age input from the newest inode modification time observed during scanning.
+Trusted-location, ownership, generated-marker, reliable-activity, and
+protected-descendant evidence remain unavailable, so runtime outcomes remain
+Protected.
 
 The first rule set recognizes:
 

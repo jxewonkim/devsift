@@ -39,8 +39,11 @@ devsift classify --json -- -leading-dash
 
 `classify` first performs the same scan, then gives each observed top-level raw
 path one deterministic policy decision. It does not reuse a separate or stale
-scan report. The current adapter does not collect lifecycle evidence, so real
-recognized candidates remain protected; see the [rules contract](RULES.md).
+scan report. For a complete retained item, the classifier can evaluate age from
+the conservative newest inode modification time observed during that scan.
+Trusted-location, ownership, generated-marker, activity, and protected-descendant
+evidence remain uncollected, so real recognized candidates stay protected even
+when age is satisfied; see the [rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits
@@ -118,7 +121,8 @@ The envelope contains:
 - `devsiftVersion` and `safetyMode`;
 - `pathStyle`: always `root-relative`;
 - all six effective scan limits;
-- the complete structured `ScanReport` projection.
+- a structured CLI projection of `ScanReport`, excluding Core-only aggregates
+  such as the newest modification time.
 
 Every size, count, and limit is encoded as a decimal string. This preserves the
 full unsigned 64-bit range in JavaScript and other JSON consumers. The optional
@@ -129,6 +133,10 @@ one or more of that summary's size additions saturated at `UInt64.max`; the raw
 decimal fields remain machine-readable, but must not be presented as exact
 totals. Schema version 2 adds this field. Version 1 did not carry an overflow
 flag and is no longer emitted by the pre-release CLI.
+
+Scan JSON v2 does not expose the Core summary's raw modification-time
+aggregate. Adding that wire field would require an explicit schema decision;
+the current age-evidence change does not alter the scan JSON shape.
 
 Each path has a display value and an exact identity:
 
@@ -237,6 +245,11 @@ findings, and an explanation. A finding state has a `status` and nullable
 unknown `reason`. The observation includes decimal-string apparent,
 hard-link-exclusive, and unknown-allocation counts plus completeness and
 overflow booleans.
+
+An age finding may now be satisfied, failed, or unknown from the in-memory scan
+aggregate. Classification JSON v1 does not emit the candidate's raw timestamp;
+it emits the existing finding state and explanation and continues to use the
+single `referenceUnixSeconds` value. Its wire shape is unchanged.
 
 Every classification integer that can exceed a portable JSON integer range is
 encoded as a decimal string. Nullable fields are emitted explicitly as JSON

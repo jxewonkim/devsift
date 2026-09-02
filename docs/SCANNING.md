@@ -74,6 +74,36 @@ future planning and execution-time revalidation remain separate again. See the
 The command-line projection, including human labels, JSON schema, stream
 behavior, and exit codes, is documented in the [CLI contract](CLI.md).
 
+## Modification-time evidence
+
+Each root and top-level summary retains one bounded lifecycle aggregate:
+`newestContentModificationUnixSeconds`. It is the maximum conservative
+whole-second upper bound of the summary inode and every descendant inode
+observed during the existing descriptor-relative traversal. The scanner does
+not retain one timestamp per descendant and performs no later path-based probe.
+
+- A timestamp with zero nanoseconds retains its POSIX seconds value. A positive
+  fractional second rounds up to the next second, preventing lost precision
+  from making the item appear older.
+- Negative, malformed, or unrepresentable timestamps invalidate the entire
+  affected aggregate rather than being hidden by another inode's newer value.
+- Directory and symbolic-link inode times contribute. Symbolic-link targets do
+  not, because they are never followed.
+- An empty directory uses its own inode modification time.
+- A partial summary's observed maximum does not prove that no newer descendant
+  exists. The rule adapter uses this value as known age evidence only when the
+  top-level item summary is complete.
+
+An inode modification time is not a last-access time and can be changed by a
+user or process. It does not establish inactivity, ownership, generated
+content, or cleanup safety. A scan is not a filesystem snapshot, so a file may
+change after its individual observation. Planning and execution must revalidate
+the approved object and policy evidence before any future mutation.
+
+This aggregate is currently a Core-only input to rule findings. Scan JSON v2
+does not emit the raw timestamp; classification JSON v1 exposes the resulting
+finding state and explanation, not the candidate timestamp itself.
+
 ## App presentation contract
 
 The native dashboard maps Core scan values without deriving cleanup eligibility

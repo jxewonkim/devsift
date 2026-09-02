@@ -87,10 +87,13 @@ Phase 5 classification surface.
 
 Status: implemented as a conservative classification foundation. Built-in
 rules can recognize exact raw path shapes and explain every missing or
-failed check. The current scan adapter does not collect the trusted-location,
-ownership, marker, age, activity, or protected-descendant evidence required to
-promote a real candidate, so unknown facts remain protected.
-Descriptor-relative evidence observation remains a later Phase 5 increment.
+failed check. A descriptor-relative increment now retains a conservative newest
+observed inode modification time per summary and projects it into age findings
+for complete items. The current scan adapter still does not collect the
+trusted-location, ownership, marker, reliable-activity, or protected-descendant
+evidence required to promote a real candidate, so unknown facts remain
+protected. An identity-bound observer for those remaining facts is a later
+Phase 5 increment.
 
 Implemented commit sequence:
 
@@ -100,7 +103,12 @@ Implemented commit sequence:
 - `feat(cli): expose explainable classification reports`;
 - `fix(rules): tighten report validation semantics`;
 - `fix(cli): isolate classification failures`;
-- `feat(app): present explainable policy decisions`.
+- `feat(app): present explainable policy decisions`;
+- `feat(scanner): retain newest modification evidence`;
+- `feat(rules): project observed candidate age`;
+- `test(frontends): verify observed age stays protected`;
+- `fix(scanner): keep age evidence conservative`;
+- `docs(rules): document observed age evidence`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.

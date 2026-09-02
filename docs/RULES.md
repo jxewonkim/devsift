@@ -102,20 +102,44 @@ guarantee.
 
 The scan adapter consumes only the existing `ScanReport`. It does not reopen
 paths, read file contents, invoke tools, inspect processes, or reconstruct
-absolute child URLs. The report retains reliable top-level raw names and scan-
-integrity fields, and the adapter can infer an exact regular-file
-`Package.swift` sibling. It does not yet collect trusted-location, ownership,
-generated-marker, newest-content-time, reliable activity, or protected-
-descendant facts.
+absolute child URLs. The report retains reliable top-level raw names, scan-
+integrity fields, and a bounded modification-time aggregate. The adapter can
+also infer an exact regular-file `Package.swift` sibling.
+
+For each root and top-level summary, the descriptor-relative scan retains the
+greatest conservative whole-second upper bound of the candidate inode and all
+observed descendant inode modification times. A timestamp with subsecond
+precision is rounded up, so precision loss cannot make an item appear older.
+Directory and symbolic-link inodes may contribute; symbolic-link targets are
+never followed. An empty directory contributes its own inode time.
+
+The adapter exposes that aggregate as known age evidence only for a complete
+top-level item with a nonnegative value. An incomplete item becomes
+`unknown(.incompleteScan)`, an absent value becomes `unknown(.notCollected)`,
+and invalid or unrepresentable metadata becomes
+`unknown(.invalidMetadata)`. A value later than the request's reference time
+becomes `unknown(.clockSkew)` in the classifier. The minimum-age comparison is
+inclusive: `reference - newest >= minimumAge` satisfies it.
+
+This timestamp is only the newest value observed during a non-snapshot scan.
+It is not proof of last use, tool inactivity, tool ownership, generated
+content, or the absence of protected descendants. Trusted-location, ownership,
+generated-marker, reliable-activity, and protected-descendant facts remain
+uncollected.
 
 Consequently, a real scan can recognize a possible built-in candidate, but
-those unavailable facts keep its disposition `Protected`. Tests may construct
-synthetic complete evidence to verify the catalog's eligible outcomes; that
-does not weaken the runtime boundary.
+those unavailable facts keep its disposition `Protected` even when its age
+finding is satisfied. Tests may construct synthetic complete evidence to
+verify the catalog's eligible outcomes; that does not weaken the runtime
+boundary. This evidence-availability change does not alter the built-in rule
+definitions, thresholds, or eligible dispositions, so their version-1
+revisions remain unchanged.
 
 A future evidence observer must preserve the scanner's descriptor-relative
-safety model. It must reopen and verify the selected root, use operations such
-as `openat`, `fstatat`, `fstat`, and `O_NOFOLLOW`, stay on the approved device,
+safety model. Before a second pass can collect the remaining facts, reports
+must retain enough scan-time identity to bind a reopened root and candidate to
+the objects that were scanned. Such an observer must use operations such as
+`openat`, `fstatat`, `fstat`, and `O_NOFOLLOW`, stay on the approved device,
 bound all work, and report changed or unavailable facts as unknown. Rebuilding
 absolute descendant paths with string or `URL` concatenation is not acceptable
 authority for classification or cleanup.

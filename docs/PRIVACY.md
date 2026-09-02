@@ -10,6 +10,9 @@ DevSift is designed to work locally and reveal as little as possible.
 - No network access required for scanning.
 - No background or automatic scanning.
 - No scan outside roots explicitly selected by the user.
+- Scanning reads POSIX inode modification times but retains only one maximum
+  aggregate per root or top-level summary, not a timestamp for every
+  descendant. It does not read file contents.
 - The app does not scan before the folder picker returns an explicit selection,
   automatically rescan a previous folder, or persist a recent-folder list.
 - The app does not save or upload reports. It displays root-relative item paths
@@ -38,7 +41,9 @@ action; DevSift never writes a report file on its own.
 Classification output is also root-relative, but adds tool attribution, rule
 identifiers, evidence findings, policy results, and one captured reference
 timestamp. These details may reveal installed tools and work patterns and must
-be reviewed before sharing.
+be reviewed before sharing. The current scan and classification JSON schemas do
+not expose a candidate's raw modification-time aggregate; classification emits
+only the resulting age finding and its reference timestamp.
 
 The app displays the selected root path so the user can verify scope, then shows
 top-level rows as root-relative names. Closing the window discards its in-memory

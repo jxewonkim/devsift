@@ -32,7 +32,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   structured evidence, exclusions, age, activity, reproducibility, scan-
   integrity, conflict, and invalid-rule findings.
 - Initial rules for uv, npm, Homebrew, Xcode DerivedData and iOS DeviceSupport,
-  and SwiftPM build output. Uncollected runtime evidence remains protected.
+  and SwiftPM build output. Remaining uncollected runtime evidence stays
+  protected.
 - Read-only `devsift classify` text and JSON output plus native dashboard policy
   explanations; no planning or filesystem mutation action was added.
 - Classification JSON schema version 1, including a bounded `scanIntegrity`
@@ -40,3 +41,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Shared fail-closed validation for classifier output, including reference-time
   and scan-report binding, path coverage, rule-specific evidence, diagnostics,
   and aggregate output bounds before either frontend renders a result.
+- A per-summary conservative upper bound of the newest inode modification time
+  observed during descriptor-relative traversal. Subseconds round up, invalid
+  values fail closed, symbolic-link inodes contribute, and their targets do
+  not.
+- Rule age findings now consume that aggregate only for complete items. The
+  other required facts still keep real candidates Protected even when age is
+  satisfied.
+
+### Changed
+
+- Scan JSON v2 and classification JSON v1 retain their existing wire shapes.
+  The raw candidate timestamp remains a Core-only aggregate; classification
+  reflects its result through the existing age finding state and generic
+  explanation.
