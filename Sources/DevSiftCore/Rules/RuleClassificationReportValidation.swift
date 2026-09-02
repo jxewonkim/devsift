@@ -103,6 +103,8 @@ extension RuleClassificationReport {
   }
 
   private func validateScanReportStructure(_ report: ScanReport) throws {
+    try validateScanTimeIdentities(report)
+
     if report.topLevelItemsWereSuppressed {
       guard report.topLevelItems.isEmpty else {
         throw RuleClassificationReportValidationError.suppressedTopLevelItemsRetained(
@@ -143,6 +145,28 @@ extension RuleClassificationReport {
       throw RuleClassificationReportValidationError.completeReportContainsIncompleteItem(
         incompletePath
       )
+    }
+  }
+
+  private func validateScanTimeIdentities(_ report: ScanReport) throws {
+    guard let rootIdentity = report.root.scanTimeIdentity else {
+      if let item = report.topLevelItems.first(where: { $0.scanTimeIdentity != nil }) {
+        throw RuleClassificationReportValidationError.inconsistentScanTimeIdentityCoverage(
+          item.path
+        )
+      }
+      return
+    }
+
+    for item in report.topLevelItems {
+      guard let itemIdentity = item.scanTimeIdentity else {
+        throw RuleClassificationReportValidationError.inconsistentScanTimeIdentityCoverage(
+          item.path
+        )
+      }
+      guard itemIdentity.device == rootIdentity.device else {
+        throw RuleClassificationReportValidationError.scanTimeIdentityDeviceMismatch(item.path)
+      }
     }
   }
 

@@ -55,6 +55,52 @@ struct AllocatedSizeScannerTests {
     #expect(nestedDirectory.recursiveSize.logicalBytes >= 4)
   }
 
+  @Test("Summaries retain their own scan-time identities without following symlink targets")
+  func scanTimeIdentities() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let directory = try fixture.makeDirectory("directory")
+    let file = try fixture.write("file.bin", bytes: [1])
+    let hardLink = try fixture.makeHardLink("file-link.bin", source: file)
+    let outsideTarget = try fixture.write("outside.bin", bytes: [2], under: fixture.outside)
+    let symbolicLink = try fixture.makeSymbolicLink("outside-link", destination: outsideTarget)
+
+    let report = try await AllocatedSizeScanner().scan(root: fixture.root)
+    let rootIdentity = try FileMetadata.read(from: fixture.root).identity
+    let directoryIdentity = try FileMetadata.read(from: directory).identity
+    let fileIdentity = try FileMetadata.read(from: file).identity
+    let hardLinkIdentity = try FileMetadata.read(from: hardLink).identity
+    let symbolicLinkIdentity = try FileMetadata.read(from: symbolicLink).identity
+    let outsideTargetIdentity = try FileMetadata.read(from: outsideTarget).identity
+
+    #expect(report.root.scanTimeIdentity == rootIdentity)
+    #expect(
+      try summary(named: "directory", in: report).scanTimeIdentity
+        == directoryIdentity
+    )
+    #expect(
+      try summary(named: "file.bin", in: report).scanTimeIdentity
+        == fileIdentity
+    )
+    #expect(
+      try summary(named: "file-link.bin", in: report).scanTimeIdentity
+        == hardLinkIdentity
+    )
+    #expect(
+      try summary(named: "file.bin", in: report).scanTimeIdentity
+        == summary(named: "file-link.bin", in: report).scanTimeIdentity
+    )
+    #expect(
+      try summary(named: "outside-link", in: report).scanTimeIdentity
+        == symbolicLinkIdentity
+    )
+    #expect(
+      try summary(named: "outside-link", in: report).scanTimeIdentity
+        != outsideTargetIdentity
+    )
+  }
+
   @Test("Summaries conservatively retain inode times without following symlink targets")
   func newestContentModificationTime() async throws {
     let fixture = try ScannerFixture()
@@ -234,6 +280,8 @@ struct AllocatedSizeScannerTests {
     #expect(!report.hardLinkAccountingIsComplete)
     #expect(report.traversalDetailsWereDiscarded)
     #expect(report.issues.contains { $0.reason == .resourceLimit })
+    let rootIdentity = try FileMetadata.read(from: fixture.root).identity
+    #expect(report.root.scanTimeIdentity == rootIdentity)
   }
 
   @Test("Top-level output is all-or-nothing when its memory bound is reached")

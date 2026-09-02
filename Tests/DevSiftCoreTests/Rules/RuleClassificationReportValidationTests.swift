@@ -251,6 +251,96 @@ struct RuleClassificationReportValidationTests {
     }
   }
 
+  @Test("Scan-time identity coverage is all-or-none and remains on the root device")
+  func scanTimeIdentityStructure() {
+    let rootIdentity = FileIdentity(device: 10, inode: 20)
+    let itemIdentity = FileIdentity(device: 10, inode: 30)
+    let otherDeviceIdentity = FileIdentity(device: 11, inode: 30)
+    let path = validationPath("a")
+
+    let malformedReports: [(ScanReport, RuleClassificationReportValidationError)] = [
+      (
+        completeScanReport(
+          topLevelItems: [
+            ruleSummary(rawComponents: path.rawComponents, scanTimeIdentity: itemIdentity)
+          ]
+        ),
+        .inconsistentScanTimeIdentityCoverage(path)
+      ),
+      (
+        ScanReport(
+          root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+          topLevelItems: [ruleSummary(rawComponents: path.rawComponents)],
+          topLevelItemCount: 1,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .inconsistentScanTimeIdentityCoverage(path)
+      ),
+      (
+        ScanReport(
+          root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+          topLevelItems: [
+            ruleSummary(
+              rawComponents: path.rawComponents,
+              scanTimeIdentity: otherDeviceIdentity
+            )
+          ],
+          topLevelItemCount: 1,
+          topLevelItemsWereSuppressed: false,
+          hardLinkAccountingIsComplete: true,
+          traversalDetailsWereDiscarded: false,
+          issues: [],
+          suppressedIssueCount: 0
+        ),
+        .scanTimeIdentityDeviceMismatch(path)
+      ),
+    ]
+
+    for (scanReport, expectedError) in malformedReports {
+      expectValidationError(
+        expectedError,
+        report: validationReport([]),
+        request: RuleClassificationRequest(
+          root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+          report: scanReport,
+          referenceUnixSeconds: 100
+        )
+      )
+    }
+
+    let validReport = ScanReport(
+      root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+      topLevelItems: [
+        ruleSummary(rawComponents: path.rawComponents, scanTimeIdentity: itemIdentity),
+        ruleSummary(rawComponents: [Array("b".utf8)], scanTimeIdentity: itemIdentity),
+      ],
+      topLevelItemCount: 2,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let validRequest = RuleClassificationRequest(
+      root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+      report: validReport,
+      referenceUnixSeconds: 100
+    )
+    let validEvaluations = [
+      validationEvaluation(path: path),
+      validationEvaluation(path: validationPath("b")),
+    ]
+    do {
+      try validationReport(validEvaluations).validate(for: validRequest)
+    } catch {
+      Issue.record("Expected same-device duplicate inode identities to validate: \(error)")
+    }
+  }
+
   @Test("Input, evaluation, per-evaluation, and total finding counts are bounded")
   func countBounds() {
     let baseRequest = validationRequest(names: ["a"])

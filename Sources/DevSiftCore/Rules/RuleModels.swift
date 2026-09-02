@@ -416,6 +416,8 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
   case discardedTraversalStateIsInconsistent
   case rootMarkedCompleteWithScanIssues
   case completeReportContainsIncompleteItem(ScanRelativePath)
+  case inconsistentScanTimeIdentityCoverage(ScanRelativePath)
+  case scanTimeIdentityDeviceMismatch(ScanRelativePath)
   case inputPathIsNotTopLevel(ScanRelativePath)
   case missingEvaluation(ScanRelativePath)
   case extraEvaluation(ScanRelativePath)

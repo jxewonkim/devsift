@@ -418,7 +418,11 @@ private struct ScanAggregator {
   private let maximumTrackedHardLinkPathBytes: UInt64
 
   init(rootMetadata: FileMetadata, limits: ScanLimits) {
-    root = SummaryAccumulator(path: .root, kind: .directory)
+    root = SummaryAccumulator(
+      path: .root,
+      kind: .directory,
+      scanTimeIdentity: rootMetadata.identity
+    )
     root.observePath(kind: .directory)
     root.observeModificationTime(rootMetadata.modificationUnixSeconds)
     root.addApparentContribution(rootMetadata)
@@ -457,7 +461,8 @@ private struct ScanAggregator {
     if !topLevelItemsWereSuppressed {
       ensureTopLevel(
         topLevelComponent,
-        kind: path.rawComponents.count == 1 ? metadata.kind : .other
+        kind: path.rawComponents.count == 1 ? metadata.kind : .other,
+        scanTimeIdentity: path.rawComponents.count == 1 ? metadata.identity : nil
       )
     }
 
@@ -644,11 +649,16 @@ private struct ScanAggregator {
     )
   }
 
-  private mutating func ensureTopLevel(_ component: [UInt8], kind: FileSystemEntryKind) {
+  private mutating func ensureTopLevel(
+    _ component: [UInt8],
+    kind: FileSystemEntryKind,
+    scanTimeIdentity: FileIdentity?
+  ) {
     if topLevel[component] == nil {
       topLevel[component] = SummaryAccumulator(
         path: ScanRelativePath(rawComponents: [component]),
-        kind: kind
+        kind: kind,
+        scanTimeIdentity: scanTimeIdentity
       )
     }
   }
@@ -690,6 +700,7 @@ private struct HardLinkGroup {
 private struct SummaryAccumulator {
   let path: ScanRelativePath
   var kind: FileSystemEntryKind
+  let scanTimeIdentity: FileIdentity?
   private var logicalBytes: UInt64 = 0
   private var allocatedBytes: UInt64 = 0
   private var hardLinkExclusiveAllocatedBytes: UInt64 = 0
@@ -707,9 +718,14 @@ private struct SummaryAccumulator {
   private var encounteredInvalidModificationTime = false
   private(set) var hasSizeOverflow = false
 
-  init(path: ScanRelativePath, kind: FileSystemEntryKind) {
+  init(
+    path: ScanRelativePath,
+    kind: FileSystemEntryKind,
+    scanTimeIdentity: FileIdentity?
+  ) {
     self.path = path
     self.kind = kind
+    self.scanTimeIdentity = scanTimeIdentity
   }
 
   mutating func observePath(kind: FileSystemEntryKind) {
@@ -782,6 +798,7 @@ private struct SummaryAccumulator {
     ScanItemSummary(
       path: path,
       kind: kind,
+      scanTimeIdentity: scanTimeIdentity,
       recursiveSize: StorageSize(
         logicalBytes: logicalBytes,
         allocatedBytes: allocatedBytes
