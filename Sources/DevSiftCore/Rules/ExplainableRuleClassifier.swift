@@ -23,10 +23,12 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
   ) async throws -> RuleClassificationReport {
     try Self.validateObservationCount(request.report.topLevelItems.count)
     let observations = ScanReportRuleAdapter.observations(for: request)
-    return try await classify(
+    let report = try await classify(
       observations: observations,
       referenceUnixSeconds: request.referenceUnixSeconds
     )
+    try report.validate(for: request)
+    return report
   }
 
   func classify(
