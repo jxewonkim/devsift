@@ -704,6 +704,7 @@ private struct SummaryAccumulator {
   private var unobservedHardLinkFileCount: UInt64 = 0
   private var nonExclusiveHardLinkFileCount: UInt64 = 0
   private var newestContentModificationUnixSeconds: Int64?
+  private var encounteredInvalidModificationTime = false
   private(set) var hasSizeOverflow = false
 
   init(path: ScanRelativePath, kind: FileSystemEntryKind) {
@@ -725,6 +726,10 @@ private struct SummaryAccumulator {
   }
 
   mutating func observeModificationTime(_ unixSeconds: Int64) {
+    guard unixSeconds >= 0 else {
+      encounteredInvalidModificationTime = true
+      return
+    }
     newestContentModificationUnixSeconds = max(
       newestContentModificationUnixSeconds ?? unixSeconds,
       unixSeconds
@@ -794,7 +799,8 @@ private struct SummaryAccumulator {
       sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
       unobservedHardLinkFileCount: unobservedHardLinkFileCount,
       nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount,
-      newestContentModificationUnixSeconds: newestContentModificationUnixSeconds,
+      newestContentModificationUnixSeconds: encounteredInvalidModificationTime
+        ? -1 : newestContentModificationUnixSeconds,
       sizeOverflowed: hasSizeOverflow,
       isComplete: isComplete
     )

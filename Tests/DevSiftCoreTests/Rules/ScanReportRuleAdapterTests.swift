@@ -87,7 +87,7 @@ struct ScanReportRuleAdapterTests {
     )
   }
 
-  @Test("A descriptor-scanned age can pass while all unsafe outcomes stay protected")
+  @Test("Descriptor-scanned age rounds conservatively and stays protected")
   func descriptorScannedAgeRemainsProtected() async throws {
     let fixture = try ScannerFixture()
     defer { fixture.remove() }
@@ -96,14 +96,34 @@ struct ScanReportRuleAdapterTests {
     let payload = try fixture.write(".build/payload.bin", bytes: [1])
     _ = try fixture.write("Package.swift", bytes: [])
     try fixture.setModificationTime(50, for: build)
-    try fixture.setModificationTime(100, for: payload)
+    try fixture.setModificationTime(100, for: payload, nanoseconds: 1)
 
     let scan = try await AllocatedSizeScanner().scan(root: fixture.root)
-    let classification = try await ExplainableRuleClassifier().classify(
+    let boundaryTooEarly = try await ExplainableRuleClassifier().classify(
       RuleClassificationRequest(
         root: fixture.root,
         report: scan,
         referenceUnixSeconds: 100 + 7 * 24 * 60 * 60
+      )
+    )
+    let boundaryDecision = try #require(
+      boundaryTooEarly.evaluations.first {
+        $0.path.rawComponents == [Array(".build".utf8)]
+      }
+    )
+    let boundaryAge = try #require(
+      boundaryDecision.findings.first {
+        $0.identifier == testCheckIdentifier("age-requirement")
+      }
+    )
+    #expect(boundaryAge.state == .failed)
+    #expect(boundaryDecision.disposition == .protected)
+
+    let classification = try await ExplainableRuleClassifier().classify(
+      RuleClassificationRequest(
+        root: fixture.root,
+        report: scan,
+        referenceUnixSeconds: 101 + 7 * 24 * 60 * 60
       )
     )
     let decision = try #require(

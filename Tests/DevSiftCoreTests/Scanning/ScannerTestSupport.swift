@@ -81,14 +81,18 @@ struct ScannerFixture: Sendable {
   func setModificationTime(
     _ unixSeconds: Int64,
     for url: URL,
+    nanoseconds: Int = 0,
     followSymbolicLinks: Bool = true
   ) throws {
-    guard let nativeSeconds = Int(exactly: unixSeconds) else {
+    guard
+      let nativeSeconds = Int(exactly: unixSeconds),
+      (0..<1_000_000_000).contains(nanoseconds)
+    else {
       throw NSError(domain: NSPOSIXErrorDomain, code: Int(EOVERFLOW))
     }
     var timestamps = [
-      timespec(tv_sec: nativeSeconds, tv_nsec: 0),
-      timespec(tv_sec: nativeSeconds, tv_nsec: 0),
+      timespec(tv_sec: nativeSeconds, tv_nsec: nanoseconds),
+      timespec(tv_sec: nativeSeconds, tv_nsec: nanoseconds),
     ]
     var failureCode: Int32 = EINVAL
     let flags = followSymbolicLinks ? 0 : AT_SYMLINK_NOFOLLOW

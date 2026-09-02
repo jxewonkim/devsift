@@ -152,8 +152,10 @@ public struct ScanItemSummary: Hashable, Sendable {
   public let sharedContentMetadataUnavailableCount: UInt64
   public let unobservedHardLinkFileCount: UInt64
   public let nonExclusiveHardLinkFileCount: UInt64
-  /// Greatest inode modification timestamp observed for this summary. A value
-  /// on an incomplete summary is not proof that no newer descendant exists.
+  /// Conservative whole-second upper bound of the greatest inode modification
+  /// timestamp observed for this summary. Negative values represent invalid
+  /// metadata. A value on an incomplete summary is not proof that no newer
+  /// descendant exists.
   public let newestContentModificationUnixSeconds: Int64?
   public let sizeOverflowed: Bool
   public let isComplete: Bool

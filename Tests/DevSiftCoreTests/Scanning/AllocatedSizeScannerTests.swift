@@ -55,7 +55,7 @@ struct AllocatedSizeScannerTests {
     #expect(nestedDirectory.recursiveSize.logicalBytes >= 4)
   }
 
-  @Test("Summaries retain the newest inode time without following symlink targets")
+  @Test("Summaries conservatively retain inode times without following symlink targets")
   func newestContentModificationTime() async throws {
     let fixture = try ScannerFixture()
     defer { fixture.remove() }
@@ -66,22 +66,55 @@ struct AllocatedSizeScannerTests {
     let empty = try fixture.makeDirectory("empty")
     let outsideTarget = try fixture.write("newer.bin", bytes: [2], under: fixture.outside)
     let link = try fixture.makeSymbolicLink("cache/link", destination: outsideTarget)
+    let fractional = try fixture.write("fractional.bin", bytes: [3])
 
     try fixture.setModificationTime(900, for: outsideTarget)
-    try fixture.setModificationTime(350, for: link, followSymbolicLinks: false)
+    try fixture.setModificationTime(450, for: link, followSymbolicLinks: false)
     try fixture.setModificationTime(400, for: payload)
     try fixture.setModificationTime(300, for: nested)
     try fixture.setModificationTime(200, for: cache)
     try fixture.setModificationTime(500, for: empty)
+    try fixture.setModificationTime(600, for: fractional, nanoseconds: 1)
     try fixture.setModificationTime(100, for: fixture.root)
 
     let report = try await AllocatedSizeScanner().scan(root: fixture.root)
     let cacheSummary = try summary(named: "cache", in: report)
     let emptySummary = try summary(named: "empty", in: report)
+    let fractionalSummary = try summary(named: "fractional.bin", in: report)
 
-    #expect(report.root.newestContentModificationUnixSeconds == 500)
-    #expect(cacheSummary.newestContentModificationUnixSeconds == 400)
+    #expect(report.root.newestContentModificationUnixSeconds == 601)
+    #expect(cacheSummary.newestContentModificationUnixSeconds == 450)
     #expect(emptySummary.newestContentModificationUnixSeconds == 500)
+    #expect(fractionalSummary.newestContentModificationUnixSeconds == 601)
+  }
+
+  @Test("One invalid inode time invalidates the aggregate instead of hiding behind a newer time")
+  func invalidModificationTimeInvalidatesAggregate() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    try fixture.write("cache/valid.bin", bytes: [1])
+    try fixture.write("cache/invalid.bin", bytes: [2])
+    let scanner = AllocatedSizeScanner(metadataTransform: { path, metadata in
+      guard path.description == "cache/invalid.bin" else {
+        return metadata
+      }
+      return FileMetadata(
+        kind: metadata.kind,
+        identity: metadata.identity,
+        size: metadata.size,
+        allocatedSizeIsKnown: metadata.allocatedSizeIsKnown,
+        hardLinkCount: metadata.hardLinkCount,
+        mayShareFileContent: metadata.mayShareFileContent,
+        modificationUnixSeconds: -1
+      )
+    })
+
+    let report = try await scanner.scan(root: fixture.root)
+    let cacheSummary = try summary(named: "cache", in: report)
+
+    #expect(report.root.newestContentModificationUnixSeconds == -1)
+    #expect(cacheSummary.newestContentModificationUnixSeconds == -1)
   }
 
   @Test("Cross-item hard links keep apparent bytes without per-item exclusive credit")
