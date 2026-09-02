@@ -65,7 +65,7 @@ When the global entry limit is reached, descendant aggregates are discarded.
 Text output labels the recursive summary and top-level items unavailable rather
 than presenting the remaining root-inode values as a complete total.
 
-## JSON schema version 1
+## JSON schema version 2
 
 JSON output is a versioned CLI-owned projection of the Core report. Core models
 are not made `Codable`, so a future Core refactor cannot silently change the
@@ -74,7 +74,7 @@ wire format.
 The envelope contains:
 
 - `schema`: always `devsift.scan`;
-- `schemaVersion`: the JSON number `1`;
+- `schemaVersion`: the JSON number `2`;
 - `devsiftVersion` and `safetyMode`;
 - `pathStyle`: always `root-relative`;
 - all six effective scan limits;
@@ -83,6 +83,12 @@ The envelope contains:
 Every size, count, and limit is encoded as a decimal string. This preserves the
 full unsigned 64-bit range in JavaScript and other JSON consumers. The optional
 POSIX `systemCode` is a JSON number or explicit `null`.
+
+Each root and top-level item also includes `sizeOverflowed`. When it is `true`,
+one or more of that summary's size additions saturated at `UInt64.max`; the raw
+decimal fields remain machine-readable, but must not be presented as exact
+totals. Schema version 2 adds this field. Version 1 did not carry an overflow
+flag and is no longer emitted by the pre-release CLI.
 
 Each path has a display value and an exact identity:
 
@@ -137,6 +143,7 @@ A minimal synthetic envelope has this shape:
       "possibleSharedContentFileCount": "0",
       "recursiveSize": { "allocatedBytes": "0", "logicalBytes": "0" },
       "sharedContentMetadataUnavailableCount": "1",
+      "sizeOverflowed": false,
       "unknownAllocatedItemCount": "0",
       "unobservedHardLinkFileCount": "0"
     },
@@ -148,7 +155,7 @@ A minimal synthetic envelope has this shape:
   },
   "safetyMode": "scan-only",
   "schema": "devsift.scan",
-  "schemaVersion": 1
+  "schemaVersion": 2
 }
 ```
 

@@ -43,9 +43,17 @@ root-relative, and exact path-component bytes are retained as Base64.
 
 ### DevSift app
 
-The macOS app provides explicit folder selection, progress and cancellation,
-candidate explanations, plan review, and accessibility. View models call the
-same DevSiftCore APIs as the CLI.
+The current macOS app provides explicit folder selection, indeterminate scan
+activity, cancellation, rescan, observation results, partial-result details,
+and accessibility. Candidate explanations and plan review belong to later rule
+and planning phases.
+
+Each window owns a `@MainActor` observable view model with an injected
+`FileSystemScanning` capability. It passes the file importer's selected URL
+unchanged to DevSiftCore. A scan UUID prevents a cancelled or superseded task
+from publishing a late result over the current state. Security-scoped access is
+held until the Core scan and presentation preparation finish, then balanced on
+success, failure, or cancellation.
 
 ## Dependency rules
 
@@ -58,11 +66,12 @@ same DevSiftCore APIs as the CLI.
 
 ## Measurement
 
-DevSift distinguishes logical file size from allocated disk usage. User-facing
-reclaim estimates use allocated bytes where the filesystem exposes them and
-label estimates when exact accounting is not possible. Hard links, sparse
-files, packages, clones, and filesystem snapshots require explicit handling and
-tests rather than naive recursive summation.
+DevSift distinguishes logical file size from observed allocated disk usage. The
+current UI displays observations and does not calculate reclaim estimates.
+Future rules and plans must derive any estimate separately and label its
+uncertainty. Hard links, sparse files, packages, clones, and filesystem
+snapshots require explicit handling and tests rather than naive recursive
+summation.
 
 The scanner reports apparent bytes separately from hard-link-exclusive
 allocated bytes. A hard-linked regular-file inode receives that credit only

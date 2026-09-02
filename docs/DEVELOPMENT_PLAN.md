@@ -62,17 +62,25 @@ and no cleanup command exists.
 
 ## Phase 4: scan app
 
+Status: implemented with explicit folder selection, an indeterminate scan
+activity state, cancellation, rescan, and complete or partial result views.
+
 Commit: `feat(app): add a read-only storage scan dashboard`
 
-- Add explicit folder selection, progress, cancellation, and result views.
+- Add explicit folder selection, honest indeterminate activity, cancellation,
+  and result views.
 - Display that the current release is analysis-only.
 - Cover the view model with unit tests.
 - Check basic keyboard, VoiceOver, light-mode, and dark-mode behavior.
 
 Gate: the app builds without signing in CI and invokes DevSiftCore rather than a
-duplicate scanner.
+duplicate scanner. Synthetic tests cover empty, scanning, complete, partial,
+cancelled, failed, rescan, stale-result, and Core-integration behavior. Native
+1200 x 760 light and dark render snapshots are available as an opt-in local QA
+harness.
 
-Milestone: `v0.1.0-alpha.1` -- scan-only app and CLI.
+Implementation milestone reached: scan-only app and CLI. The
+`v0.1.0-alpha.1` tag and release remain a separate release action.
 
 ## Phase 5: explainable rules
 
