@@ -42,8 +42,8 @@ struct CLIIntegrationTests {
     #expect(first.standardOutput.contains(fixture.root.path) == false)
 
     let data = try #require(first.standardOutput.data(using: .utf8))
-    let document = try JSONDecoder().decode(ScanJSONDocumentV1.self, from: data)
-    #expect(document.schemaVersion == 1)
+    let document = try JSONDecoder().decode(ScanJSONDocumentV2.self, from: data)
+    #expect(document.schemaVersion == 2)
     #expect(document.pathStyle == "root-relative")
     #expect(document.report.isComplete)
     #expect(document.report.root.counts.regularFiles == "3")
@@ -106,7 +106,7 @@ struct CLIIntegrationTests {
       currentDirectory: fixture.parent
     )
     let data = try #require(result.standardOutput.data(using: .utf8))
-    let document = try JSONDecoder().decode(ScanJSONDocumentV1.self, from: data)
+    let document = try JSONDecoder().decode(ScanJSONDocumentV2.self, from: data)
     let paths = document.report.topLevelItems.map(\.path.display)
 
     #expect(result.exitCode == 0)

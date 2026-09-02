@@ -82,6 +82,7 @@ enum CLITestReportFactory {
     sharedContentMetadataUnavailableCount: UInt64 = 0,
     unobservedHardLinkFileCount: UInt64 = 0,
     nonExclusiveHardLinkFileCount: UInt64 = 0,
+    sizeOverflowed: Bool = false,
     isComplete: Bool = true
   ) -> ScanItemSummary {
     ScanItemSummary(
@@ -98,6 +99,7 @@ enum CLITestReportFactory {
       sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
       unobservedHardLinkFileCount: unobservedHardLinkFileCount,
       nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount,
+      sizeOverflowed: sizeOverflowed,
       isComplete: isComplete
     )
   }
