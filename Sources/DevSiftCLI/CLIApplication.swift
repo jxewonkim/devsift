@@ -162,7 +162,7 @@ struct CLIApplication {
           standardError: "devsift: \(operation) cancelled.\n"
         )
       }
-      if let scanError = error as? ScanError {
+      if case .scanning = phase, let scanError = error as? ScanError {
         return scanErrorResult(scanError, path: path)
       }
       return internalError()

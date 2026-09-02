@@ -261,8 +261,15 @@ struct CLIApplicationTests {
       CLITestReportFactory.report(root: CLITestReportFactory.item(isComplete: false)),
       CLITestReportFactory.report(topLevelItemsWereSuppressed: true),
       CLITestReportFactory.report(hardLinkAccountingIsComplete: false),
-      CLITestReportFactory.report(traversalDetailsWereDiscarded: true),
-      CLITestReportFactory.report(suppressedIssueCount: 1),
+      CLITestReportFactory.report(
+        topLevelItemsWereSuppressed: true,
+        hardLinkAccountingIsComplete: false,
+        traversalDetailsWereDiscarded: true
+      ),
+      CLITestReportFactory.report(
+        root: CLITestReportFactory.item(isComplete: false),
+        suppressedIssueCount: 1
+      ),
     ]
 
     for report in partialReports {
@@ -398,6 +405,21 @@ struct CLIApplicationTests {
     #expect(scannerUnexpectedResult.exitCode == CLIExitCode.internalError)
     #expect(scannerUnexpectedResult.standardOutput.isEmpty)
     #expect(scannerUnexpectedResult.standardError.contains("unexpected internal error"))
+  }
+
+  @Test("A ScanError thrown by the classifier is treated as an internal error")
+  func classifierScanErrorMapping() async {
+    let application = CLIApplication(
+      scanner: StubScanner(outcome: .report(CLITestReportFactory.report())),
+      classifier: StubClassifier(outcome: .scanError(.rootNotFound))
+    )
+
+    let result = await application.run(arguments: ["classify", "fixture"])
+
+    #expect(result.exitCode == CLIExitCode.internalError)
+    #expect(result.standardOutput.isEmpty)
+    #expect(result.standardError == "devsift: an unexpected internal error occurred.\n")
+    #expect(!result.standardError.contains("cannot scan"))
   }
 
   @Test("Classify usage errors point to classify help")

@@ -67,6 +67,7 @@ actor ClassificationRequestRecorder {
 
 enum StubClassifierOutcome: Sendable {
   case report(RuleClassificationReport)
+  case scanError(ScanError)
   case cancelled
   case unexpectedError
 }
@@ -91,6 +92,8 @@ struct StubClassifier: RuleClassifying {
     switch outcome {
     case .report(let report):
       return report
+    case .scanError(let error):
+      throw error
     case .cancelled:
       throw CancellationError()
     case .unexpectedError:
