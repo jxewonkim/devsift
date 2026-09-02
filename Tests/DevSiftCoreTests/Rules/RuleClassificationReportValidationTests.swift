@@ -148,11 +148,54 @@ struct RuleClassificationReportValidationTests {
       referenceUnixSeconds: 100
     )
 
+    expectPreflightError(.inputPathIsNotTopLevel(nested), report: request.report)
     expectValidationError(
       .inputPathIsNotTopLevel(nested),
       report: validationReport([]),
       request: request
     )
+  }
+
+  @Test("Scan preflight requires a directory root summary at the root path")
+  func scanPreflightRootShape() throws {
+    let valid = completeScanReport(topLevelItems: [])
+    try ScanReportPreflight.validate(valid)
+
+    let invalidRoots: [(ScanItemSummary, RuleClassificationReportValidationError)] = [
+      (
+        ruleSummary(rawComponents: [Array("not-root".utf8)]),
+        .rootSummaryPathIsNotRoot(validationPath("not-root"))
+      ),
+      (
+        ruleSummary(rawComponents: [], kind: .regularFile),
+        .rootSummaryIsNotDirectory(.regularFile)
+      ),
+    ]
+
+    for (root, expectedError) in invalidRoots {
+      let report = ScanReport(
+        root: root,
+        topLevelItems: [],
+        topLevelItemCount: 0,
+        topLevelItemsWereSuppressed: false,
+        hardLinkAccountingIsComplete: true,
+        traversalDetailsWereDiscarded: false,
+        issues: [],
+        suppressedIssueCount: 0
+      )
+      let request = RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+        report: report,
+        referenceUnixSeconds: 100
+      )
+
+      expectPreflightError(expectedError, report: report)
+      expectValidationError(
+        expectedError,
+        report: validationReport([]),
+        request: request
+      )
+    }
   }
 
   @Test("Malformed scan report structure is rejected before eligibility")
@@ -252,7 +295,7 @@ struct RuleClassificationReportValidationTests {
   }
 
   @Test("Scan-time identity coverage is all-or-none and remains on the root device")
-  func scanTimeIdentityStructure() {
+  func scanTimeIdentityStructure() throws {
     let rootIdentity = FileIdentity(device: 10, inode: 20)
     let itemIdentity = FileIdentity(device: 10, inode: 30)
     let otherDeviceIdentity = FileIdentity(device: 11, inode: 30)
@@ -301,6 +344,7 @@ struct RuleClassificationReportValidationTests {
     ]
 
     for (scanReport, expectedError) in malformedReports {
+      expectPreflightError(expectedError, report: scanReport)
       expectValidationError(
         expectedError,
         report: validationReport([]),
@@ -334,6 +378,7 @@ struct RuleClassificationReportValidationTests {
       validationEvaluation(path: path),
       validationEvaluation(path: validationPath("b")),
     ]
+    try ScanReportPreflight.validate(validReport)
     do {
       try validationReport(validEvaluations).validate(for: validRequest)
     } catch {
@@ -944,6 +989,20 @@ struct RuleClassificationReportValidationTests {
     do {
       try report.validate(for: request)
       Issue.record("Expected validation error \(expected)")
+    } catch let error as RuleClassificationReportValidationError {
+      #expect(error == expected)
+    } catch {
+      Issue.record("Expected \(expected), received \(error)")
+    }
+  }
+
+  private func expectPreflightError(
+    _ expected: RuleClassificationReportValidationError,
+    report: ScanReport
+  ) {
+    do {
+      try ScanReportPreflight.validate(report)
+      Issue.record("Expected scan preflight error \(expected)")
     } catch let error as RuleClassificationReportValidationError {
       #expect(error == expected)
     } catch {

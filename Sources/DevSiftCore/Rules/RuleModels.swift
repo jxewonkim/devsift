@@ -411,6 +411,8 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
   case referenceTimeMismatch(expected: Int64, actual: Int64)
   case tooManyInputItems(maximum: Int, actual: Int)
   case tooManyEvaluations(maximum: Int, actual: Int)
+  case rootSummaryPathIsNotRoot(ScanRelativePath)
+  case rootSummaryIsNotDirectory(FileSystemEntryKind)
   case topLevelItemCountMismatch(reported: UInt64, retained: Int)
   case suppressedTopLevelItemsRetained(actual: Int)
   case discardedTraversalStateIsInconsistent
