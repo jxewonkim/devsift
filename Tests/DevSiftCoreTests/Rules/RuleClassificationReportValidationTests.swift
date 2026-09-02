@@ -819,6 +819,7 @@ struct RuleClassificationReportValidationTests {
       AutomaticCheckIdentifier.allocationKnown,
       AutomaticCheckIdentifier.sizeDidNotOverflow,
       AutomaticCheckIdentifier.hardLinksComplete,
+      AutomaticCheckIdentifier.identityMatchesScan,
     ]
     let expectedStates: [CheckIdentifier: RuleFindingState] = [
       AutomaticCheckIdentifier.reportComplete: .failed,
@@ -829,6 +830,7 @@ struct RuleClassificationReportValidationTests {
       AutomaticCheckIdentifier.allocationKnown: .failed,
       AutomaticCheckIdentifier.sizeDidNotOverflow: .failed,
       AutomaticCheckIdentifier.hardLinksComplete: .failed,
+      AutomaticCheckIdentifier.identityMatchesScan: .unknown(.incompleteScan),
     ]
 
     for identifier in integrityIdentifiers {
@@ -852,6 +854,47 @@ struct RuleClassificationReportValidationTests {
         request: request
       )
     }
+  }
+
+  @Test("Scan identity findings stay unknown when no identity was retained")
+  func uncollectedScanIdentityFinding() throws {
+    let request = RuleClassificationRequest(
+      root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
+      report: completeScanReport(
+        topLevelItems: [ruleSummary(rawComponents: [Array("a".utf8)])]
+      ),
+      referenceUnixSeconds: 100
+    )
+    let path = validationPath("a")
+
+    let valid = validationEvaluation(
+      matchState: .possibleMatch,
+      disposition: .protected,
+      findings: validationCommonFindings(
+        states: [
+          AutomaticCheckIdentifier.identityMatchesScan: .unknown(.notCollected)
+        ]
+      ) + validationRuleSpecificFindings()
+    )
+    try validationReport([valid]).validate(for: request)
+
+    let forged = validationEvaluation(
+      matchState: .possibleMatch,
+      disposition: .protected,
+      findings: validationCommonFindings(
+        states: [AutomaticCheckIdentifier.activity: .unknown(.notCollected)]
+      ) + validationRuleSpecificFindings()
+    )
+    expectValidationError(
+      .commonFindingStateMismatch(
+        path: path,
+        finding: AutomaticCheckIdentifier.identityMatchesScan,
+        expected: .unknown(.notCollected),
+        actual: .satisfied
+      ),
+      report: validationReport([forged]),
+      request: request
+    )
   }
 
   @Test("Finding identifiers and matching revisions are unique and ordered")
@@ -1145,6 +1188,12 @@ private func validationCommonFindings(
       state: state(AutomaticCheckIdentifier.hardLinksComplete),
       explanation: explanation
     ),
+    validationFinding(
+      identifier: AutomaticCheckIdentifier.identityMatchesScan.rawValue,
+      kind: .scanIntegrity,
+      state: state(AutomaticCheckIdentifier.identityMatchesScan),
+      explanation: explanation
+    ),
   ]
 }
 
@@ -1186,12 +1235,27 @@ private func validationRequest(
   names: [String],
   referenceUnixSeconds: Int64 = 100
 ) -> RuleClassificationRequest {
-  RuleClassificationRequest(
+  let device: UInt64 = 1
+  let items = names.enumerated().map { index, name in
+    ruleSummary(
+      rawComponents: [Array(name.utf8)],
+      scanTimeIdentity: FileIdentity(device: device, inode: UInt64(index + 2))
+    )
+  }
+  return RuleClassificationRequest(
     root: URL(fileURLWithPath: "/synthetic", isDirectory: true),
-    report: completeScanReport(
-      topLevelItems: names.map { name in
-        ruleSummary(rawComponents: [Array(name.utf8)])
-      }
+    report: ScanReport(
+      root: ruleSummary(
+        rawComponents: [],
+        scanTimeIdentity: FileIdentity(device: device, inode: 1)
+      ),
+      topLevelItems: items,
+      topLevelItemCount: UInt64(items.count),
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
     ),
     referenceUnixSeconds: referenceUnixSeconds
   )

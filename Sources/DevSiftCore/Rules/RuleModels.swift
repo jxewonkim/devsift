@@ -258,6 +258,9 @@ public struct RuleScanIntegrity: Hashable, Sendable {
   public let unknownAllocatedItemCount: UInt64
   public let sizeOverflowed: Bool
   public let hardLinkAccountingIsComplete: Bool
+  /// Whether descriptor-relative reobservation still bound this candidate to
+  /// the identity retained by the scan. Unknown never grants eligibility.
+  public let identityMatchesScan: RuleObserved<Bool>
 
   public init(
     reportIsComplete: Bool,
@@ -267,7 +270,8 @@ public struct RuleScanIntegrity: Hashable, Sendable {
     suppressedIssueCount: UInt64,
     unknownAllocatedItemCount: UInt64,
     sizeOverflowed: Bool,
-    hardLinkAccountingIsComplete: Bool
+    hardLinkAccountingIsComplete: Bool,
+    identityMatchesScan: RuleObserved<Bool> = .unknown(.notCollected)
   ) {
     self.reportIsComplete = reportIsComplete
     self.itemIsComplete = itemIsComplete
@@ -277,6 +281,7 @@ public struct RuleScanIntegrity: Hashable, Sendable {
     self.unknownAllocatedItemCount = unknownAllocatedItemCount
     self.sizeOverflowed = sizeOverflowed
     self.hardLinkAccountingIsComplete = hardLinkAccountingIsComplete
+    self.identityMatchesScan = identityMatchesScan
   }
 }
 

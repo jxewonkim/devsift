@@ -122,6 +122,7 @@ enum CLITestReportFactory {
   static func item(
     rawComponents: [[UInt8]] = [],
     kind: FileSystemEntryKind = .directory,
+    scanTimeIdentity: FileIdentity? = nil,
     logicalBytes: UInt64 = 0,
     allocatedBytes: UInt64 = 0,
     hardLinkExclusiveAllocatedBytes: UInt64? = nil,
@@ -137,6 +138,7 @@ enum CLITestReportFactory {
     ScanItemSummary(
       path: ScanRelativePath(rawComponents: rawComponents),
       kind: kind,
+      scanTimeIdentity: scanTimeIdentity,
       recursiveSize: StorageSize(
         logicalBytes: logicalBytes,
         allocatedBytes: allocatedBytes

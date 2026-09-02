@@ -65,7 +65,8 @@ func completeRuleIntegrity() -> RuleScanIntegrity {
     suppressedIssueCount: 0,
     unknownAllocatedItemCount: 0,
     sizeOverflowed: false,
-    hardLinkAccountingIsComplete: true
+    hardLinkAccountingIsComplete: true,
+    identityMatchesScan: .known(true)
   )
 }
 

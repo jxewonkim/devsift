@@ -461,6 +461,7 @@ extension RuleClassificationReport {
       (AutomaticCheckIdentifier.allocationKnown, .scanIntegrity),
       (AutomaticCheckIdentifier.sizeDidNotOverflow, .scanIntegrity),
       (AutomaticCheckIdentifier.hardLinksComplete, .scanIntegrity),
+      (AutomaticCheckIdentifier.identityMatchesScan, .scanIntegrity),
     ]
 
     for (identifier, expectedKind) in commonKinds {
@@ -538,6 +539,22 @@ extension RuleClassificationReport {
       try validateCommonFindingState(
         identifier,
         expected: expectedState,
+        evaluation: evaluation,
+        findings: findings
+      )
+    }
+
+    if !scanReport.isComplete || !inputItem.isComplete {
+      try validateCommonFindingState(
+        AutomaticCheckIdentifier.identityMatchesScan,
+        expected: .unknown(.incompleteScan),
+        evaluation: evaluation,
+        findings: findings
+      )
+    } else if inputItem.scanTimeIdentity == nil {
+      try validateCommonFindingState(
+        AutomaticCheckIdentifier.identityMatchesScan,
+        expected: .unknown(.notCollected),
         evaluation: evaluation,
         findings: findings
       )

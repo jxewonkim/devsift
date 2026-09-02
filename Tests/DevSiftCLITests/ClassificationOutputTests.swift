@@ -70,7 +70,7 @@ struct ClassificationOutputTests {
 
     #expect(first == second)
     #expect(first.hasSuffix("\n"))
-    #expect(first.contains("Catalog: devsift.builtin-rules v1"))
+    #expect(first.contains("Catalog: devsift.builtin-rules v2"))
     #expect(first.contains("Catalog rules: 6"))
     #expect(first.contains("Scan completeness: partial"))
     #expect(first.contains("Reference time (Unix seconds): -42"))
@@ -158,6 +158,8 @@ struct ClassificationOutputTests {
   @Test("JSON v1 has exact key sets, string integers, and lossless raw paths")
   func jsonOutputContract() throws {
     let rawPath = [[UInt8](arrayLiteral: 0xFF, 0x00, 0x5C)]
+    let rootIdentity = FileIdentity(device: 0xD35, inode: 0x200)
+    let itemIdentity = FileIdentity(device: rootIdentity.device, inode: 0x201)
     let revisions = [
       CLITestClassificationFactory.revision(identifier: "devsift.test.alpha", version: 2),
       CLITestClassificationFactory.revision(identifier: "devsift.test.beta", version: .max),
@@ -165,6 +167,7 @@ struct ClassificationOutputTests {
     let item = CLITestReportFactory.item(
       rawComponents: rawPath,
       kind: .directory,
+      scanTimeIdentity: itemIdentity,
       allocatedBytes: .max,
       hardLinkExclusiveAllocatedBytes: .max,
       unknownAllocatedItemCount: .max,
@@ -195,6 +198,7 @@ struct ClassificationOutputTests {
     )
     let scanReport = CLITestReportFactory.report(
       root: CLITestReportFactory.item(
+        scanTimeIdentity: rootIdentity,
         unknownAllocatedItemCount: .max,
         sizeOverflowed: true,
         isComplete: false
@@ -232,7 +236,7 @@ struct ClassificationOutputTests {
     #expect(decoded.schema == "devsift.classification")
     #expect(decoded.schemaVersion == 1)
     #expect(decoded.pathStyle == "root-relative")
-    #expect(decoded.catalog.version == "1")
+    #expect(decoded.catalog.version == "2")
     #expect(decoded.catalog.ruleCount == "6")
     #expect(decoded.referenceUnixSeconds == String(Int64.min))
     #expect(decoded.scanIntegrity.retainedTopLevelItemCount == "1")

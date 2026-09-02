@@ -1,15 +1,23 @@
 import Foundation
 
 enum ScanReportRuleAdapter {
-  static func observations(for request: RuleClassificationRequest) -> [RuleObservation] {
+  static func observations(
+    for request: RuleClassificationRequest,
+    evidence: RuleEvidenceObservation? = nil
+  ) -> [RuleObservation] {
     let rootBasename =
       rawBasename(of: request.root)
       .map(RuleObserved<[UInt8]>.known)
       ?? .unknown(.invalidMetadata)
     let packageManifest = packageManifestObservation(in: request.report)
+    let candidateEvidence = normalizedEvidence(
+      for: request.report,
+      observation: evidence
+    )
 
-    return request.report.topLevelItems.map { item in
-      RuleObservation(
+    return request.report.topLevelItems.enumerated().map { index, item in
+      let observed = candidateEvidence[index]
+      return RuleObservation(
         summary: item,
         selectedRootBasename: rootBasename,
         integrity: RuleScanIntegrity(
@@ -20,12 +28,13 @@ enum ScanReportRuleAdapter {
           suppressedIssueCount: request.report.suppressedIssueCount,
           unknownAllocatedItemCount: item.unknownAllocatedItemCount,
           sizeOverflowed: item.sizeOverflowed,
-          hardLinkAccountingIsComplete: request.report.hardLinkAccountingIsComplete
+          hardLinkAccountingIsComplete: request.report.hardLinkAccountingIsComplete,
+          identityMatchesScan: observed.identityMatchesScan
         ),
         facts: RuleObservationFacts(
           trustedLocation: .unknown(.notCollected),
           toolOwnership: .unknown(.notCollected),
-          generatedContentMarker: .unknown(.notCollected),
+          generatedContentMarker: observed.generatedContentMarker,
           newestContentModificationUnixSeconds: newestModificationObservation(for: item),
           activity: .unknown(.notCollected),
           protectedDescendantPresent: .unknown(.notCollected),
@@ -33,6 +42,42 @@ enum ScanReportRuleAdapter {
         )
       )
     }
+  }
+
+  private static func normalizedEvidence(
+    for report: ScanReport,
+    observation: RuleEvidenceObservation?
+  ) -> [CandidateRuleEvidence] {
+    let candidates: [CandidateRuleEvidence]
+    if let observation, observation.candidates.count == report.topLevelItems.count {
+      candidates = observation.candidates
+    } else {
+      let missingReason: RuleUnknownReason = observation == nil ? .notCollected : .invalidMetadata
+      candidates = report.topLevelItems.map { item in
+        unavailableEvidence(for: item, reason: missingReason)
+      }
+    }
+
+    return zip(report.topLevelItems, candidates).map { item, evidence in
+      guard report.isComplete, item.isComplete else {
+        return unavailableEvidence(for: item, reason: .incompleteScan)
+      }
+      guard item.scanTimeIdentity != nil else {
+        return unavailableEvidence(for: item, reason: .notCollected)
+      }
+      return evidence
+    }
+  }
+
+  private static func unavailableEvidence(
+    for item: ScanItemSummary,
+    reason: RuleUnknownReason
+  ) -> CandidateRuleEvidence {
+    CandidateRuleEvidence(
+      identityMatchesScan: .unknown(reason),
+      generatedContentMarker: item.path.rawComponents == [Array(".build".utf8)]
+        ? .unknown(reason) : .unknown(.notCollected)
+    )
   }
 
   private static func packageManifestObservation(
