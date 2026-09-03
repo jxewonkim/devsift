@@ -49,6 +49,9 @@ struct CleanupPlannerHappyPathTests {
 
     #expect(first == second)
     #expect(first.contractVersion == CleanupManifest.currentContractVersion)
+    #expect(first.contractVersion == 2)
+    #expect(first.policyProvenance == scenario.classificationReport.policyProvenance)
+    #expect(first.policyProvenance.catalogRevision == BuiltInRuleCatalog.revision)
     #expect(first.classificationReferenceUnixSeconds == 1_000_000)
     #expect(first.expectedRootIdentity == FileIdentity(device: 42, inode: 1))
     #expect(first.entries.map(\.path) == [npm.path, uv.path])
@@ -74,6 +77,7 @@ struct CleanupPlannerHappyPathTests {
     #expect(first.totals.nonExclusiveHardLinkFileCount == 12)
 
     let rebuilt = try CleanupManifest(
+      policyProvenance: first.policyProvenance,
       classificationReferenceUnixSeconds: first.classificationReferenceUnixSeconds,
       expectedRootIdentity: first.expectedRootIdentity,
       entries: first.entries.reversed()
@@ -124,6 +128,7 @@ struct CleanupPlannerHappyPathTests {
     )
 
     #expect(manifest.entries.map(\.path) == [candidate.path])
+    #expect(manifest.policyProvenance.catalogRevision == planningTestCatalogRevision)
   }
 
   @Test("Identity values are evidence and are not used as unique entry keys")

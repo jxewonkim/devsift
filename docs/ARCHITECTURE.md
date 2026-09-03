@@ -5,8 +5,8 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 ```text
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
-                 scan -> rules -> plan -> executor
-                   now      now   Core now    later
+                 scan -> rules -> plan/diff -> executor
+                   now      now    Core now      later
 ```
 
 ## Components
@@ -28,10 +28,11 @@ Core layers are:
 - **Rules:** versioned, deterministic candidate recognition, evidence findings,
   and conservative policy classification. Rules receive observations rather
   than filesystem URLs; the central classifier alone computes dispositions;
-- **Planning:** a pure Core transformation from explicit path-and-rule
-  selections over a validated classification into deterministic, immutable
-  in-memory draft manifests. Planning performs no filesystem I/O, and selection
-  is not approval;
+- **Planning:** pure Core transformations from explicit path-and-rule
+  selections over a validated classification into policy-provenanced immutable
+  drafts, and between compatible drafts into deterministic differences.
+  Planning and diffing perform no filesystem I/O, and neither selection nor a
+  diff is approval;
 - **Execution:** revalidation and recoverable quarantine, introduced only after
   the earlier layers are stable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
@@ -74,13 +75,19 @@ output never reaches a frontend-specific projection.
 
 The Core planner repeats that validation at its own boundary before joining an
 explicit `CleanupCandidateSelection` to a scan summary and rule evaluation by
-exact raw path and revision. It also requires the built-in classifier's
-non-public exact source-request binding so one scan's evidence cannot be paired
-with another scan's identities or sizes. It accepts only matched `reclaimable`
-or `review-required` decisions, preserves their evidence and expected
-identities, and fails the whole request if any selection is invalid or
-ambiguous. The result does not include the absolute root URL and cannot
-authorize execution.
+exact raw path and revision. It requires the classifier's non-public seal over
+the exact source request and `RulePolicyProvenance`, so one scan's evidence
+cannot be paired with another scan's identities, sizes, or edited policy
+metadata. It accepts only matched `reclaimable` or `review-required` decisions,
+preserves their evidence and expected identities, and fails the whole request
+if any selection is invalid or ambiguous. The result does not include the
+absolute root URL and cannot authorize execution.
+
+The Core differ first rejects manifest-contract, provenance, or expected-root
+identity incompatibility. It then performs an `O(n + m)` merge by exact raw path
+and reports every stored entry-field change plus overflow-safe directional
+differences for observed totals. It does not infer renames from inode identity,
+reopen paths, render output, or create approval state.
 
 ## Dependency rules
 
@@ -119,10 +126,12 @@ to mutate the filesystem or bypass plan review.
 The current planner receives no filesystem capability or descendant URL. It
 copies only validated, bounded values into an in-memory draft: the root identity
 without its absolute URL, exact root-relative raw paths, expected candidate
-identity and kind, rule revision, policy evidence, and observed allocation
-estimates. `CleanupCandidateSelection` identifies a requested path and rule
-revision; it is not approval. Codable export, persistence, diffing, frontend
-review, approval, and execution are separate future boundaries.
+identity and kind, classifier-owned policy provenance, rule revision, policy
+evidence, and observed allocation estimates. `CleanupCandidateSelection`
+identifies a requested path and rule revision; it is not approval. The differ
+receives only manifest values and likewise has no filesystem capability.
+Codable export, persistence, frontend review, approval, and execution are
+separate future boundaries.
 
 The current scan-to-rule adapter projects only facts already present in the
 bounded `ScanReport`; it performs no additional filesystem I/O. Rules consume

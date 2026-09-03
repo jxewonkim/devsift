@@ -52,18 +52,22 @@ be reviewed before sharing. The current scan and classification JSON schemas do
 not expose a candidate's raw modification-time aggregate or scan-time identity;
 classification emits only the resulting findings and its reference timestamp.
 
-The built-in classifier retains a non-public copy of its exact source request
-inside the in-memory Core report so planning cannot mix one scan's evidence
-with another scan's identities or sizes. That binding includes the selected
-root URL. It is not part of CLI or app output, is not Codable or exported, and
-must be discarded with the current analysis session; access control does not
-make it non-sensitive.
+The classifier retains a non-public seal containing its exact source request
+and policy provenance inside the in-memory Core report so planning cannot mix
+one scan's evidence with another scan's identities, sizes, or edited policy
+metadata. That binding includes the selected root URL. It is not part of CLI or
+app output, is not Codable or exported, and must be discarded with the current
+analysis session; access control does not make it non-sensitive.
 
 An in-memory draft manifest contains exact root-relative raw path components,
 root and candidate identities, observed allocation estimates, rule revisions,
-and policy evidence. Those values remain sensitive even without an absolute
-root URL. The current Core model is not Codable, is not persisted or uploaded,
-and has no CLI or app import or export surface.
+policy evidence, and bounded classifier/catalog provenance. A manifest diff can
+combine two such snapshots and expose both sides of added, removed, or modified
+entries, so it is at least as sensitive as either input. Those values remain
+sensitive even without an absolute root URL. Current Core manifests and diffs
+are not Codable, persisted, rendered, logged, or uploaded, and have no CLI or
+app import or export surface. Diffing does not copy the root URL or complete
+rule definitions.
 
 The app displays the selected root path so the user can verify scope, then shows
 top-level rows as root-relative names. Closing the window discards its in-memory

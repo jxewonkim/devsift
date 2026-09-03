@@ -1,13 +1,14 @@
 # Planning contract
 
 DevSiftCore can turn an explicitly selected subset of a validated scan and
-classification result into an immutable draft cleanup manifest. Planning is a
-pure, read-only value transformation. It does not inspect the filesystem,
-approve a cleanup, export a document, or grant authority to mutate anything.
+classification result into an immutable draft cleanup manifest, then compare
+two compatible drafts. Planning and diffing are pure, read-only value
+transformations. They do not inspect the filesystem, approve a cleanup, export
+a document, or grant authority to mutate anything.
 
-The CLI and native app do not expose planning yet. Codable persistence, plan
-diffing, frontend review, export, approval, revalidation, and cleanup remain
-separate later increments.
+The CLI and native app do not expose planning or diffing yet. Codable
+persistence, frontend review, export, approval, revalidation, and cleanup
+remain separate later increments.
 
 ## Inputs and selection
 
@@ -31,18 +32,22 @@ protected or uncertain classification.
 
 Before producing a manifest, the planner validates the complete
 `RuleClassificationReport` against its original `RuleClassificationRequest`.
-It also requires the built-in classifier's non-public, exact in-memory
-source-request binding. This prevents findings from one scan from being
-combined with the identity or size values of another scan that happens to have
-the same relative paths and reference time. Publicly constructed unbound reports
-remain available to trusted custom presentation flows, but cannot be planned.
-Every selection must then resolve unambiguously to one retained top-level scan
+It requires the classifier's non-public in-memory seal over both that exact
+request and the report's policy provenance. This prevents findings from one
+scan from being combined with another scan's identities or sizes and prevents
+provenance from being edited after classification. Publicly constructed
+unbound reports remain available to trusted custom presentation flows, but
+cannot be planned. A source-bound report without explicit policy provenance is
+also rejected.
+
+Every selection must resolve unambiguously to one retained top-level scan
 summary and one evaluation with the same exact raw path and rule revision. The
 evaluation must be `matched`, have either a `reclaimable` or `review-required`
-disposition, and contain only satisfied findings. The enclosing report, root,
-item, allocation, hard-link accounting, and scan-time identities must satisfy
-the existing fail-closed classification invariants. This first contract accepts
-directory candidates only.
+disposition, and contain only satisfied findings. Every reported rule revision
+must occur in the provenance roster. The enclosing report, root, item,
+allocation, hard-link accounting, and scan-time identities must satisfy the
+existing fail-closed classification invariants. This contract accepts directory
+candidates only.
 
 An invalid, duplicate, ambiguous, unavailable, protected, or stale selection
 fails the whole planning request with a typed error. The planner never silently
@@ -56,12 +61,40 @@ unknown, so those recognized candidates remain `Protected` and cannot enter a
 nonempty draft. Synthetic complete evidence exercises eligible planning without
 weakening the runtime classification boundary.
 
+## Policy provenance
+
+`RulePolicyProvenance` is bounded, classifier-owned version metadata. It
+contains the explainable-classification contract revision, catalog revision,
+and the catalog's complete rule-revision roster in canonical sorted order. The
+roster is limited to 128 rules and rejects duplicate identifiers rather than
+silently deduplicating them.
+
+The default classifier seals `devsift.classification.explainable@1`, the
+Core-owned `devsift.builtin-rules@2` catalog revision, and the exact built-in
+roster into every report. `ExplainableRuleClassifier(rules:)` remains a
+presentation-only extension point: its reports are source-bound but
+deliberately unprovenanced and therefore cannot be planned. A trusted custom
+catalog can opt into planning only through the overload that supplies its own
+explicit `catalogRevision`; custom callers cannot claim the reserved built-in
+catalog identifier.
+
+Provenance is a version contract, not a code signature, stable document hash,
+or proof of authenticity. Custom catalog owners must increment their catalog
+revision whenever assessment behavior or catalog composition changes. DevSift
+increments the classification contract revision for changes to automatic
+findings, evidence interpretation, conflict handling, report validation, or
+other classifier-wide semantics; it increments the built-in catalog and the
+affected rule revision for catalog-owned or rule-specific semantic changes.
+The model deliberately does not hash Swift closures, runtime type names,
+`hashValue`, app versions, or rule-definition text as a substitute for this
+semantic-versioning responsibility.
+
 ## Draft manifest
 
-`CleanupManifest` is an immutable, in-memory draft with an explicit contract
-version. It records the classification reference time and expected root
-identity, then stores entries in deterministic raw-path order. Each
-`CleanupManifestEntry` preserves the selected exact path and rule revision,
+`CleanupManifest` is an immutable, in-memory draft with contract version 2. It
+records the exact `RulePolicyProvenance`, classification reference time, and
+expected root identity, then stores entries in deterministic raw-path order.
+Each `CleanupManifestEntry` preserves the selected exact path and rule revision,
 expected candidate identity and kind, policy disposition and reproducibility,
 display metadata, the complete satisfied finding snapshot, and observed
 allocation estimates. Findings are ordered by stable identifier. Manifest
@@ -82,25 +115,65 @@ estimates. Clones, snapshots, compression, concurrent changes, and later
 filesystem activity can make actual reclaimed space differ. A draft must not
 label either value as guaranteed reclaimable space.
 
+## Compatible-manifest diff
+
+`CleanupManifestDiffer` compares a caller-designated baseline and comparison
+using a linear merge over their already sorted entries. It first requires both
+manifests to use the same supported manifest contract version, exactly equal
+policy provenance, and exactly equal expected root `(device, inode)`. A
+mismatch is a typed incompatibility error; the differ never emits a partial
+entry result or labels anything unchanged across incompatible inputs. Root
+identity equality is only a comparison token and is not proof that two scans
+refer to the same logical scope.
+
+Each manifest is independently limited to 50,000 unique entries, so the union
+and maximum change output are bounded at 100,000 paths. Malformed duplicate,
+out-of-order, over-limit, or policy-undeclared entries fail closed. The differ
+checks cancellation during validation and the merge, performs no filesystem
+I/O, and returns typed values rather than rendering or logging sensitive names.
+
+An entry's identity for diffing is its exact raw-byte `ScanRelativePath` only.
+The same path with a different candidate identity or rule revision is modified;
+the same inode under another path is removed plus added. The differ never
+infers a rename from `(device, inode)`, because hard links and inode reuse make
+that unsafe. Modified entries compare every stored field: expected kind and
+identity, rule revision, disposition, reproducibility, display metadata,
+classification explanation, complete findings, and all seven size and
+uncertainty quantities. Changed-field labels use a fixed declaration order,
+and all entry differences use global raw-path order.
+
+Totals use `unchanged`, `increased(by: UInt64)`, or
+`decreased(by: UInt64)` for each observed quantity. No conversion to `Int64`
+or timestamp subtraction can overflow; the two reference timestamps are
+preserved as supplied, and either chronological direction is valid. These are
+differences between observations, not guaranteed reclaimed-space deltas.
+
+An empty diff means only that all retained entry fields compared equal. It does
+not mean the manifests are identical in time, that the filesystem is unchanged,
+that either draft is fresh, or that cleanup is approved or safe. A diff is not
+an approval token and must never become an executor input.
+
 ## Determinism and trust boundary
 
 For the same validated request and selections, the planner produces equal
-manifest values independent of input selection order. It does not add a random
-identifier, read the wall clock, reconstruct descendant URLs, open a path, or
-invoke a tool. Exact raw path bytes and stable domain identifiers—not display
-text, locale rules, object hashes, or filesystem lookups—define equality and
-ordering.
+manifest values independent of input selection order. Compatible manifest
+diffs are likewise independent of construction order. Neither operation adds a
+random identifier, reads the wall clock, reconstructs descendant URLs, opens a
+path, or invokes a tool. Exact raw path bytes and stable domain identifiers—not
+display text, locale rules, process-randomized hashes, or filesystem lookups—
+define equality and ordering.
 
 The manifest is a review artifact, not an authenticity proof. Swift `let`
 properties make a value immutable after construction but cannot prove that a
 future serialized document was not edited. Core models are deliberately not
 `Codable` in this increment, and no import or export format is defined.
 
-The source binding retains the exact classification request in process,
-including its root URL, but is not a public report field and is never copied
-into `CleanupManifest`. Access control is not encryption: callers must still
-treat the in-memory report as sensitive and discard it with the analysis
-session.
+The source binding retains the exact classification request and provenance in
+process, including the request's root URL, but is not a public report field and
+is never copied into `CleanupManifest`. The bounded provenance value itself is
+copied; rule definitions and the root URL are not. Access control is not
+encryption: callers must still treat the in-memory report, manifests, and diffs
+as sensitive and discard them with the analysis session.
 
 ## Staleness and future execution
 
@@ -116,16 +189,13 @@ candidate descriptor-relatively, and revalidate containment, kind, device,
 identity, activity, rule revision, and all required policy evidence immediately
 before any mutation. Changed or unavailable candidates must be skipped.
 
-Before approval is added, planning also needs an explicit Core-level catalog
-or classification-contract provenance value. Changes to classifier-owned
-semantics must invalidate older drafts even when individual rule revisions do
-not change.
-
 ## Test boundary
 
 Planning tests use constructed reports or newly created synthetic temporary
 fixtures. They cover deterministic raw-byte ordering, duplicate and hostile
 selections, malformed or incomplete inputs, protected decisions, missing
-identity, allocation overflow, and unchanged fixture boundaries. Tests never
-plan from a contributor's real cache, project, home directory, or other user
-data.
+identity, allocation overflow, provenance sealing and limits, diff
+compatibility, all stored entry fields, non-UTF-8 ordering, `UInt64` boundaries,
+50,000-entry inputs, 100,000-path output, cancellation, and unchanged fixture
+boundaries. Tests never plan from or compare a contributor's real cache,
+project, home directory, or other user data.

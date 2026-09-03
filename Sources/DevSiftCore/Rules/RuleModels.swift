@@ -357,15 +357,27 @@ public struct RuleClassificationRequest: Hashable, Sendable {
   }
 }
 
+struct RuleClassificationSourceBinding: Hashable, Sendable {
+  let request: RuleClassificationRequest
+  let policyProvenance: RulePolicyProvenance?
+}
+
 public struct RuleClassificationReport: Hashable, Sendable {
   public let referenceUnixSeconds: Int64
   public let evaluations: [RuleEvaluation]
-  /// Exact in-memory source binding retained by the built-in classifier.
+  /// Version metadata sealed by the classifier that produced this report.
+  ///
+  /// A missing value means the classifier did not declare a planning-safe
+  /// policy identity. Provenance is comparison metadata, not authenticity or
+  /// mutation authority.
+  public let policyProvenance: RulePolicyProvenance?
+
+  /// Exact in-memory source and provenance binding retained by the classifier.
   ///
   /// This is intentionally not public output. It prevents a classification
   /// from being paired with a different scan request that happens to contain
-  /// the same paths and reference time.
-  let sourceRequestBinding: RuleClassificationRequest?
+  /// the same paths and reference time, or with edited provenance metadata.
+  let sourceBinding: RuleClassificationSourceBinding?
 
   /// Creates an unbound report for trusted custom presentation flows.
   /// `CleanupPlanner` accepts only reports sealed to their exact request by an
@@ -373,29 +385,40 @@ public struct RuleClassificationReport: Hashable, Sendable {
   public init(referenceUnixSeconds: Int64, evaluations: [RuleEvaluation]) {
     self.referenceUnixSeconds = referenceUnixSeconds
     self.evaluations = evaluations
-    sourceRequestBinding = nil
+    policyProvenance = nil
+    sourceBinding = nil
   }
 
   init(
     referenceUnixSeconds: Int64,
     evaluations: [RuleEvaluation],
-    sourceRequestBinding: RuleClassificationRequest?
+    policyProvenance: RulePolicyProvenance?,
+    sourceBinding: RuleClassificationSourceBinding?
   ) {
     self.referenceUnixSeconds = referenceUnixSeconds
     self.evaluations = evaluations
-    self.sourceRequestBinding = sourceRequestBinding
+    self.policyProvenance = policyProvenance
+    self.sourceBinding = sourceBinding
   }
 
   func binding(to request: RuleClassificationRequest) -> RuleClassificationReport {
     RuleClassificationReport(
       referenceUnixSeconds: referenceUnixSeconds,
       evaluations: evaluations,
-      sourceRequestBinding: request
+      policyProvenance: policyProvenance,
+      sourceBinding: RuleClassificationSourceBinding(
+        request: request,
+        policyProvenance: policyProvenance
+      )
     )
   }
 
   func isSourceBound(to request: RuleClassificationRequest) -> Bool {
-    sourceRequestBinding == request
+    sourceBinding
+      == RuleClassificationSourceBinding(
+        request: request,
+        policyProvenance: policyProvenance
+      )
   }
 }
 
@@ -447,6 +470,7 @@ public enum RuleEvaluationInvariant: String, CaseIterable, Hashable, Sendable {
 public enum RuleClassificationReportValidationError: Error, Equatable, Sendable {
   case referenceTimeMismatch(expected: Int64, actual: Int64)
   case sourceRequestMismatch
+  case sourcePolicyProvenanceMismatch
   case tooManyInputItems(maximum: Int, actual: Int)
   case tooManyEvaluations(maximum: Int, actual: Int)
   case rootSummaryPathIsNotRoot(ScanRelativePath)
@@ -479,6 +503,7 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
   )
   case totalReportTextTooLong(maximumBytes: Int)
   case totalReportIdentityTextTooLong(maximumBytes: Int)
+  case undeclaredPolicyRuleRevision(path: ScanRelativePath, revision: RuleRevision)
   case duplicateFindingIdentifier(path: ScanRelativePath, finding: CheckIdentifier)
   case missingCommonFinding(path: ScanRelativePath, finding: CheckIdentifier)
   case commonFindingKindMismatch(
@@ -500,7 +525,7 @@ public protocol RuleClassifying: Sendable {
   /// Custom implementations are trusted in-process code. Consumers should
   /// validate returned reports against the request before presenting them.
   /// Reports built with the public report initializer are intentionally
-  /// unbound and cannot be consumed by `CleanupPlanner`.
+  /// unbound and unprovenanced, and cannot be consumed by `CleanupPlanner`.
   func classify(_ request: RuleClassificationRequest) async throws -> RuleClassificationReport
 }
 
@@ -529,4 +554,5 @@ public enum RuleCatalogValidationError: Error, Equatable, Sendable {
   case reclaimableRuleRequiresInactiveCheck(RuleIdentifier)
   case missingExclusion(RuleIdentifier)
   case zeroMinimumAge(RuleIdentifier)
+  case reservedCatalogIdentifier(RuleIdentifier)
 }

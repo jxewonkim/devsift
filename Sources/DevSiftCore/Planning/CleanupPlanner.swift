@@ -29,6 +29,9 @@ public struct CleanupPlanner: CleanupPlanning, Sendable {
     guard request.classificationReport.isSourceBound(to: request.classificationRequest) else {
       throw CleanupPlanningError.classificationReportIsNotSourceBound
     }
+    guard let policyProvenance = request.classificationReport.policyProvenance else {
+      throw CleanupPlanningError.missingPolicyProvenance
+    }
 
     try Task.checkCancellation()
 
@@ -172,6 +175,7 @@ public struct CleanupPlanner: CleanupPlanning, Sendable {
     }
 
     let manifest = try CleanupManifest(
+      policyProvenance: policyProvenance,
       classificationReferenceUnixSeconds: request.classificationReport.referenceUnixSeconds,
       expectedRootIdentity: rootIdentity,
       entries: entries

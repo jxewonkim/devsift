@@ -4,8 +4,8 @@ import Foundation
 enum ClassificationOutputContract {
   static let schema = "devsift.classification"
   static let schemaVersion = 1
-  static let catalogIdentifier = "devsift.builtin-rules"
-  static let catalogVersion = 2
+  static let catalogIdentifier = BuiltInRuleCatalog.revision.identifier.rawValue
+  static let catalogVersion = BuiltInRuleCatalog.revision.version.rawValue
   static let catalogRuleCount = BuiltInRuleCatalog.rules.count
 }
 

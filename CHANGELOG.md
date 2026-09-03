@@ -64,6 +64,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Exact non-public source-request binding on built-in classification results so
   planning cannot combine one scan's evidence with another scan's identities or
   size observations.
+- Core-owned `RulePolicyProvenance`, binding the explainable-classification
+  contract revision, catalog revision, and complete canonical rule-revision
+  roster to classifier reports and cleanup manifest contract version 2.
+  Presentation-only custom catalogs remain unprovenanced unless they opt into
+  an explicit non-built-in catalog revision.
+- A Core-only `CleanupManifestDiffer` for deterministic, linear comparison of
+  compatible in-memory drafts. Contract, policy-provenance, and expected-root
+  mismatches fail closed; exact raw paths identify added, removed, and modified
+  entries, and all observed-total changes use overflow-safe directional
+  `UInt64` values.
 
 ### Changed
 
@@ -73,4 +83,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   state and generic explanation.
 - The CLI built-in catalog is now version 2. Only
   `devsift.swiftpm.build` advances to rule revision 2 for its generated-marker
-  semantics; all other built-in rule revisions remain at version 1.
+  semantics; all other built-in rule revisions remain at version 1. The catalog
+  identifier and version now come from the Core-owned catalog revision rather
+  than duplicate CLI constants; the classification JSON wire shape is
+  unchanged.

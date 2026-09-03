@@ -1,4 +1,12 @@
 public enum BuiltInRuleCatalog {
+  /// Increment this revision whenever built-in catalog composition or
+  /// catalog-owned matching semantics change, even if no individual rule
+  /// revision changes.
+  public static let revision = RuleRevision(
+    identifier: makeRuleIdentifier("devsift.builtin-rules"),
+    version: makeRuleVersion(2)
+  )
+
   public static let rules: [any ExplainableRule] = [
     BuiltInRule(
       definition: definition(

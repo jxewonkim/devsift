@@ -16,6 +16,11 @@ struct RuleClassificationReportValidationTests {
     )
     let result = try await ExplainableRuleClassifier().classify(request)
     #expect(result.isSourceBound(to: request))
+    #expect(result.policyProvenance?.catalogRevision == BuiltInRuleCatalog.revision)
+    #expect(
+      result.policyProvenance?.classificationContractRevision
+        == ExplainableRuleClassifier.classificationContractRevision
+    )
     try result.validate(for: request)
 
     let duplicateRequest = RuleClassificationRequest(
@@ -936,6 +941,60 @@ struct RuleClassificationReportValidationTests {
         request: validationRequest(names: ["a"])
       )
     }
+  }
+
+  @Test("Provenanced reports reject rule revisions outside the declared roster")
+  func policyRosterValidation() throws {
+    let request = validationRequest(names: ["a"])
+    let provenance = try RulePolicyProvenance(
+      classificationContractRevision: ExplainableRuleClassifier.classificationContractRevision,
+      catalogRevision: validationRevision("devsift.validation.catalog"),
+      ruleRevisions: []
+    )
+
+    expectValidationError(
+      .undeclaredPolicyRuleRevision(
+        path: validationPath("a"),
+        revision: validationRuleRevision
+      ),
+      report: RuleClassificationReport(
+        referenceUnixSeconds: 100,
+        evaluations: [validationEvaluation()],
+        policyProvenance: provenance,
+        sourceBinding: nil
+      ),
+      request: request
+    )
+
+    let conflictRule = validationRevision("devsift.validation.conflict")
+    expectValidationError(
+      .undeclaredPolicyRuleRevision(
+        path: validationPath("a"),
+        revision: conflictRule
+      ),
+      report: RuleClassificationReport(
+        referenceUnixSeconds: 100,
+        evaluations: [
+          validationEvaluation(
+            rule: nil,
+            matchingRules: [conflictRule],
+            matchState: .conflict,
+            disposition: .protected,
+            reproducibility: .unknown,
+            findings: [
+              validationFinding(
+                identifier: "rule-conflict",
+                kind: .conflict,
+                state: .failed
+              )
+            ]
+          )
+        ],
+        policyProvenance: provenance,
+        sourceBinding: nil
+      ),
+      request: request
+    )
   }
 
   @Test("Malformed conflict, unrecognized, and invalid-rule states are rejected")
