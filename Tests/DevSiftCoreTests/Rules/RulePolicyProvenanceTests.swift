@@ -71,6 +71,23 @@ struct RulePolicyProvenanceTests {
       policy.ruleRevisions
         == BuiltInRuleCatalog.rules.map { $0.definition.revision }.sorted()
     )
+    #expect(policy.classificationContractRevision.version.rawValue == 2)
+    #expect(policy.catalogRevision.version.rawValue == 2)
+    #expect(
+      Dictionary(
+        uniqueKeysWithValues: policy.ruleRevisions.map {
+          ($0.identifier.rawValue, $0.version.rawValue)
+        }
+      )
+        == [
+          "devsift.cache.homebrew": 1,
+          "devsift.cache.npm": 1,
+          "devsift.cache.uv": 1,
+          "devsift.swiftpm.build": 2,
+          "devsift.xcode.derived-data": 1,
+          "devsift.xcode.ios-device-support": 1,
+        ]
+    )
   }
 
   @Test("Custom catalogs opt into provenance and cannot claim the built-in identity")

@@ -5,7 +5,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
   /// automatic findings, evidence interpretation, or validation changes.
   public static let classificationContractRevision = RuleRevision(
     identifier: makeRuleIdentifier("devsift.classification.explainable"),
-    version: makeRuleVersion(1)
+    version: makeRuleVersion(2)
   )
 
   private let rules: [any ExplainableRule]

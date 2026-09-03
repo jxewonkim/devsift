@@ -32,7 +32,7 @@ enum ScanReportRuleAdapter {
           identityMatchesScan: observed.identityMatchesScan
         ),
         facts: RuleObservationFacts(
-          trustedLocation: .unknown(.notCollected),
+          trustedLocation: observed.trustedLocation,
           toolOwnership: .unknown(.notCollected),
           generatedContentMarker: observed.generatedContentMarker,
           newestContentModificationUnixSeconds: newestModificationObservation(for: item),
@@ -73,11 +73,7 @@ enum ScanReportRuleAdapter {
     for item: ScanItemSummary,
     reason: RuleUnknownReason
   ) -> CandidateRuleEvidence {
-    CandidateRuleEvidence(
-      identityMatchesScan: .unknown(reason),
-      generatedContentMarker: item.path.rawComponents == [Array(".build".utf8)]
-        ? .unknown(reason) : .unknown(.notCollected)
-    )
+    CandidateRuleEvidence.unavailable(reason, for: item)
   }
 
   private static func packageManifestObservation(
