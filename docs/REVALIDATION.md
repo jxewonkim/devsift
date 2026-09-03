@@ -40,12 +40,14 @@ descriptor-bound root check. An npm `_cacache` may also satisfy its supported
 cacache-layout marker and the distinct `account-owned-cache-namespace` check
 when both the held selected root and held candidate have the current account's
 exact POSIX UID. That check replaces generic tool ownership only for npm and
-does not prove historical creation, descendant ownership, write ACLs, content,
-inactivity, or mutation authority. npm activity and protected descendants
-remain uncollected, while other rules retain unknown tool ownership and other
-required facts, so real entries still receive no eligible result. This is a
-policy outcome, not a promise that no future observer can make those facts
-available.
+does not prove historical creation, write ACLs, content, inactivity, or
+mutation authority. The same exact npm candidate may also satisfy bounded
+protected-descendant evidence after a stable descriptor-relative traversal
+matches the pinned cacache path-and-kind grammar and the earlier scan. npm
+activity remains uncollected, while other rules retain unknown tool ownership,
+protected descendants, and other required facts, so real entries still receive
+no eligible result. This is a policy outcome, not a promise that no future
+observer can make those facts available.
 
 ## Output and failures
 
@@ -74,7 +76,6 @@ operation. That executor must independently establish containment, kind,
 identity, device, activity, and current policy evidence; it must not treat this
 report as a capability or proof that a later path lookup is safe.
 
-The next npm eligibility increment is bounded protected-descendant evidence.
-Activity remains last so its observer and the future executor's immediate,
-descriptor-held revalidation can be designed as one coordinated safety
-boundary.
+Activity is the final npm eligibility fact, so its observer and the future
+executor's immediate, descriptor-held revalidation can be designed as one
+coordinated safety boundary.

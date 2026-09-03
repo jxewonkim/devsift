@@ -36,9 +36,9 @@ approval, and job 5 remains later product direction.
 4. Produce a deterministic, reviewable plan before changing anything.
 5. Report what was actually reclaimed and what was skipped.
 
-## Built-in catalog version 4
+## Built-in catalog version 5
 
-The fourth version of the built-in catalog is present in Core, the CLI, and the
+The fifth version of the built-in catalog is present in Core, the CLI, and the
 app. Its eligible outcomes are policy ceilings for fully evidenced synthetic
 observations. For a complete item, the current real-scan adapter can establish
 the age input from the newest inode modification time observed during scanning.
@@ -52,10 +52,14 @@ container beneath the current account home. For an exact npm candidate, it can
 also establish `account-owned-cache-namespace` only when the held selected root
 and `_cacache` directory both have the current account's exact POSIX UID. This
 replaces unprovable generic tool ownership only for npm; it does not prove the
-historical creator, descendant ownership, write ACLs, content, inactivity, or
-mutation authority. Other rules retain unknown tool ownership. npm activity,
-protected descendants, custom locations, and other generated markers remain
-unavailable, so runtime outcomes remain Protected.
+historical creator, write ACLs, content, inactivity, or mutation authority.
+For the same exact npm candidate, a bounded descriptor-relative traversal can
+also prove the absence of descendants outside the pinned cacache path-and-kind
+grammar. It rejects non-empty `tmp`, links, special nodes, hard-linked regular
+files, different-device entries, different-account owners, and repeated
+directory identities. Other rules retain unknown tool ownership and protected-
+descendant evidence. npm activity, custom locations, and other generated
+markers remain unavailable, so runtime outcomes remain Protected.
 
 The first rule set recognizes:
 
@@ -115,9 +119,11 @@ the absolute root; it is neither a cleanup capability nor an executor input.
 Current real entries remain Protected. Exact default uv, npm, and Homebrew
 containers can now satisfy trusted location, and npm may satisfy its supported
 cacache-layout marker plus its current-account cache-namespace check. That
-npm-specific check is not generic ownership or cleanup authority. npm activity
-and protected descendants remain unobserved, while tool ownership and other
-required evidence remain unobserved for the other rules.
+npm-specific check is not generic ownership or cleanup authority. npm can also
+satisfy its bounded protected-descendant exclusion for a complete, stable tree
+matching the pinned cacache grammar and the earlier scan. npm activity remains
+unobserved, while tool ownership, protected descendants, and other required
+evidence remain unobserved for the other rules.
 
 The CLI JSON projection is lossy and non-importable; it explicitly sets
 `canBeApproved` and `canBeExecuted` to `false`. The app projection is ephemeral,
@@ -132,9 +138,9 @@ draft, diff, or review projection. A future executor must take the approval,
 not the report, and revalidate inline while holding descriptors before a
 recoverable operation.
 
-The next npm eligibility increment is bounded protected-descendant evidence.
-Activity remains last and will be designed together with executor-time inline
-revalidation; a prior inactivity observation will not authorize an operation.
+The final npm eligibility fact is activity. It will be designed together with
+executor-time inline revalidation; a prior inactivity observation will not
+authorize an operation.
 
 ## Non-goals
 
