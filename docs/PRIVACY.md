@@ -26,7 +26,13 @@ DevSift is designed to work locally and reveal as little as possible.
   network calls.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
-  absolute root URL, and is not exposed by the CLI or app.
+  absolute root URL, and is not exposed by the CLI. The native app can invoke
+  it only for an explicitly selected, current-session in-memory review.
+- The app includes zero draft candidates by default, accepts only exact raw
+  path-and-rule-revision values from the current result's conservative
+  whitelist, and retains the exact source classification request and report
+  only for that in-memory session. Draft preparation performs no filesystem or
+  network I/O.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
@@ -72,6 +78,17 @@ non-`Codable`, unpersisted, unlogged, and unuploaded, and no CLI or app command
 imports or exports them. Diffing does not copy the root URL or complete rule
 definitions, and no diff-export projection exists.
 
+The native app immediately maps a planned manifest to a separate identity-free
+presentation and does not retain the manifest. The presentation omits root and
+candidate filesystem identities, the source request and report, reference time,
+policy-provenance roster, Base64 path serialization, and authority state. It
+keeps an exact raw root-relative path only as the in-memory row identifier and
+renders an escaped display form. The review still contains sensitive relative
+names, display names, tool attribution, rule and finding identifiers, free-form
+explanations, and all seven exact observed size and uncertainty quantities. It
+is not anonymized or automatically safe to share, even though the app provides
+no save, copy-as-manifest, import, export, or upload workflow.
+
 The internal CLI review schema is a separate lossy projection pinned to Core
 manifest contract version 2. Both profiles omit root and candidate filesystem
 identities and contain no dedicated absolute-root field. They explicitly say
@@ -96,10 +113,14 @@ arbitrary absolute path. The encoder enforces a 128 MiB preflight and
 post-encoding limit, which bounds output size but does not lower its
 sensitivity.
 
-The app displays the selected root path so the user can verify scope, then shows
-top-level rows as root-relative names. Closing the window discards its in-memory
-selection and report. The opt-in developer snapshot harness uses only synthetic
-paths and is never run automatically by the application.
+The app displays the selected root path from the active window state so the user
+can verify scope, then shows top-level rows as root-relative names. Draft-table
+focus and explicit inclusion are separate, and inclusion starts empty. A new
+scan or root discards draft state; closing the window cancels active work and
+discards its in-memory selection, report, and review. Operation tokens prevent a
+late cancelled or superseded planner result from restoring discarded state. The
+opt-in developer snapshot harness uses only synthetic paths and is never run
+automatically by the application.
 
 ## Future changes
 
@@ -107,8 +128,9 @@ A future user-facing plan export must explicitly select a privacy profile and
 must not silently turn the internal encoder into automatic persistence. Any
 future importer requires its own untrusted-input bounds and authenticity model;
 the current schema is one-way and cannot be imported. Review documents continue
-to omit filesystem identities, and any future execution document must decide
-its identity and authority fields in a separate security review. Adding these
+to omit filesystem identities, and the current app presentation must not be
+treated as a wire format. Any future execution document must decide its
+identity and authority fields in a separate security review. Adding these
 features must not silently make Core domain models `Codable`.
 
 Any feature that introduces networking, update checks, telemetry, crash upload,

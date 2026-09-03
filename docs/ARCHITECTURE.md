@@ -5,8 +5,10 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 ```text
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
-                 scan -> rules -> plan/diff -> executor
-                   now      now    Core now      later
+                 scan -> rules -> plan -> diff -> executor
+                   now      now    Core    Core      later
+                                      \
+                                       +-> app review now
 ```
 
 ## Components
@@ -64,16 +66,18 @@ and no manifest-diff export, approval, or execution surface accompanies it.
 The current macOS app provides explicit folder selection, distinct
 indeterminate scan and policy-analysis states, cancellation, rescan,
 observation results, partial-result details, explainable policy assessments,
-and accessibility. Draft-manifest creation and plan review are not exposed in
-the app yet.
+accessibility, explicit eligible-candidate inclusion, and a read-only in-memory
+draft review. Table focus and draft inclusion are separate, and every result
+starts with zero included candidates.
 
 Each window owns a `@MainActor` observable view model with injected
-`FileSystemScanning` and `RuleClassifying` capabilities. It passes the file
-importer's selected URL unchanged to DevSiftCore. A scan UUID prevents a
-cancelled or superseded task from publishing a late result over the current
-state. Security-scoped access is held until Core scanning, classification, and
-presentation preparation finish, then balanced on success, failure, or
-cancellation.
+`FileSystemScanning`, `RuleClassifying`, and `CleanupPlanning` capabilities. It
+passes the file importer's selected URL unchanged to DevSiftCore. A scan UUID
+prevents a cancelled or superseded task from publishing a late result over the
+current state. Security-scoped access is held until Core scanning,
+classification, and result presentation preparation finish, then balanced on
+success, failure, or cancellation; later draft planning uses only retained
+values and holds no filesystem scope.
 
 The app and CLI validate every returned `RuleClassificationReport` against the
 request's reference time and original `ScanReport` before rendering it. This
@@ -90,6 +94,25 @@ metadata. It accepts only matched `reclaimable` or `review-required` decisions,
 preserves their evidence and expected identities, and fails the whole request
 if any selection is invalid or ambiguous. The result does not include the
 absolute root URL and cannot authorize execution.
+
+For the current result, the app retains the exact classification request and
+report plus an exact whitelist of presentable `CleanupCandidateSelection`
+values. A selection contains one raw path and rule revision, and the view model
+ignores any value outside that current-session whitelist. Candidate filtering
+is only a conservative UI convenience; Core validation remains authoritative.
+The included set is frozen and canonically ordered before the planner runs in a
+detached user-initiated task. A planning UUID plus the source scan UUID prevents
+cancelled, superseded, or closed-window work from publishing a late result.
+
+The manifest is immediately converted to an app-owned, identity-free review
+presentation and discarded. That presentation retains a raw relative path only
+as an in-memory row identity and renders escaped display text. It does not
+retain root or candidate filesystem identities, the source request or manifest,
+reference time, provenance roster, serialization, approval, or execution state.
+The visible root scope comes separately from the active scan window. The view
+shows all seven stored observation and uncertainty quantities, never guaranteed
+savings. It has no persistence, import, export, diff, approval, execution,
+execution-time filesystem revalidation, or filesystem capability.
 
 The Core differ first rejects manifest-contract, provenance, or expected-root
 identity incompatibility. It then performs an `O(n + m)` merge by exact raw path
@@ -123,11 +146,11 @@ Foundation `JSONEncoder.encode` call cannot be interrupted before it returns.
 ## Measurement
 
 DevSift distinguishes logical file size from observed allocated disk usage. The
-current UI displays observations and does not calculate reclaim estimates.
-Rules derive policy; draft plans preserve explicitly selected validated
-decisions and their uncertainty. Hard links, sparse files, packages, clones,
-and filesystem snapshots require explicit handling and tests rather than naive
-recursive summation.
+current analysis and draft-review UI displays observations and does not
+calculate reclaim estimates. Rules derive policy; draft plans preserve
+explicitly selected validated decisions and their uncertainty. Hard links,
+sparse files, packages, clones, and filesystem snapshots require explicit
+handling and tests rather than naive recursive summation.
 
 The scanner reports apparent bytes separately from hard-link-exclusive
 allocated bytes. A hard-linked regular-file inode receives that credit only
@@ -151,9 +174,10 @@ identity and kind, classifier-owned policy provenance, rule revision, policy
 evidence, and observed allocation estimates. `CleanupCandidateSelection`
 identifies a requested path and rule revision; it is not approval. The differ
 receives only manifest values and likewise has no filesystem capability.
-The CLI-owned review projection is not serialized Core state and carries no
-authority. User-facing export, import, persistence, frontend review, approval,
-and execution remain separate future boundaries. Its sorted `JSONEncoder`
+The app-owned in-memory review projection and CLI-owned JSON projection are not
+serialized Core state and carry no authority. The app review is presentational
+only; user-facing export, import, persistence, diffing, approval, and execution
+remain separate future boundaries. The CLI projection's sorted `JSONEncoder`
 output targets repeatability only for the same input, privacy profile,
 implementation build, and Swift/Foundation runtime; it is not a cryptographic
 canonical form, stable digest, signature, or authenticity proof.

@@ -6,11 +6,13 @@ two compatible drafts. Planning and diffing are pure, read-only value
 transformations. They do not inspect the filesystem, approve a cleanup, export
 a document, or grant authority to mutate anything.
 
-The CLI and native app do not expose planning or diffing yet. The CLI target has
+The native app exposes explicit candidate selection and a read-only in-memory
+review over Core planning. It does not expose Core diffing. The CLI target has
 an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
-persistence, frontend review, user-facing export, import, approval,
-revalidation, and cleanup remain separate later increments.
+persistence, saved drafts, user-facing export, import, frontend diffing,
+approval, execution, execution-time filesystem revalidation, and cleanup
+remain separate later increments.
 
 ## Inputs and selection
 
@@ -117,6 +119,46 @@ estimates. Clones, snapshots, compression, concurrent changes, and later
 filesystem activity can make actual reclaimed space differ. A draft must not
 label either value as guaranteed reclaimable space.
 
+## Native app draft review
+
+The native app derives a conservative whitelist of
+`CleanupCandidateSelection` values from the validated current result. Each
+value contains the exact raw path and rule revision. The view model accepts no
+other candidate, includes zero candidates by default, and keeps table-row focus
+independent from inclusion. This whitelist reduces misleading controls but is
+not a planning boundary: `CleanupPlanner` still validates every selected value
+and fails the complete request if the UI or an injected dependency supplies
+invalid input. Current real scans can legitimately produce an empty whitelist
+because missing required evidence keeps every recognized item Protected.
+
+The app retains the exact `RuleClassificationRequest` and exact returned
+`RuleClassificationReport` that produced the visible result. It does not
+reconstruct either from presentation values. When review is requested, the
+included set is frozen and sorted by exact raw path and rule revision, then
+passed with those original values to the Core planner. Planning and review
+projection run away from the main actor and support cooperative cancellation.
+Separate planning and scan-session tokens prevent a late result from publishing
+after cancellation, a new scan or root, or window closure.
+
+The resulting Core manifest is immediately mapped to an app-owned in-memory
+presentation and not retained. That value omits root and candidate filesystem
+identities, the root URL, source request, source manifest, reference time,
+policy-provenance roster, serialization, approval, and execution state. It
+keeps each exact raw relative path only as an in-memory row identifier and
+provides an escaped display path. The window supplies its current root only for
+visible scope confirmation.
+
+The review shows every entry's policy disposition, exact rule revision,
+reproducibility, tool, explanation, and satisfied findings, together with all
+seven stored size and uncertainty observations: logical, apparent allocated,
+and hard-link-exclusive allocated bytes; possible shared-content files;
+shared-content metadata-unavailable files; unobserved hard-link files; and
+non-exclusive hard-link files. None is labeled as guaranteed reclaimed space.
+Returning to selection discards the review presentation; a rescan, root change,
+or window closure discards the selection and its complete in-memory planning
+context. There is no save, load, import, export, diff, approval, execution,
+execution-time filesystem revalidation, or filesystem operation in this flow.
+
 ## Internal manifest-review projection
 
 The CLI target owns review schema `devsift.cleanup-manifest-review` version 1,
@@ -195,6 +237,11 @@ path, or invokes a tool. Exact raw path bytes and stable domain identifiers—no
 display text, locale rules, process-randomized hashes, or filesystem lookups—
 define equality and ordering.
 
+The app review preserves the manifest's canonical entry order. Its transient
+planning and session identifiers protect UI state from stale asynchronous
+results; they are not stored in the manifest or presentation and do not change
+Core determinism.
+
 The manifest is a review artifact, not an authenticity proof. Swift `let`
 properties make a value immutable after construction but cannot prove that a
 review projection was not edited. Core models deliberately remain non-`Codable`;
@@ -236,3 +283,10 @@ one-way authority boundary, output limits, 50,000-entry inputs, 100,000-path
 diff output, cancellation, and unchanged fixture boundaries. Tests never plan
 from, render, or compare a contributor's real cache, project, home directory,
 or other user data.
+
+Native app tests additionally cover conservative candidate eligibility,
+default-zero selection, exact whitelist enforcement, focus/inclusion
+separation, exact source-request and report reuse, off-main planning, frozen
+selection, generic failures, cancellation and stale-result suppression,
+identity-free safe display, all seven quantities, and window-lifecycle
+invalidation. Optional screenshots use only synthetic in-memory values.

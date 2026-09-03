@@ -35,7 +35,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   and SwiftPM build output. Remaining uncollected runtime evidence stays
   protected.
 - Read-only `devsift classify` text and JSON output plus native dashboard policy
-  explanations; no frontend planning or filesystem mutation action was added.
+  explanations. That classification increment added no planning or filesystem
+  mutation action.
 - Classification JSON schema version 1, including a bounded `scanIntegrity`
   projection with decimal-string counts and explicit uncertainty flags.
 - Shared fail-closed validation for classifier output, including reference-time
@@ -60,7 +61,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   deterministic immutable draft manifests. Drafts retain expected identities,
   policy evidence, and observed allocation estimates without storing an
   absolute root URL or performing filesystem I/O. Selection is not approval,
-  and no Codable, export, frontend, or mutation surface is included.
+  and that Core increment included no Codable, export, frontend, or mutation
+  surface.
 - Exact non-public source-request binding on built-in classification results so
   planning cannot combine one scan's evidence with another scan's identities or
   size observations.
@@ -80,6 +82,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   expose no decoder, and mark the result non-importable, non-approvable, and
   non-executable. The encoder has no CLI command or file-writing path; manifest
   diff export, approval, and execution remain absent.
+- A native read-only dry-run review flow. Users explicitly include exact
+  eligible path-and-rule-revision pairs from the scan table, starting from zero
+  included items independently of table focus. The app freezes the selection,
+  asks the Core planner to revalidate the exact source classification request
+  and report off the main actor, and presents an identity-free in-memory view
+  with all seven observed size and uncertainty quantities. Preparation is
+  cancellable, scan and window lifecycle changes invalidate late results, and
+  no persistence, import, export, diff, approval, execution, execution-time
+  filesystem revalidation, or mutation surface was added.
 
 ### Changed
 

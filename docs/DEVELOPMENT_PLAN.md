@@ -135,10 +135,12 @@ classification are available in Core, CLI, and app without any mutation API.
 ## Phase 6: dry-run plans
 
 Status: the Core planning increments create policy-provenanced immutable draft
-manifests and deterministic compatible-manifest diffs in memory. A third,
-CLI-owned increment adds an internal one-way CLI review JSON projection,
-but there is still no CLI or app planning surface, command, file writing,
-import, user-facing export, approval, or filesystem mutation.
+manifests and deterministic compatible-manifest diffs in memory. A CLI-owned
+increment adds an internal one-way CLI review JSON projection. The native app
+now adds explicit current-session candidate selection and an identity-free,
+read-only in-memory draft review. There is still no CLI planning command,
+manifest persistence, import, user-facing export, frontend diff, approval,
+execution, execution-time filesystem revalidation, or mutation.
 
 Implemented first commit: `feat(planner): create immutable cleanup manifests`.
 
@@ -163,8 +165,8 @@ Implemented next commits: `feat(rules): bind policy provenance` and
   and expected root identity; every incompatibility fails before entry output.
 - Merge by exact raw path in linear time, compare every stored entry field, and
   represent observed-total changes with full-width directional quantities.
-- Keep user-facing privacy-aware export and frontend review in later
-  increments.
+- Keep user-facing privacy-aware export outside these Core increments and
+  frontend review as a separate increment.
 
 Implemented next commit: `feat(cli): add privacy-aware manifest review projection`.
 
@@ -178,22 +180,46 @@ Implemented next commit: `feat(cli): add privacy-aware manifest review projectio
 - Bound encoded output to 128 MiB with preflight and post-encode checks while
   retaining cooperative cancellation around non-interruptible Foundation
   encoding calls.
-- Leave manifest-diff export, approval, execution, and frontend plan review to
-  separate increments.
+- Keep manifest-diff export, approval, execution, and frontend plan review out
+  of this CLI-only increment.
+
+Implemented next commit: `feat(app): present in-memory cleanup draft review`.
+
+- Start every result with zero included candidates and keep native-table focus
+  independent from draft inclusion.
+- Expose only conservative candidate selections containing one exact raw path
+  and rule revision, and accept only selections from the current result's exact
+  whitelist.
+- Retain and pass the exact source classification request and report to the
+  Core planner so it repeats fail-closed validation rather than trusting the UI
+  filter or reconstructed display values.
+- Prepare the Core manifest and app-owned review projection away from the main
+  actor, support cooperative cancellation, and use planning and scan-session
+  tokens to suppress late results after cancellation, rescan, root change, or
+  window closure.
+- Discard the Core manifest after building an identity-free app presentation
+  that shows all seven observed size and uncertainty quantities. Keep the flow
+  in memory with no persistence, import, export, diff, approval, execution,
+  execution-time filesystem revalidation, or filesystem access.
+- Present an honest zero-candidate state. Current real classifications can all
+  remain Protected while required runtime facts are unavailable.
 
 The recorded identity is comparison evidence, not mutation authority. A plan
 must not convert an observer's successful identity or marker check into
 permission to clean. Planning performs no filesystem I/O and the current Core
 manifest deliberately has no `Codable`, import, or frontend-owned wire
 contract. The separate CLI review projection is a lossy presentation document,
-not serialized Core state.
+not serialized Core state. The app review is a separate ephemeral presentation,
+not a wire format or executor input.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
 produce a partial diff, and a stale or edited candidate must invalidate future
 approval or execution. The review projection must not expose filesystem
 identities or create import, approval, execution, or user-facing export
-authority.
+authority. App selection must default to zero, remain independent from row
+focus, reuse the exact source request and report, and suppress cancelled or
+superseded planning results without filesystem access.
 
 Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 
