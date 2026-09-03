@@ -212,10 +212,14 @@ protected-descendant evidence, and other required facts.
 - Partial failures are reported item by item.
 - Permanent deletion is not part of the initial milestones.
 
-Activity observation is the last npm eligibility fact and must be coordinated
-with the future executor's descriptor-held revalidation immediately before a
-recoverable operation; a prior inactivity observation is not execution
-authority.
+Activity is the remaining npm eligibility fact. The
+[activity safety contract](ACTIVITY.md) records that no supported,
+unprivileged macOS API can prove the absence of subtree-wide active use and
+preserve that result until a later operation. DevSift must not infer
+`inactive` from a quiet interval, empty process query, advisory lock, kqueue, or
+FSEvents result. npm remains Protected. A future executor requires a separately
+reviewed activity policy plus descriptor-held revalidation immediately before
+any recoverable operation; a prior observation is never execution authority.
 
 Cancellation is safe but may not be instantaneous. A blocking filesystem call
 can finish before the next cancellation checkpoint is reached. The scanner

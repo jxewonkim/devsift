@@ -186,9 +186,11 @@ after a bounded stable traversal matches the pinned cacache grammar and earlier
 scan count. The app does not display descendant paths, the raw candidate
 timestamp, scan-time identity, current account home path, or UID, and none of
 these satisfied findings makes a candidate eligible by itself. npm activity
-remains unavailable, while the other rules retain unknown tool ownership,
-protected-descendant evidence, and other required facts, so candidates remain
-Protected. Scan-time identity is not cleanup or deletion authority.
+remains unavailable: the [activity capability review](ACTIVITY.md) rejects an
+empty process query or quiet tree as proof of inactivity. The other rules
+retain unknown tool ownership, protected-descendant evidence, and other
+required facts, so candidates remain Protected. Scan-time identity is not
+cleanup or deletion authority.
 
 “Complete observation” describes traversal within the configured limits. A
 partial observation can result from skipped entries, output bounds, incomplete

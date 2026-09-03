@@ -296,10 +296,15 @@ work, and report changed or unavailable facts as unknown. Rebuilding absolute
 descendant paths with string or `URL` concatenation is not acceptable authority
 for classification or cleanup.
 
-Activity observation is the final npm eligibility fact and must be designed
-together with the future executor's descriptor-held,
-immediately-before-operation revalidation;
-a classification-time inactivity result alone cannot close that race.
+Activity is the remaining npm eligibility fact. The completed
+[capability review](ACTIVITY.md) found no supported, unprivileged macOS API that
+can prove the absence of active use throughout the cache subtree or prevent a
+new access between a check and an operation. The classifier must not map a
+quiet interval, empty process result, advisory-lock success, kqueue result, or
+FSEvents result to `known(.inactive)`. npm therefore stays Protected. A future
+positive-only conflict observer may return `active` when it has concrete
+evidence, but every negative, incomplete, raced, denied, or bounded result must
+remain unknown and cannot close an execution race.
 
 ## Determinism and versioning
 

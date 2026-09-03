@@ -57,10 +57,11 @@ contents, processes, or network state. It also proves neither historical
 creation, write ACLs, inactivity, nor mutation authority. The same exact npm
 candidate can additionally satisfy a bounded protected-descendant exclusion
 only after a stable descriptor-relative traversal matches the pinned cacache
-path-and-kind grammar and the earlier scan. npm activity remains uncollected,
-while the other rules retain unknown tool ownership, protected descendants,
-and other required facts, so real recognized candidates stay protected; see
-the [rules contract](RULES.md).
+path-and-kind grammar and the earlier scan. npm activity remains uncollected;
+the [activity capability review](ACTIVITY.md) rejects a quiet tree or empty
+process result as proof of inactivity. The other rules retain unknown tool
+ownership, protected descendants, and other required facts, so real recognized
+candidates stay protected; see the [rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits

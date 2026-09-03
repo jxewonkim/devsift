@@ -146,6 +146,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   protected; permission failures, races, malformed metadata, count drift, and
   entry, depth, or raw-name-byte limits remain structured unknowns. The pass
   reads no file contents and adds no mutation authority.
+- A primary-source npm activity capability review and fail-closed contract.
+  The current unprivileged product cannot prove subtree-wide inactivity or
+  hold that observation through a later operation, so empty process results,
+  quiet-tree sampling, advisory locks, kqueue, and FSEvents cannot produce
+  `inactive`. npm remains Protected. No process observation, execution,
+  filesystem mutation, policy revision, or schema change was added.
 
 ### Changed
 

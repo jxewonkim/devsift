@@ -106,9 +106,15 @@ approval, execution, or filesystem mutation.
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
 
-The final npm eligibility fact is activity. Its observation will be
-coordinated with the future executor's descriptor-held revalidation immediately
-before any recoverable operation.
+The remaining npm eligibility fact is activity. DevSift's completed capability
+review found no supported, unprivileged macOS API that can prove the absence of
+active use across an entire cache tree or turn that observation into a lease.
+DevSift therefore does not infer `inactive` from a quiet tree, an empty process
+query, or an advisory lock: npm stays Protected at runtime. Any future cleanup
+policy must first choose and separately review either a privileged activity
+gate, an explicit user-attested recoverable-quarantine policy that makes no
+inactivity claim, or an upstream cooperative lock. See the
+[activity safety contract](docs/ACTIVITY.md).
 
 ## Safety first
 
@@ -118,7 +124,8 @@ Recoverable quarantine is planned before permanent removal.
 
 Read the full [rules contract](docs/RULES.md),
 [planning contract](docs/PLANNING.md), [revalidation contract](docs/REVALIDATION.md),
-[safety model](docs/SAFETY.md), and [privacy contract](docs/PRIVACY.md).
+[activity safety contract](docs/ACTIVITY.md), [safety model](docs/SAFETY.md), and
+[privacy contract](docs/PRIVACY.md).
 
 ## Development
 
