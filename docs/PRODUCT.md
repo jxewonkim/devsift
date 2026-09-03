@@ -20,7 +20,9 @@ The current pre-alpha implements the first job, a conservative foundation for
 jobs 2 and 3, and the first Core-only in-memory foundation for job 4. It can
 recognize selected path shapes, explain why missing evidence keeps them
 protected, and build an immutable draft from explicitly selected eligible
-classifications. Frontend plan review and job 5 remain later product direction.
+classifications. Core can also compare compatible policy-provenanced drafts
+without reading the filesystem. Frontend plan review and job 5 remain later
+product direction.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -69,10 +71,12 @@ The long-term workflow is:
 7. **Report** completed, changed, failed, and skipped items.
 8. **Purge** quarantined data only as a later, explicit action.
 
-The current planning increment stops at an in-memory Core draft. A selection
-binds one exact root-relative raw path to one exact rule revision, but does not
-approve it. The CLI and app do not yet create, diff, persist, export, approve,
-or execute manifests.
+The current planning increment stops at in-memory Core drafts and typed diffs.
+A selection binds one exact root-relative raw path to one exact rule revision,
+but does not approve it. A diff requires the same manifest contract, policy
+provenance, and expected root identity, and still says nothing about current
+disk freshness. The CLI and app do not yet create, review, persist, export,
+approve, or execute manifests.
 
 ## Non-goals
 

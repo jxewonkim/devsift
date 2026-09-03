@@ -71,8 +71,8 @@ Catalog version 2 advances only `devsift.swiftpm.build` to rule revision 2 to
 define its generated marker as an exact regular-file `workspace-state.json`
 inside `.build`. Every other built-in rule remains at revision 1.
 The identity-rebinding finding is a classifier-owned integrity invariant, not
-a rule-specific definition change; it is covered by the catalog version rather
-than incrementing every individual rule revision.
+a rule-specific definition change; classifier-wide semantics are now tracked
+separately by the explainable-classification contract revision.
 
 | Rule ID | Raw-byte recognition | Reproducibility | Eligible disposition | Minimum age | Additional policy |
 | --- | --- | --- | --- | ---: | --- |
@@ -142,12 +142,22 @@ produces a known missing marker. Symbolic-link targets are never followed.
 Permission, resource-limit, invalid-metadata, incomplete, or changed-object
 cases remain structured unknowns.
 
-The built-in classifier seals its returned Core report to the exact in-memory
-`RuleClassificationRequest`. Validation rejects that report if it is later
-paired with a different root URL, scan report, or reference time. The binding
-is not part of CLI JSON, and a report created with the public unbound initializer
-can still support a trusted custom presentation flow, but the cleanup planner
-will not accept it.
+The default classifier seals its returned Core report to the exact in-memory
+`RuleClassificationRequest` and `RulePolicyProvenance`. Validation rejects that
+report if it is later paired with a different root URL, scan report, reference
+time, or edited provenance. The provenance contains
+`devsift.classification.explainable@1`, the Core-owned
+`devsift.builtin-rules@2` revision, and the complete sorted built-in rule roster.
+Neither the private binding nor provenance is part of CLI JSON. A report created
+with the public unbound initializer can still support a trusted custom
+presentation flow, but the cleanup planner will not accept it.
+
+`ExplainableRuleClassifier(rules:)` also remains presentation-only: it binds
+its source request but declares no policy provenance. A trusted custom catalog
+can opt into planning by supplying an explicit non-built-in `catalogRevision`;
+the classifier derives the roster from the actual rule definitions. Provenance
+is version metadata, not a code signature. Custom catalog authors must advance
+that revision whenever their catalog composition or `assess` behavior changes.
 
 A scan-time identity binds that read-only observation to the inode that was
 scanned. It is not proof of trusted location or ownership, is not durable
@@ -176,7 +186,15 @@ for classification or cleanup.
 ## Determinism and versioning
 
 - Rule and finding identifiers use stable lowercase ASCII identifiers.
-- A policy or evidence-semantic change increments that rule's version.
+- A rule-specific semantic change increments that rule's version.
+- A built-in composition or catalog-owned recognition change increments the
+  Core-owned catalog revision.
+- A change to automatic findings, evidence interpretation, conflict handling,
+  validation, or another classifier-wide semantic increments the
+  classification contract revision.
+- Policy provenance combines the classification contract, catalog revision,
+  and the complete sorted unique rule roster. It never uses Swift `hashValue`,
+  runtime type names, or closure hashing as a stable identity.
 - Results are ordered by exact raw path and rule revision, never locale-aware
   display text.
 - The reference time is captured once per classification request, so every age
@@ -222,6 +240,11 @@ what it returns, but cannot preempt code that never returns from `assess`.
 Likewise, final report bounds apply after a trusted custom classifier returns;
 they cannot prevent memory it allocates while constructing that report. Loading
 third-party executable rule code is not a current product feature.
+
+The provenance roster is independently limited to 128 revisions and rejects
+duplicate rule identifiers, including two versions of the same identifier.
+Every `rule` and `matchingRules` revision in a provenanced report must occur in
+that roster before the report can be planned.
 
 Classification results reveal filenames, tool usage, sizes, policy findings,
 and a reference timestamp. Treat them as sensitive local data even though

@@ -40,13 +40,14 @@ are large.
 ## Current interfaces
 
 - `DevSiftCore`: a Swift library for read-only scanning, versioned explainable
-  classification, and immutable in-memory draft manifests;
+  classification, policy-provenanced in-memory draft manifests, and
+  deterministic compatible-manifest diffing;
 - `devsift`: a scriptable command-line interface;
 - `DevSift`: a native SwiftUI dashboard with explicit folder selection,
   cancellable scans, observation results, and policy explanations.
 
-Planning is currently Core-only. The CLI and app do not yet create, approve,
-diff, import, export, or execute manifests.
+Planning and manifest diffing are currently Core-only. The CLI and app do not
+yet create, review, approve, import, export, or execute manifests.
 
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
@@ -80,11 +81,12 @@ swift run devsift classify --json .
 swift run DevSiftApp
 ```
 
-DevSiftCore contains a read-only allocated-size scanner, rule classifier, and
-Core-only draft-manifest planner. The CLI exposes the scanner and classifier as
-deterministic text and separately versioned JSON. The native app invokes the
-same Core scanner and classifier and does not contain a separate filesystem or
-policy implementation. See the [app contract](docs/APP.md),
+DevSiftCore contains a read-only allocated-size scanner, rule classifier,
+Core-only draft-manifest planner, and fail-closed manifest differ. The CLI
+exposes the scanner and classifier as deterministic text and separately
+versioned JSON. The native app invokes the same Core scanner and classifier and
+does not contain a separate filesystem or policy implementation. See the
+[app contract](docs/APP.md),
 [CLI contract](docs/CLI.md), [scanning contract](docs/SCANNING.md),
 [rules contract](docs/RULES.md), and [planning contract](docs/PLANNING.md).
 
@@ -94,10 +96,11 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 
 ## Project status
 
-- Current phase: Core-only immutable dry-run manifests
-- Current behavior: Core scanner, rule classifier, and in-memory draft planner,
-  plus the existing text/JSON CLI and native analysis dashboard; no frontend
-  planning, approval, persistence, export, cleanup, quarantine, or deletion
+- Current phase: Core-only policy-provenanced dry-run manifests and diffing
+- Current behavior: Core scanner, rule classifier, in-memory draft planner, and
+  compatible-manifest differ, plus the existing text/JSON CLI and native
+  analysis dashboard; no frontend planning, approval, persistence, export,
+  cleanup, quarantine, or deletion
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer

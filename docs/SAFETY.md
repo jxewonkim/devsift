@@ -27,10 +27,11 @@ evidence, expected identity, rule version, and estimated allocated bytes. Before
 any mutation, DevSift must revalidate that the item is still the same item and
 still inside its approved root.
 
-The current Core planner produces only an immutable draft. An explicit
+The current Core planner produces only an immutable policy-provenanced draft,
+and the Core differ compares only compatible drafts. An explicit
 `CleanupCandidateSelection` binds an exact root-relative raw path to an exact
-rule revision, but selection is not approval. Approval, execution, quarantine,
-and deletion APIs do not exist in this phase.
+rule revision, but selection and diff output are not approval. Approval,
+execution, quarantine, and deletion APIs do not exist in this phase.
 
 ## Hard invariants
 
@@ -38,6 +39,9 @@ and deletion APIs do not exist in this phase.
 - Planning is a pure transformation over bounded, validated scan and
   classification values. It performs no filesystem I/O and has no mutation
   capability.
+- Planning requires classifier-sealed provenance containing the classification
+  contract, catalog revision, and complete rule-revision roster. Missing,
+  edited, or undeclared provenance fails closed.
 - A selected candidate must resolve unambiguously to one matched evaluation
   with a `Reclaimable` or `Review required` disposition and only satisfied
   findings. Selection cannot override `Protected`, unknown, partial,
@@ -45,6 +49,13 @@ and deletion APIs do not exist in this phase.
 - A draft manifest is not approval or an execution capability. It stores no
   absolute root URL, and copying expected identities into it grants no path
   authority.
+- Manifest diffing requires the same supported manifest contract, exactly equal
+  policy provenance, and exactly equal expected root identity before examining
+  entries. An incompatibility never produces a partial or "unchanged" result.
+- Diff identity is the exact raw relative path. Candidate identities do not
+  imply rename, sameness, freshness, ownership, or cleanup authority.
+- An empty diff or unchanged entry means only that retained manifest fields are
+  equal. It does not prove that disk contents are unchanged or safe to mutate.
 - Directory enumeration is anchored to an opened root descriptor. Descendants
   are opened relative to verified parent descriptors and symbolic links are not
   followed.
@@ -116,13 +127,19 @@ insufficient: every remaining unknown required fact keeps the real candidate
 protected. See the complete [rules contract](RULES.md).
 
 The planner validates that classification again before processing any
-selection. It requires the classifier's exact in-memory source-request binding,
-then joins selections to retained scan summaries and evaluations by exact raw
-path and rule revision. This prevents cross-scan evidence and identity mixing.
-It rejects duplicate or ambiguous inputs and fails the complete request rather
-than silently omitting an ineligible selected item. Its immutable output retains
-evidence for later review, but does not re-observe the filesystem or make
-previously unknown evidence known. See the [planning contract](PLANNING.md).
+selection. It requires the classifier's exact in-memory source-request and
+policy-provenance seal, then joins selections to retained scan summaries and
+evaluations by exact raw path and rule revision. This prevents cross-scan
+evidence, identity, and policy mixing. It rejects duplicate or ambiguous inputs
+and fails the complete request rather than silently omitting an ineligible
+selected item. Its immutable output retains evidence for later review, but does
+not re-observe the filesystem or make previously unknown evidence known.
+
+The differ validates compatibility and bounded manifest invariants before a
+linear raw-path merge. It compares every stored entry field, represents total
+changes with directional `UInt64` magnitudes, and checks cancellation during
+bounded work. It never reads a path or transfers approval between drafts. See
+the [planning contract](PLANNING.md).
 
 ## Test boundary
 
@@ -133,6 +150,8 @@ nothing outside the fixture changed.
 
 Planner tests additionally verify that constructed or synthetic fixture state
 is unchanged before and after planning, including when validation fails.
+Manifest-diff tests use only in-memory synthetic drafts and include incompatible
+inputs, non-UTF-8 path collisions, full-width quantities, and maximum bounds.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

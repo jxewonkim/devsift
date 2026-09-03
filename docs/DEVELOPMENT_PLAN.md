@@ -134,9 +134,10 @@ classification are available in Core, CLI, and app without any mutation API.
 
 ## Phase 6: dry-run plans
 
-Status: the first Core-only planning increment is implemented. It creates
-deterministic immutable draft manifests in memory and adds no CLI or app
-surface, serialization, export, approval, or filesystem mutation.
+Status: the first two Core-only planning increments are implemented. They
+create policy-provenanced immutable draft manifests and deterministic
+compatible-manifest diffs in memory, with no CLI or app surface, serialization,
+export, approval, or filesystem mutation.
 
 Implemented first commit: `feat(planner): create immutable cleanup manifests`.
 
@@ -145,21 +146,33 @@ Implemented first commit: `feat(planner): create immutable cleanup manifests`.
   draft manifests.
 - Record expected root and candidate identities, exact root-relative raw paths,
   rule and evidence state, and observed allocation estimates.
-- Require the built-in classifier's exact in-memory source-request binding so
-  evidence cannot be mixed with a different scan's identities or sizes.
+- Require the classifier's exact in-memory source-request binding so evidence
+  cannot be mixed with a different scan's identities or sizes.
 - Keep selection distinct from approval and retain the requirement for fresh
   execution-time revalidation.
-- Add plan diffing, privacy-aware export, and frontend review in later
-  increments.
+
+Implemented next commits: `feat(rules): bind policy provenance` and
+`feat(planner): diff compatible manifests`.
+
+- Bind the classification contract revision, catalog revision, and complete
+  rule-revision roster to reports and manifest contract version 2.
+- Keep legacy custom catalogs presentation-only unless they opt into an
+  explicit non-built-in catalog revision.
+- Compare only manifests with the same supported contract, exact provenance,
+  and expected root identity; every incompatibility fails before entry output.
+- Merge by exact raw path in linear time, compare every stored entry field, and
+  represent observed-total changes with full-width directional quantities.
+- Keep privacy-aware export and frontend review in later increments.
 
 The recorded identity is comparison evidence, not mutation authority. A plan
 must not convert an observer's successful identity or marker check into
 permission to clean. Planning performs no filesystem I/O and the current
 manifest deliberately has no Codable, import, or export contract.
 
-Gate: planning remains read-only and deterministic, selected ineligible input
-fails closed, and a stale or edited candidate must invalidate future approval
-or execution.
+Gate: planning and diffing remain read-only and deterministic, selected
+ineligible or policy-undeclared input fails closed, incompatible manifests never
+produce a partial diff, and a stale or edited candidate must invalidate future
+approval or execution.
 
 Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 

@@ -221,7 +221,10 @@ The classification JSON schema remains version 1. Its built-in catalog is
 version 2, which advances only `devsift.swiftpm.build` to rule revision 2 for
 the exact `workspace-state.json` marker semantic; every other built-in rule
 remains at revision 1. Catalog and rule revisions can change without changing
-the JSON key shape.
+the JSON key shape. The identifier and version now come from the Core-owned
+`BuiltInRuleCatalog.revision`, preventing CLI metadata from drifting from the
+classifier; the wire shape remains unchanged. The full Core policy provenance
+and its rule roster are not exported by this schema.
 
 The envelope contains:
 
