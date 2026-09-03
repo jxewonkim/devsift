@@ -92,13 +92,16 @@ observed inode modification time per summary and projects it into age findings
 for complete items. Summaries also retain their own scan-time identity, and a
 bounded identity-bound observer can now verify the metadata of an exact
 `workspace-state.json` marker inside an exact SwiftPM `.build` candidate. This
-advances that rule to revision 2 and the CLI catalog to version 2.
+advances that rule to revision 2 and the CLI catalog to version 2. A later
+observer can now establish trusted location for exact uv, npm, and Homebrew
+default containers, advancing the classification contract to revision 2 without
+changing catalog or rule revisions.
 
-The scan-time identity only binds this read-only reobservation; it is not
-cleanup or deletion authority. Trusted-location, ownership, reliable-activity,
-and protected-descendant evidence remain uncollected, so even a satisfied age
-and generated-marker finding leaves the real candidate `Protected`. Observers
-for those remaining facts are later Phase 5 increments.
+The scan-time identity only binds this read-only reobservation; it is not cleanup
+or deletion authority. Ownership, reliable activity, protected descendants,
+non-SwiftPM generated markers, and location for other rules remain uncollected,
+so real candidates stay `Protected`. Observers for those remaining facts are
+later increments.
 
 Implemented commit sequence:
 
@@ -118,7 +121,9 @@ Implemented commit sequence:
 - `refactor(rules): preflight scan reports before observation`;
 - `feat(rules): add descriptor-bound evidence observer`;
 - `feat(rules): bind SwiftPM marker evidence`;
-- `docs(rules): document identity-bound marker evidence`.
+- `docs(rules): document identity-bound marker evidence`;
+- `feat(rules): bind trusted cache locations`;
+- `docs(rules): define trusted location evidence`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.
@@ -271,10 +276,23 @@ Implemented first commit: `feat(revalidation): reobserve approved cleanup intent
   fail-closed categories. The report does not prove freshness after return or
   close execution races.
 
-Next: add separately reviewed evidence observers needed for real eligibility;
-only then design recoverable quarantine. The future executor must accept the
-approval, not the diagnostic report, and revalidate inline while holding
-descriptors immediately before an operation.
+Implemented second increment: `feat(rules): bind trusted cache locations`.
+
+- Observe trusted location only for exact uv, npm, and Homebrew documented
+  default containers beneath the current operating-system account home.
+- Gate on exact raw path components, then walk from `/` with no-follow,
+  descriptor-relative opens and require the selected-root identity to match
+  before and after observation.
+- Keep custom overrides, Xcode and SwiftPM locations, tool ownership, activity,
+  protected descendants, and non-SwiftPM generated markers unknown. Location
+  evidence alone cannot make a real candidate eligible.
+- Advance only the classifier-wide evidence contract to revision 2; keep the
+  built-in catalog and individual rule revisions unchanged.
+
+Next: add separately reviewed rule-specific evidence needed for real
+eligibility; only then design recoverable quarantine. The future executor must
+accept the approval, not the diagnostic report, and revalidate inline while
+holding descriptors immediately before an operation.
 
 Later Phase 7 work, after that evidence and executor design:
 

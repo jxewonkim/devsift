@@ -21,8 +21,10 @@ DevSift is designed to work locally and reveal as little as possible.
 - Classification runs locally. Its bounded evidence stage may reopen the
   selected root and retained top-level candidates descriptor-relatively to
   verify scan-time identity. For an exact `.build` candidate, it may also
-  inspect metadata for an exact `workspace-state.json` child. It does not read
-  file contents, follow symbolic-link targets, invoke package managers, or make
+  inspect metadata for an exact `workspace-state.json` child. For exact uv,
+  npm, and Homebrew default cache candidates, it may resolve the current
+  account home and rewalk the matching container without following symbolic
+  links. It does not read file contents, invoke package managers, or make
   network calls.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
@@ -113,6 +115,13 @@ omits the absolute root URL. It is non-`Codable`, in-memory, copyable, and not
 created by either frontend. It is not persisted, logged, uploaded, imported, or
 exported. Omitting the root URL does not make raw relative paths, rule revisions,
 findings, or policy results non-sensitive.
+
+Trusted-location observation resolves the current account home from the local
+operating-system account record and compares only bounded raw path components
+and directory metadata. It does not use the `$HOME` environment variable,
+enumerate the home directory, read cache contents, retain the home path in a
+report, or add it to CLI or app output. The selected root and account-home path
+still remain sensitive in process memory while that observation runs.
 
 The native app immediately maps a planned manifest to a separate identity-free
 presentation and does not retain the manifest. The presentation omits root and

@@ -228,7 +228,11 @@ the modification-time aggregate only for complete item summaries. A separate,
 bounded evidence stage reopens each retained top-level candidate to verify the
 root and candidate against their scan-time identities. For an exact SwiftPM
 `.build` candidate, it additionally observes metadata for an exact
-`workspace-state.json` child without following symbolic-link targets.
+`workspace-state.json` child without following symbolic-link targets. For exact
+uv, npm, and Homebrew names, it can also prove the selected root is the matching
+documented default container beneath the current account home. Raw path shape
+only gates a descriptor walk; the final root identity must match before and
+after observation.
 
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
 not persistent object identities or deletion authority. Copying them into a

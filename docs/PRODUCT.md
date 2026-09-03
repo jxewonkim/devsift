@@ -44,10 +44,11 @@ observations. For a complete item, the current real-scan adapter can establish
 the age input from the newest inode modification time observed during scanning.
 For an exact SwiftPM `.build` candidate, a bounded identity-bound observer can
 also establish whether an exact regular-file `workspace-state.json` marker is
-present. Scan-time identity is observation binding, not deletion authority;
-trusted-location, ownership, reliable-activity, and protected-descendant
-evidence remain unavailable, so runtime outcomes remain Protected even when
-the marker is satisfied.
+present. For uv, npm, and Homebrew, it can establish trusted location only when
+the selected root descriptor rebinds to that tool's exact documented default
+container beneath the current account home. Custom locations, ownership,
+reliable activity, protected descendants, and non-SwiftPM generated markers
+remain unavailable, so runtime outcomes remain Protected.
 
 The first rule set recognizes:
 
@@ -104,8 +105,10 @@ returning canonical per-entry status. It reobserves root identity, path, kind,
 device, identity, rule, findings, and policy, while incomplete or unknown data
 fails closed. The report is point-in-time, copyable, non-`Codable`, and omits
 the absolute root; it is neither a cleanup capability nor an executor input.
-Current real entries normally remain Protected because trusted location,
-ownership, reliable activity, and protected descendants are still unobserved.
+Current real entries remain Protected. Exact default uv, npm, and Homebrew
+containers can now satisfy trusted location, but ownership, reliable activity,
+protected descendants, non-SwiftPM generated markers, and location for other
+rules remain unobserved.
 
 The CLI JSON projection is lossy and non-importable; it explicitly sets
 `canBeApproved` and `canBeExecuted` to `false`. The app projection is ephemeral,
