@@ -21,6 +21,7 @@ struct ScanDashboardView: View {
     GeometryReader { window in
       VStack(spacing: 0) {
         dashboardHeader
+          .layoutPriority(1)
         Divider()
         dashboardContent
           .frame(
@@ -31,6 +32,7 @@ struct ScanDashboardView: View {
 
         Divider()
         safetyFooter
+          .layoutPriority(1)
       }
       .frame(
         width: window.size.width,
@@ -52,18 +54,22 @@ struct ScanDashboardView: View {
     } message: {
       Text("DevSift could not open the folder picker result. Select the folder again.")
     }
-    .onChange(of: footerStatus) { _, _ in
-      guard let announcement = DashboardAccessibility.announcement(for: viewModel.phase) else {
+    .onChange(of: viewModel.phase) { _, phase in
+      guard let announcement = DashboardAccessibility.announcement(for: phase) else {
         return
       }
-      NSAccessibility.post(
-        element: NSApp as Any,
-        notification: .announcementRequested,
-        userInfo: [
-          .announcement: announcement,
-          .priority: NSAccessibilityPriorityLevel.high.rawValue,
-        ]
-      )
+      postAccessibilityAnnouncement(announcement)
+    }
+    .onChange(of: viewModel.cleanupReviewPhase) { previousPhase, phase in
+      guard
+        let announcement = CleanupReviewAccessibility.announcement(
+          from: previousPhase,
+          to: phase
+        )
+      else {
+        return
+      }
+      postAccessibilityAnnouncement(announcement)
     }
     .onDisappear(perform: viewModel.stopForWindowClosure)
   }
@@ -78,11 +84,26 @@ struct ScanDashboardView: View {
     case .classifying(let root):
       ClassifyingView(root: root)
     case .result(let root, let presentation):
-      ScanResultView(
-        root: root,
-        presentation: presentation,
-        policyDetailsInitiallyExpanded: policyDetailsInitiallyExpanded
-      )
+      if case .review(let review) = viewModel.cleanupReviewPhase {
+        CleanupManifestReviewView(
+          root: root,
+          review: review,
+          backToSelection: viewModel.dismissCleanupReview
+        )
+      } else {
+        ScanResultView(
+          root: root,
+          presentation: presentation,
+          cleanupReviewPhase: viewModel.cleanupReviewPhase,
+          cleanupCandidateCount: viewModel.cleanupCandidateCount,
+          selectedCleanupCandidates: viewModel.selectedCleanupCandidates,
+          setCleanupCandidate: viewModel.setCleanupCandidate,
+          clearCleanupCandidates: viewModel.clearCleanupCandidates,
+          prepareCleanupReview: { viewModel.prepareCleanupReview() },
+          cancelCleanupReviewPreparation: viewModel.cancelCleanupReviewPreparation,
+          policyDetailsInitiallyExpanded: policyDetailsInitiallyExpanded
+        )
+      }
     case .cancelled(let root):
       ScanMessageView(
         systemImage: "stop.circle",
@@ -179,7 +200,16 @@ struct ScanDashboardView: View {
     case .classifying:
       "Policy analysis in progress"
     case .result(_, let presentation):
-      presentation.observationIsComplete ? "Complete observation" : "Partial observation"
+      switch viewModel.cleanupReviewPhase {
+      case .preparing:
+        "Draft preparation in progress"
+      case .review:
+        "Unapproved draft review"
+      case .failed:
+        "Draft unavailable"
+      case .unavailable, .selecting:
+        presentation.observationIsComplete ? "Complete observation" : "Partial observation"
+      }
     case .cancelled:
       "Scan cancelled"
     case .failed:
@@ -216,6 +246,17 @@ struct ScanDashboardView: View {
     case .failure:
       folderImportFailureIsPresented = true
     }
+  }
+
+  private func postAccessibilityAnnouncement(_ announcement: String) {
+    NSAccessibility.post(
+      element: NSApp as Any,
+      notification: .announcementRequested,
+      userInfo: [
+        .announcement: announcement,
+        .priority: NSAccessibilityPriorityLevel.high.rawValue,
+      ]
+    )
   }
 }
 

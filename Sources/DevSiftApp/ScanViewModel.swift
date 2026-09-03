@@ -30,6 +30,33 @@ enum ScanFailure: Equatable, Sendable {
   }
 }
 
+enum CleanupReviewFailure: Equatable, Sendable {
+  case planning
+
+  var title: String {
+    "Draft review unavailable"
+  }
+
+  var message: String {
+    "DevSift could not create a complete in-memory draft from this scan. Nothing was approved or changed."
+  }
+}
+
+enum CleanupReviewPhase: Equatable, Sendable {
+  case unavailable
+  case selecting
+  case preparing(selectedCount: Int)
+  case review(CleanupManifestReviewPresentation)
+  case failed(CleanupReviewFailure)
+
+  var isPreparing: Bool {
+    if case .preparing = self {
+      return true
+    }
+    return false
+  }
+}
+
 enum ScanDashboardPhase: Equatable, Sendable {
   case empty
   case scanning(URL)
@@ -53,18 +80,25 @@ enum ScanDashboardPhase: Equatable, Sendable {
 @Observable
 final class ScanViewModel {
   private(set) var phase: ScanDashboardPhase = .empty
+  private(set) var cleanupReviewPhase: CleanupReviewPhase = .unavailable
+  private(set) var selectedCleanupCandidates: Set<CleanupCandidateSelection> = []
 
   @ObservationIgnored private let scanner: any FileSystemScanning
   @ObservationIgnored private let classifier: any RuleClassifying
+  @ObservationIgnored private let cleanupPlanner: any CleanupPlanning
   @ObservationIgnored private let limits: ScanLimits
   @ObservationIgnored private let securityScope: any SecurityScopedResourceAccessing
   @ObservationIgnored private let referenceUnixSeconds: @Sendable () -> Int64
   @ObservationIgnored private var activeScanID: UUID?
   @ObservationIgnored private var scanTask: Task<Void, Never>?
+  @ObservationIgnored private var cleanupPlanningContext: CleanupPlanningContext?
+  @ObservationIgnored private var activeCleanupPlanningID: UUID?
+  @ObservationIgnored private var cleanupPlanningTask: Task<Void, Never>?
 
   init(
     scanner: any FileSystemScanning = AllocatedSizeScanner(),
     classifier: any RuleClassifying = ExplainableRuleClassifier(),
+    cleanupPlanner: any CleanupPlanning = CleanupPlanner(),
     limits: ScanLimits = ScanLimits(),
     securityScope: any SecurityScopedResourceAccessing = FoundationSecurityScopedResourceAccess(),
     referenceUnixSeconds: @escaping @Sendable () -> Int64 = {
@@ -73,6 +107,7 @@ final class ScanViewModel {
   ) {
     self.scanner = scanner
     self.classifier = classifier
+    self.cleanupPlanner = cleanupPlanner
     self.limits = limits
     self.securityScope = securityScope
     self.referenceUnixSeconds = referenceUnixSeconds
@@ -98,9 +133,26 @@ final class ScanViewModel {
     phase.root != nil && !isWorking
   }
 
+  var cleanupCandidateCount: Int {
+    cleanupPlanningContext?.candidates.count ?? 0
+  }
+
+  var canPrepareCleanupReview: Bool {
+    guard !selectedCleanupCandidates.isEmpty else {
+      return false
+    }
+    switch cleanupReviewPhase {
+    case .selecting, .failed:
+      return true
+    case .unavailable, .preparing, .review:
+      return false
+    }
+  }
+
   @discardableResult
   func startScan(at root: URL) -> Task<Void, Never> {
     invalidateActiveScan()
+    invalidateCleanupReview()
 
     let scanID = UUID()
     activeScanID = scanID
@@ -149,7 +201,13 @@ final class ScanViewModel {
           classification: classification
         )
         try Task.checkCancellation()
-        self?.finish(scanID: scanID, phase: .result(root, presentation))
+        self?.finishResult(
+          scanID: scanID,
+          root: root,
+          classificationRequest: classificationRequest,
+          classification: classification,
+          presentation: presentation
+        )
       } catch is CancellationError {
         self?.finish(scanID: scanID, phase: .cancelled(root))
       } catch let error as ScanError {
@@ -185,6 +243,106 @@ final class ScanViewModel {
 
   func stopForWindowClosure() {
     invalidateActiveScan()
+    invalidateCleanupReview()
+  }
+
+  func setCleanupCandidate(
+    _ selection: CleanupCandidateSelection,
+    isIncluded: Bool
+  ) {
+    guard
+      let context = cleanupPlanningContext,
+      context.candidates.contains(selection),
+      allowsCleanupSelectionChanges
+    else {
+      return
+    }
+
+    if isIncluded {
+      selectedCleanupCandidates.insert(selection)
+    } else {
+      selectedCleanupCandidates.remove(selection)
+    }
+    cleanupReviewPhase = .selecting
+  }
+
+  func clearCleanupCandidates() {
+    guard allowsCleanupSelectionChanges else {
+      return
+    }
+    selectedCleanupCandidates.removeAll(keepingCapacity: true)
+    cleanupReviewPhase = .selecting
+  }
+
+  @discardableResult
+  func prepareCleanupReview() -> Task<Void, Never>? {
+    guard
+      let context = cleanupPlanningContext,
+      canPrepareCleanupReview
+    else {
+      return nil
+    }
+
+    let selections = selectedCleanupCandidates.sorted(by: cleanupSelectionOrder)
+    let request = CleanupManifestRequest(
+      classificationRequest: context.classificationRequest,
+      classificationReport: context.classification,
+      selections: selections
+    )
+    let planningID = UUID()
+    activeCleanupPlanningID = planningID
+    cleanupReviewPhase = .preparing(selectedCount: selections.count)
+
+    let planner = cleanupPlanner
+    let worker = Task.detached(priority: .userInitiated) {
+      let manifest = try planner.makeManifest(request)
+      try Task.checkCancellation()
+      return try CleanupManifestReviewPresentation.prepare(manifest: manifest)
+    }
+    let task = Task { [weak self] in
+      do {
+        let review = try await withTaskCancellationHandler {
+          try await worker.value
+        } onCancel: {
+          worker.cancel()
+        }
+        try Task.checkCancellation()
+        self?.finishCleanupReview(
+          planningID: planningID,
+          sessionID: context.sessionID,
+          phase: .review(review)
+        )
+      } catch is CancellationError {
+        self?.finishCleanupReview(
+          planningID: planningID,
+          sessionID: context.sessionID,
+          phase: .selecting
+        )
+      } catch {
+        self?.finishCleanupReview(
+          planningID: planningID,
+          sessionID: context.sessionID,
+          phase: .failed(.planning)
+        )
+      }
+    }
+    cleanupPlanningTask = task
+    return task
+  }
+
+  func cancelCleanupReviewPreparation() {
+    guard cleanupReviewPhase.isPreparing else {
+      return
+    }
+    cancelCleanupPlanningTask()
+    cleanupReviewPhase = .selecting
+  }
+
+  func dismissCleanupReview() {
+    guard case .review = cleanupReviewPhase else {
+      return
+    }
+    cleanupReviewPhase = .selecting
   }
 
   private func invalidateActiveScan() {
@@ -204,6 +362,70 @@ final class ScanViewModel {
     self.phase = phase
   }
 
+  private func finishResult(
+    scanID: UUID,
+    root: URL,
+    classificationRequest: RuleClassificationRequest,
+    classification: RuleClassificationReport,
+    presentation: ScanPresentation
+  ) {
+    guard scanID == activeScanID else {
+      return
+    }
+
+    activeScanID = nil
+    scanTask = nil
+    selectedCleanupCandidates = []
+    cleanupPlanningContext = CleanupPlanningContext(
+      sessionID: scanID,
+      classificationRequest: classificationRequest,
+      classification: classification,
+      candidates: Set(presentation.items.compactMap(\.cleanupSelection))
+    )
+    cleanupReviewPhase = .selecting
+    phase = .result(root, presentation)
+  }
+
+  private func finishCleanupReview(
+    planningID: UUID,
+    sessionID: UUID,
+    phase: CleanupReviewPhase
+  ) {
+    guard
+      planningID == activeCleanupPlanningID,
+      cleanupPlanningContext?.sessionID == sessionID
+    else {
+      return
+    }
+
+    activeCleanupPlanningID = nil
+    cleanupPlanningTask = nil
+    cleanupReviewPhase = phase
+  }
+
+  private var allowsCleanupSelectionChanges: Bool {
+    switch cleanupReviewPhase {
+    case .selecting, .failed:
+      return true
+    case .unavailable, .preparing, .review:
+      return false
+    }
+  }
+
+  private func invalidateCleanupReview() {
+    cancelCleanupPlanningTask()
+    cleanupPlanningContext = nil
+    selectedCleanupCandidates = []
+    cleanupReviewPhase = .unavailable
+  }
+
+  private func cancelCleanupPlanningTask() {
+    activeCleanupPlanningID = nil
+    let task = cleanupPlanningTask
+    cleanupPlanningTask = nil
+    task?.cancel()
+  }
+
   private func beginClassification(scanID: UUID, root: URL) -> Bool {
     guard scanID == activeScanID else {
       return false
@@ -211,4 +433,21 @@ final class ScanViewModel {
     phase = .classifying(root)
     return true
   }
+}
+
+private struct CleanupPlanningContext: Sendable {
+  let sessionID: UUID
+  let classificationRequest: RuleClassificationRequest
+  let classification: RuleClassificationReport
+  let candidates: Set<CleanupCandidateSelection>
+}
+
+private func cleanupSelectionOrder(
+  _ left: CleanupCandidateSelection,
+  _ right: CleanupCandidateSelection
+) -> Bool {
+  if left.path != right.path {
+    return left.path < right.path
+  }
+  return left.ruleRevision < right.ruleRevision
 }

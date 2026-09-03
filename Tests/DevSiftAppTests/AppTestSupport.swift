@@ -34,6 +34,7 @@ enum AppTestReportFactory {
     sharedContentMetadataUnavailableCount: UInt64 = 0,
     unobservedHardLinkFileCount: UInt64 = 0,
     nonExclusiveHardLinkFileCount: UInt64 = 0,
+    newestContentModificationUnixSeconds: Int64? = nil,
     sizeOverflowed: Bool = false,
     isComplete: Bool = true
   ) -> ScanItemSummary {
@@ -49,6 +50,7 @@ enum AppTestReportFactory {
       sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
       unobservedHardLinkFileCount: unobservedHardLinkFileCount,
       nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount,
+      newestContentModificationUnixSeconds: newestContentModificationUnixSeconds,
       sizeOverflowed: sizeOverflowed,
       isComplete: isComplete
     )
@@ -170,6 +172,54 @@ struct ImmediateRuleClassifier: RuleClassifying, Sendable {
     case .unexpected:
       throw AppTestUnexpectedError()
     }
+  }
+}
+
+/// Produces source-bound, planning-eligible built-in decisions from synthetic
+/// report values without opening a filesystem path.
+struct SyntheticEligibleRuleClassifier: RuleClassifying, Sendable {
+  let recorder: RuleClassificationRequestRecorder?
+
+  init(recorder: RuleClassificationRequestRecorder? = nil) {
+    self.recorder = recorder
+  }
+
+  func classify(
+    _ request: RuleClassificationRequest
+  ) async throws -> RuleClassificationReport {
+    await recorder?.append(request)
+    let observations = request.report.topLevelItems.map { summary in
+      RuleObservation(
+        summary: summary,
+        selectedRootBasename: .known(Array("Caches".utf8)),
+        integrity: RuleScanIntegrity(
+          reportIsComplete: true,
+          itemIsComplete: true,
+          topLevelItemsWereSuppressed: false,
+          traversalDetailsWereDiscarded: false,
+          suppressedIssueCount: 0,
+          unknownAllocatedItemCount: 0,
+          sizeOverflowed: false,
+          hardLinkAccountingIsComplete: true,
+          identityMatchesScan: .known(true)
+        ),
+        facts: RuleObservationFacts(
+          trustedLocation: .known(true),
+          toolOwnership: .known(true),
+          generatedContentMarker: .known(true),
+          newestContentModificationUnixSeconds: .known(
+            summary.newestContentModificationUnixSeconds ?? 0
+          ),
+          activity: .known(.inactive),
+          protectedDescendantPresent: .known(false),
+          siblingPackageManifestPresent: .known(true)
+        )
+      )
+    }
+    return try await ExplainableRuleClassifier().classify(
+      observations: observations,
+      referenceUnixSeconds: request.referenceUnixSeconds
+    ).binding(to: request)
   }
 }
 

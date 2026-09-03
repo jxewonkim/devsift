@@ -17,13 +17,14 @@ storage created by their tools. It favors evidence and user control over opaque
 ## Core jobs
 
 The current pre-alpha implements the first job, a conservative foundation for
-jobs 2 and 3, and the first Core-only in-memory foundation for job 4. It can
-recognize selected path shapes, explain why missing evidence keeps them
-protected, and build an immutable draft from explicitly selected eligible
-classifications. Core can also compare compatible policy-provenanced drafts
-without reading the filesystem. The CLI target can internally project one such
-draft into a privacy-profiled, review-only JSON schema, but no command or file
-export exposes it. Frontend plan review and job 5 remain later product
+jobs 2 and 3, and a native read-only in-memory slice of job 4. It can recognize
+selected path shapes, explain why missing evidence keeps them protected, and
+build an immutable draft from explicitly selected eligible classifications.
+The app starts with zero included candidates and presents an identity-free
+review without persisting it. Core can also compare compatible
+policy-provenanced drafts without reading the filesystem. The CLI target can
+internally project one draft into a privacy-profiled, review-only JSON schema,
+but no command or file export exposes it. Job 5 remains later product
 direction.
 
 1. Show where allocated storage is being consumed.
@@ -66,22 +67,31 @@ The long-term workflow is:
 
 1. **Scan** an explicitly selected root without modifying it.
 2. **Explain** candidates using versioned rules and visible evidence.
-3. **Plan** an immutable dry run with estimated reclaimed bytes.
+3. **Plan** an immutable dry run with observed allocation estimates and their
+   uncertainty.
 4. **Approve** the exact reviewed draft as a separate explicit action.
 5. **Revalidate** identity, containment, and active-use conditions.
 6. **Quarantine** approved candidates using a recoverable operation.
 7. **Report** completed, changed, failed, and skipped items.
 8. **Purge** quarantined data only as a later, explicit action.
 
-The current planning increment stops at in-memory Core drafts, typed diffs, and
-an internal CLI-owned review schema version 1 pinned to manifest contract
-version 2. The JSON projection is lossy and non-importable; it explicitly sets
-`canBeApproved` and `canBeExecuted` to `false`. A selection binds one exact
-root-relative raw path to one exact rule revision, but does not approve it. A
-diff requires the same manifest contract, policy provenance, and expected root
-identity, and still says nothing about current disk freshness. No CLI or app
-workflow creates, reviews, persists, imports, exports, approves, or executes a
-manifest, and no diff-export format exists.
+The current planning increment stops at in-memory Core drafts, typed Core
+diffs, an internal CLI-owned review schema version 1 pinned to manifest
+contract version 2, and a native identity-free in-memory review. The app keeps
+table focus independent from explicit inclusion, which begins at zero, and
+allows only current-session exact raw-path and rule-revision pairs. Core then
+revalidates the exact classification request and report before planning. The
+app review displays all seven observed size and uncertainty quantities; none is
+a guaranteed savings claim. Current real scans may have zero eligible
+candidates because unavailable required facts keep results Protected.
+
+The CLI JSON projection is lossy and non-importable; it explicitly sets
+`canBeApproved` and `canBeExecuted` to `false`. The app projection is ephemeral,
+identity-free presentation state rather than a document. A diff requires the
+same manifest contract, policy provenance, and expected root identity, and
+still says nothing about current disk freshness. No frontend workflow persists,
+imports, exports, diffs, approves, executes, performs live-filesystem
+revalidation, or mutates from a manifest, and no diff-export format exists.
 
 ## Non-goals
 

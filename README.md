@@ -8,9 +8,9 @@ folder, shows where apparent allocation is concentrated, and applies
 explainable read-only policy rules to recognized development caches.
 
 > [!IMPORTANT]
-> DevSift is pre-alpha. Scanning, classification, and Core draft planning are
-> read-only: DevSift does not delete, move, quarantine, or otherwise modify
-> files.
+> DevSift is pre-alpha. Scanning, classification, draft planning, and the
+> native app's in-memory draft review are read-only: DevSift does not delete,
+> move, quarantine, or otherwise modify files.
 
 ## Why DevSift?
 
@@ -44,13 +44,23 @@ are large.
   deterministic compatible-manifest diffing;
 - `devsift`: a scriptable command-line interface;
 - `DevSift`: a native SwiftUI dashboard with explicit folder selection,
-  cancellable scans, observation results, and policy explanations.
+  cancellable scans, observation results, policy explanations, explicit draft
+  candidate selection, and read-only in-memory draft review.
 
-Planning and manifest diffing are currently Core-only. The CLI target contains
-an internal, one-way manifest-review JSON v1 encoder pinned to Core manifest
-contract version 2, but no command invokes it and it never writes a file. The
-CLI and app do not yet create, review, approve, import, export, or execute
-manifests through a user-facing surface.
+The native app can ask Core to create an in-memory draft from an explicitly
+selected eligible subset and display an identity-free review projection. It
+starts with zero candidates included, keeps table focus separate from draft
+inclusion, and treats the exact raw path and rule revision as one selection.
+The Core planner revalidates the exact source classification request and report
+before producing a draft. A real scan can legitimately expose zero eligible
+candidates.
+
+Manifest diffing remains Core-only. The CLI target contains an internal,
+one-way manifest-review JSON v1 encoder pinned to Core manifest contract
+version 2, but no command invokes it and it never writes a file. The app review
+is not a saved or serialized manifest. Neither frontend provides manifest
+persistence, import, export, diffing, approval, execution, or filesystem
+mutation.
 
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
@@ -89,8 +99,10 @@ Core-only draft-manifest planner, and fail-closed manifest differ. The CLI
 exposes the scanner and classifier as deterministic text and separately
 versioned JSON. It also owns an internal, non-importable review projection for
 privacy-contract testing; this is not a CLI command or file-export feature. The
-native app invokes the same Core scanner and classifier and does not contain a
-separate filesystem or policy implementation. See the
+native app invokes the same Core scanner, classifier, and planner and does not
+contain a separate filesystem or policy implementation. Its review shows all
+seven stored observation and uncertainty quantities as point-in-time estimates,
+not guaranteed savings. See the
 [app contract](docs/APP.md),
 [CLI contract](docs/CLI.md), [scanning contract](docs/SCANNING.md),
 [rules contract](docs/RULES.md), and [planning contract](docs/PLANNING.md).
@@ -101,13 +113,14 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 
 ## Project status
 
-- Current phase: Core-only policy-provenanced dry-run manifests and diffing,
-  plus an internal CLI-owned privacy-aware review projection
+- Current phase: policy-provenanced in-memory dry-run manifests, Core-only
+  diffing, an internal CLI-owned privacy-aware review projection, and native
+  app selection plus identity-free draft review
 - Current behavior: Core scanner, rule classifier, in-memory draft planner, and
   compatible-manifest differ, plus the existing text/JSON CLI and native
-  analysis dashboard; no frontend planning, manifest-review command,
-  persistence, import, user-facing export, approval, cleanup, quarantine, or
-  deletion
+  analysis dashboard with explicit in-memory draft review; no manifest-review
+  CLI command, persistence, import, user-facing export, frontend diff,
+  approval, execution, cleanup, quarantine, or deletion
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer

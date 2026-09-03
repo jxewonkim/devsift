@@ -33,6 +33,14 @@ and the Core differ compares only compatible drafts. An explicit
 rule revision, but selection and diff output are not approval. Approval,
 execution, quarantine, and deletion APIs do not exist in this phase.
 
+The native app can include an explicit subset of conservative candidates and
+show Core's result as an unapproved in-memory review. Inclusion starts at zero
+and is independent from table-row focus. The app's exact current-session
+path-and-rule-revision whitelist is only a UI restriction; it cannot weaken or
+replace the planner's complete fail-closed validation. The review has no save,
+load, import, export, diff, approval, execution, live-filesystem revalidation,
+or mutation operation.
+
 The CLI target has an internal one-way review JSON encoder over an already
 constructed manifest. No command or file-writing workflow invokes it. It is
 non-importable, cannot reconstruct or diff a manifest, and explicitly declares
@@ -51,9 +59,23 @@ that its document cannot be approved or executed.
   with a `Reclaimable` or `Review required` disposition and only satisfied
   findings. Selection cannot override `Protected`, unknown, partial,
   conflicting, invalid, or incomplete state.
+- The app includes no candidate automatically. Row focus never changes the
+  included set, and only an exact path-and-rule-revision value from the current
+  result's whitelist can enter it. Core remains the final authority.
 - A draft manifest is not approval or an execution capability. It stores no
   absolute root URL, and copying expected identities into it grants no path
   authority.
+- App planning reuses the exact retained classification request and report,
+  freezes the selected set, and runs without a filesystem capability or active
+  security scope. Planning and scan-session tokens must reject any late result
+  after cancellation, rescan, root change, or window closure.
+- The app-owned review projection retains no filesystem identity, manifest,
+  source request, provenance roster, reference time, serialization, approval,
+  or execution state. Its raw relative path is only an in-memory row identity;
+  the UI renders escaped text.
+- All seven displayed size and uncertainty quantities are point-in-time
+  observations, not promised reclaimed bytes. A legitimate current scan can
+  expose zero eligible candidates.
 - The CLI-owned review projection is lossy, non-importable, and never an
   executor input. It always omits root and candidate filesystem identities,
   sets `canBeApproved` and `canBeExecuted` to `false`, and defines no diff
@@ -114,7 +136,10 @@ still performs no filesystem mutation while cancellation unwinds. The internal
 review encoder checks cancellation during validation, projection, and its
 per-entry size preflight, but the single final Foundation `JSONEncoder.encode`
 call cannot be interrupted until it returns. Cancellation observed after that
-call returns no partial document.
+call returns no partial document. Native app draft planning and identity-free
+projection run away from the main actor and check cooperative cancellation;
+token validation prevents an ignored or late cancellation from publishing
+stale review state.
 
 ## Rule requirements
 
@@ -184,6 +209,12 @@ Manifest-review projection tests use synthetic in-memory drafts and cover both
 privacy profiles, exact identity omission, document-local ordinals, unsupported
 source versions, non-importable authority flags, deterministic same-runtime
 bytes, output limits, and cancellation without writing files.
+
+Native app draft-review tests use only synthetic values and cover conservative
+eligibility, default-zero and exact-whitelist selection, exact source-request
+and report reuse, off-main planning, frozen selection, cancellation, stale
+results, lifecycle invalidation, bounded generic failures, escaped display,
+identity omission, canonical ordering, and all seven observed quantities.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.
