@@ -33,6 +33,11 @@ and the Core differ compares only compatible drafts. An explicit
 rule revision, but selection and diff output are not approval. Approval,
 execution, quarantine, and deletion APIs do not exist in this phase.
 
+The CLI target has an internal one-way review JSON encoder over an already
+constructed manifest. No command or file-writing workflow invokes it. It is
+non-importable, cannot reconstruct or diff a manifest, and explicitly declares
+that its document cannot be approved or executed.
+
 ## Hard invariants
 
 - A scan root is explicit; there is no implicit whole-disk cleanup.
@@ -49,6 +54,17 @@ execution, quarantine, and deletion APIs do not exist in this phase.
 - A draft manifest is not approval or an execution capability. It stores no
   absolute root URL, and copying expected identities into it grants no path
   authority.
+- The CLI-owned review projection is lossy, non-importable, and never an
+  executor input. It always omits root and candidate filesystem identities,
+  sets `canBeApproved` and `canBeExecuted` to `false`, and defines no diff
+  export, approval, or execution operation.
+- Redaction is not anonymity. Redacted documents retain exact observed sizes
+  and totals plus selected rule and finding identifiers; their entry ordinals
+  identify entries only inside that one document. Exact-profile documents also
+  contain raw Base64 paths, the exact reference time, and escaped free-form
+  text.
+- Having no dedicated absolute-root field is not sanitization. Trusted custom
+  free-form text in an exact document can contain an arbitrary absolute path.
 - Manifest diffing requires the same supported manifest contract, exactly equal
   policy provenance, and exactly equal expected root identity before examining
   entries. An incompatibility never produces a partial or "unchanged" result.
@@ -94,7 +110,11 @@ execution, quarantine, and deletion APIs do not exist in this phase.
 
 Cancellation is safe but may not be instantaneous. A blocking filesystem call
 can finish before the next cancellation checkpoint is reached. The scanner
-still performs no filesystem mutation while cancellation unwinds.
+still performs no filesystem mutation while cancellation unwinds. The internal
+review encoder checks cancellation during validation, projection, and its
+per-entry size preflight, but the single final Foundation `JSONEncoder.encode`
+call cannot be interrupted until it returns. Cancellation observed after that
+call returns no partial document.
 
 ## Rule requirements
 
@@ -141,6 +161,14 @@ changes with directional `UInt64` magnitudes, and checks cancellation during
 bounded work. It never reads a path or transfers approval between drafts. See
 the [planning contract](PLANNING.md).
 
+The internal review encoder accepts only Core manifest contract version 2 and
+emits CLI schema `devsift.cleanup-manifest-review` version 1. A per-entry
+encoded-size preflight and final post-encoding check enforce a 128 MiB hard
+cap. Sorted `JSONEncoder` bytes target repeatability only for the same validated
+input, privacy profile, implementation build, and Swift/Foundation runtime;
+they are not a cryptographic canonical representation, stable digest,
+signature, authenticity proof, or approval token.
+
 ## Test boundary
 
 All filesystem tests use newly created temporary directories and synthetic
@@ -152,6 +180,10 @@ Planner tests additionally verify that constructed or synthetic fixture state
 is unchanged before and after planning, including when validation fails.
 Manifest-diff tests use only in-memory synthetic drafts and include incompatible
 inputs, non-UTF-8 path collisions, full-width quantities, and maximum bounds.
+Manifest-review projection tests use synthetic in-memory drafts and cover both
+privacy profiles, exact identity omission, document-local ordinals, unsupported
+source versions, non-importable authority flags, deterministic same-runtime
+bytes, output limits, and cancellation without writing files.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

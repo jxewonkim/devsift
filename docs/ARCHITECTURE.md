@@ -43,13 +43,21 @@ The CLI parses explicit commands, invokes DevSiftCore, and renders human-readabl
 or versioned JSON output. Results go to standard output and diagnostics to
 standard error. The `scan` and `classify` schemas are versioned independently.
 The CLI does not implement independent filesystem rules. It currently has no
-plan command or manifest serialization contract.
+plan, plan-review, manifest-import, or manifest-export command.
 
 The executable has a thin process entry point over a testable async runner.
 Arguments, filesystem requests, rendering, and exit mapping are exercised
 without replacing global standard streams. JSON uses a CLI-owned versioned DTO
 rather than making Core domain models directly serializable. Report paths are
 root-relative, and exact path-component bytes are retained as Base64.
+
+The CLI target also owns internal review schema
+`devsift.cleanup-manifest-review` version 1, explicitly pinned to Core cleanup
+manifest contract version 2. It is a one-way, lossy `Encodable` projection for
+an already constructed manifest. No command invokes it, and it performs no
+standard-stream, file, filesystem, or network I/O. There is no decoder or
+import path; the envelope sets `canBeApproved` and `canBeExecuted` to `false`,
+and no manifest-diff export, approval, or execution surface accompanies it.
 
 ### DevSift app
 
@@ -88,6 +96,19 @@ identity incompatibility. It then performs an `O(n + m)` merge by exact raw path
 and reports every stored entry-field change plus overflow-safe directional
 differences for observed totals. It does not infer renames from inode identity,
 reopen paths, render output, or create approval state.
+
+The internal manifest-review projection always removes root and candidate
+filesystem identities and has no dedicated absolute-root field. Its redacted
+profile removes paths, time, free-form text, and the complete rule roster while
+retaining exact sizes plus selected rule and finding identifiers; it is not an
+anonymous or automatically share-safe format. Its root-relative-exact profile
+includes exact Base64 path components, the exact reference time, escaped
+free-form text, and the complete provenance roster. Custom free-form text can
+still contain an arbitrary absolute path. Redacted entry ordinals have meaning
+only inside one document. Rendering has a cumulative per-entry encoded-size
+preflight and final post-encoding check against a 128 MiB cap. Cancellation is
+checked around bounded phases, but the final
+Foundation `JSONEncoder.encode` call cannot be interrupted before it returns.
 
 ## Dependency rules
 
@@ -130,8 +151,12 @@ identity and kind, classifier-owned policy provenance, rule revision, policy
 evidence, and observed allocation estimates. `CleanupCandidateSelection`
 identifies a requested path and rule revision; it is not approval. The differ
 receives only manifest values and likewise has no filesystem capability.
-Codable export, persistence, frontend review, approval, and execution are
-separate future boundaries.
+The CLI-owned review projection is not serialized Core state and carries no
+authority. User-facing export, import, persistence, frontend review, approval,
+and execution remain separate future boundaries. Its sorted `JSONEncoder`
+output targets repeatability only for the same input, privacy profile,
+implementation build, and Swift/Foundation runtime; it is not a cryptographic
+canonical form, stable digest, signature, or authenticity proof.
 
 The current scan-to-rule adapter projects only facts already present in the
 bounded `ScanReport`; it performs no additional filesystem I/O. Rules consume

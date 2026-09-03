@@ -132,6 +132,7 @@ enum CLITestReportFactory {
     sharedContentMetadataUnavailableCount: UInt64 = 0,
     unobservedHardLinkFileCount: UInt64 = 0,
     nonExclusiveHardLinkFileCount: UInt64 = 0,
+    newestContentModificationUnixSeconds: Int64? = nil,
     sizeOverflowed: Bool = false,
     isComplete: Bool = true
   ) -> ScanItemSummary {
@@ -150,6 +151,7 @@ enum CLITestReportFactory {
       sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
       unobservedHardLinkFileCount: unobservedHardLinkFileCount,
       nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount,
+      newestContentModificationUnixSeconds: newestContentModificationUnixSeconds,
       sizeOverflowed: sizeOverflowed,
       isComplete: isComplete
     )
@@ -260,6 +262,144 @@ enum CLITestClassificationFactory {
     RuleClassificationReport(
       referenceUnixSeconds: referenceUnixSeconds,
       evaluations: evaluations
+    )
+  }
+}
+
+enum CLITestManifestFactory {
+  static let primaryRuleRevision = CLITestClassificationFactory.revision(
+    identifier: "devsift.test.manifest-primary",
+    version: 7
+  )
+  static let secondaryRuleRevision = CLITestClassificationFactory.revision(
+    identifier: "devsift.test.manifest-secondary",
+    version: 9
+  )
+
+  static func validFindings() -> [RuleFinding] {
+    [
+      CLITestClassificationFactory.finding(
+        identifier: "lexical-recognition",
+        kind: .lexicalRecognition
+      ),
+      CLITestClassificationFactory.finding(
+        identifier: "reproducibility",
+        kind: .reproducibility
+      ),
+      CLITestClassificationFactory.finding(identifier: "age-requirement", kind: .age),
+      CLITestClassificationFactory.finding(
+        identifier: "activity-requirement",
+        kind: .activity
+      ),
+      CLITestClassificationFactory.finding(identifier: "report-complete", kind: .scanIntegrity),
+      CLITestClassificationFactory.finding(identifier: "item-complete", kind: .scanIntegrity),
+      CLITestClassificationFactory.finding(
+        identifier: "top-level-output-complete",
+        kind: .scanIntegrity
+      ),
+      CLITestClassificationFactory.finding(
+        identifier: "traversal-details-retained",
+        kind: .scanIntegrity
+      ),
+      CLITestClassificationFactory.finding(identifier: "issues-complete", kind: .scanIntegrity),
+      CLITestClassificationFactory.finding(identifier: "allocation-known", kind: .scanIntegrity),
+      CLITestClassificationFactory.finding(
+        identifier: "size-did-not-overflow",
+        kind: .scanIntegrity
+      ),
+      CLITestClassificationFactory.finding(
+        identifier: "hard-links-complete",
+        kind: .scanIntegrity
+      ),
+      CLITestClassificationFactory.finding(
+        identifier: "identity-matches-scan",
+        kind: .scanIntegrity,
+        explanation: "The candidate identity matched the scan."
+      ),
+      CLITestClassificationFactory.finding(
+        identifier: "generated-content-present",
+        kind: .positiveEvidence
+      ),
+      CLITestClassificationFactory.finding(
+        identifier: "protected-content-absent",
+        kind: .exclusion
+      ),
+    ]
+  }
+
+  static func provenance(
+    ruleRevisions: [RuleRevision] = [primaryRuleRevision, secondaryRuleRevision]
+  ) throws -> RulePolicyProvenance {
+    try RulePolicyProvenance(
+      classificationContractRevision: CLITestClassificationFactory.revision(
+        identifier: "devsift.test.classification-contract",
+        version: 3
+      ),
+      catalogRevision: CLITestClassificationFactory.revision(
+        identifier: "devsift.test.catalog",
+        version: 5
+      ),
+      ruleRevisions: ruleRevisions
+    )
+  }
+
+  static func entry(
+    rawName: [UInt8] = Array("cache".utf8),
+    identity: FileIdentity = FileIdentity(device: 42, inode: 2),
+    ruleRevision: RuleRevision = primaryRuleRevision,
+    disposition: RuleDisposition = .reviewRequired,
+    reproducibility: RuleReproducibility = .reproducible,
+    displayName: String = "Manifest test cache",
+    responsibleTool: String = "Manifest test tool",
+    classificationExplanation: String = "The manifest test decision is explained.",
+    findings: [RuleFinding] = validFindings(),
+    logicalBytes: UInt64 = 1_024,
+    allocatedBytes: UInt64 = 768,
+    hardLinkExclusiveAllocatedBytes: UInt64 = 512,
+    possibleSharedContentFileCount: UInt64 = 1,
+    sharedContentMetadataUnavailableCount: UInt64 = 2,
+    unobservedHardLinkFileCount: UInt64 = 3,
+    nonExclusiveHardLinkFileCount: UInt64 = 4
+  ) -> CleanupManifestEntry {
+    let summary = CLITestReportFactory.item(
+      rawComponents: [rawName],
+      scanTimeIdentity: identity,
+      logicalBytes: logicalBytes,
+      allocatedBytes: allocatedBytes,
+      hardLinkExclusiveAllocatedBytes: hardLinkExclusiveAllocatedBytes,
+      possibleSharedContentFileCount: possibleSharedContentFileCount,
+      sharedContentMetadataUnavailableCount: sharedContentMetadataUnavailableCount,
+      unobservedHardLinkFileCount: unobservedHardLinkFileCount,
+      nonExclusiveHardLinkFileCount: nonExclusiveHardLinkFileCount
+    )
+    return CleanupManifestEntry(
+      path: summary.path,
+      expectedKind: .directory,
+      expectedIdentity: identity,
+      ruleRevision: ruleRevision,
+      disposition: disposition,
+      reproducibility: reproducibility,
+      displayName: displayName,
+      responsibleTool: responsibleTool,
+      classificationExplanation: classificationExplanation,
+      findings: findings,
+      size: CleanupManifestSizeObservation(summary: summary)
+    )
+  }
+
+  static func manifest(
+    entries: [CleanupManifestEntry] = [entry()],
+    contractVersion: UInt32 = CleanupManifest.currentContractVersion,
+    provenance: RulePolicyProvenance? = nil,
+    referenceUnixSeconds: Int64 = 1_700_000_000,
+    rootIdentity: FileIdentity = FileIdentity(device: 42, inode: 1)
+  ) throws -> CleanupManifest {
+    try CleanupManifest(
+      contractVersion: contractVersion,
+      policyProvenance: provenance ?? self.provenance(),
+      classificationReferenceUnixSeconds: referenceUnixSeconds,
+      expectedRootIdentity: rootIdentity,
+      entries: entries
     )
   }
 }
