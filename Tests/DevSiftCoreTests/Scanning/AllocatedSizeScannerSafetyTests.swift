@@ -104,6 +104,25 @@ struct AllocatedSizeScannerSafetyTests {
     }
   }
 
+  @Test("Root URL lexical validation rejects base-relative and NUL-bearing paths")
+  func rejectsAmbiguousRootURLsBeforeFilesystemAccess() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let baseRelative = URL(
+      fileURLWithPath: fixture.root.lastPathComponent,
+      relativeTo: fixture.root.deletingLastPathComponent()
+    )
+    let nulBearing = URL(fileURLWithPath: "/devsift-prefix\0ignored")
+
+    #expect(baseRelative.baseURL != nil)
+    for root in [baseRelative, nulBearing] {
+      await expectScanError(.rootMustBeAbsoluteFileURL) {
+        _ = try await AllocatedSizeScanner().scan(root: root)
+      }
+    }
+  }
+
   @Test("Relative path identity preserves exact non-UTF-8 filesystem bytes")
   func rawRelativePathIdentity() {
     let first = ScanRelativePath(rawComponents: [[0x61, 0xFF]])
