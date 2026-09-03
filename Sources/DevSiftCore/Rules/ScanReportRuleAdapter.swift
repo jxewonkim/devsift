@@ -38,7 +38,7 @@ enum ScanReportRuleAdapter {
           generatedContentMarker: observed.generatedContentMarker,
           newestContentModificationUnixSeconds: newestModificationObservation(for: item),
           activity: .unknown(.notCollected),
-          protectedDescendantPresent: .unknown(.notCollected),
+          protectedDescendantPresent: observed.protectedDescendantPresent,
           siblingPackageManifestPresent: packageManifest
         )
       )
