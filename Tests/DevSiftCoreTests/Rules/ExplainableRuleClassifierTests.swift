@@ -13,7 +13,7 @@ struct ExplainableRuleClassifierTests {
       [(name: String, root: String, rule: String, version: UInt32, disposition: RuleDisposition)] =
         [
           ("uv", "Caches", "devsift.cache.uv", 1, .reclaimable),
-          ("_cacache", "Caches", "devsift.cache.npm", 4, .reviewRequired),
+          ("_cacache", "Caches", "devsift.cache.npm", 5, .reviewRequired),
           ("Homebrew", "Caches", "devsift.cache.homebrew", 1, .reviewRequired),
           ("DerivedData", "Xcode", "devsift.xcode.derived-data", 1, .reviewRequired),
           (".build", "Project", "devsift.swiftpm.build", 2, .reviewRequired),
@@ -94,6 +94,29 @@ struct ExplainableRuleClassifierTests {
     #expect(
       uv.findings.first { $0.identifier == testCheckIdentifier("tool-ownership") }?.state
         == .failed
+    )
+  }
+
+  @Test("Only the npm built-in opts into the deferred activity policy")
+  func builtInDeferredActivityScope() throws {
+    let npmIdentifier = testRuleIdentifier("devsift.cache.npm")
+    let npm = try #require(
+      BuiltInRuleCatalog.rules.first {
+        $0.definition.revision.identifier == npmIdentifier
+      }
+    )
+    let otherBuiltIns = BuiltInRuleCatalog.rules.filter {
+      $0.definition.revision.identifier != npmIdentifier
+    }
+
+    #expect(
+      npm.definition.activityRequirement
+        == .mustBeInactiveOrDeferToAttestationWhenUnobserved
+    )
+    #expect(
+      otherBuiltIns.allSatisfy {
+        $0.definition.activityRequirement == .mustBeInactive
+      }
     )
   }
 
