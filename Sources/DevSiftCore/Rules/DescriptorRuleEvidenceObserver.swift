@@ -14,8 +14,8 @@ struct CandidateRuleEvidence: Hashable, Sendable {
       identityMatchesScan: .unknown(reason),
       trustedLocation: BuiltInTrustedLocationPolicy.containerSuffix(for: item.path) == nil
         ? .unknown(.notCollected) : .unknown(reason),
-      generatedContentMarker: item.path.rawComponents == [Array(".build".utf8)]
-        ? .unknown(reason) : .unknown(.notCollected)
+      generatedContentMarker: BuiltInGeneratedMarkerPolicy.policy(for: item.path) == nil
+        ? .unknown(.notCollected) : .unknown(reason)
     )
   }
 
@@ -58,6 +58,55 @@ enum BuiltInTrustedLocationPolicy {
   }
 }
 
+private enum BuiltInGeneratedMarkerPolicy {
+  case npmCACacheLayout
+  case swiftPMWorkspaceState
+
+  private static let npmContentCacheName = Array("_cacache".utf8)
+  private static let swiftBuildName = Array(".build".utf8)
+
+  static func policy(for path: ScanRelativePath) -> BuiltInGeneratedMarkerPolicy? {
+    guard path.rawComponents.count == 1, let name = path.rawComponents.first else {
+      return nil
+    }
+    if name == npmContentCacheName {
+      return .npmCACacheLayout
+    }
+    if name == swiftBuildName {
+      return .swiftPMWorkspaceState
+    }
+    return nil
+  }
+
+  var requirements: [GeneratedMarkerRequirement] {
+    switch self {
+    case .npmCACacheLayout:
+      [
+        GeneratedMarkerRequirement(
+          rawName: Array("content-v2".utf8),
+          expectedKind: .directory
+        ),
+        GeneratedMarkerRequirement(
+          rawName: Array("index-v5".utf8),
+          expectedKind: .directory
+        ),
+      ]
+    case .swiftPMWorkspaceState:
+      [
+        GeneratedMarkerRequirement(
+          rawName: Array("workspace-state.json".utf8),
+          expectedKind: .regularFile
+        )
+      ]
+    }
+  }
+}
+
+private struct GeneratedMarkerRequirement {
+  let rawName: [UInt8]
+  let expectedKind: FileSystemEntryKind
+}
+
 /// Candidate evidence has the same count and index ordering as the source
 /// `ScanReport.topLevelItems`. It deliberately is not keyed by a display path.
 struct RuleEvidenceObservation: Hashable, Sendable {
@@ -78,14 +127,14 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   typealias CandidateHook = @Sendable (ScanRelativePath) throws -> Void
   typealias RawHomeProvider = @Sendable () -> RuleObserved<[UInt8]>
 
-  private static let swiftBuildName = Array(".build".utf8)
-  private static let swiftWorkspaceMarkerName = Array("workspace-state.json".utf8)
+  private static let maximumGeneratedMarkerEntries = 256
 
   private let checkpoint: Checkpoint
   private let rawHomeProvider: RawHomeProvider
   private let afterRootValidation: RootHook
   private let beforeOpeningCandidate: CandidateHook
   private let beforeMarkerObservation: CandidateHook
+  private let beforeMarkerMetadataValidation: CandidateHook
   private let beforeFinalCandidateValidation: CandidateHook
   private let beforeFinalLocationValidation: RootHook
   private let beforeFinalRootValidation: RootHook
@@ -96,6 +145,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     afterRootValidation = {}
     beforeOpeningCandidate = { _ in }
     beforeMarkerObservation = { _ in }
+    beforeMarkerMetadataValidation = { _ in }
     beforeFinalCandidateValidation = { _ in }
     beforeFinalLocationValidation = {}
     beforeFinalRootValidation = {}
@@ -107,6 +157,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     afterRootValidation: @escaping RootHook = {},
     beforeOpeningCandidate: @escaping CandidateHook = { _ in },
     beforeMarkerObservation: @escaping CandidateHook = { _ in },
+    beforeMarkerMetadataValidation: @escaping CandidateHook = { _ in },
     beforeFinalCandidateValidation: @escaping CandidateHook = { _ in },
     beforeFinalLocationValidation: @escaping RootHook = {},
     beforeFinalRootValidation: @escaping RootHook = {}
@@ -116,6 +167,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     self.afterRootValidation = afterRootValidation
     self.beforeOpeningCandidate = beforeOpeningCandidate
     self.beforeMarkerObservation = beforeMarkerObservation
+    self.beforeMarkerMetadataValidation = beforeMarkerMetadataValidation
     self.beforeFinalCandidateValidation = beforeFinalCandidateValidation
     self.beforeFinalLocationValidation = beforeFinalLocationValidation
     self.beforeFinalRootValidation = beforeFinalRootValidation
@@ -271,7 +323,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     for index in indices {
       try cancellationCheckpoint()
       let item = request.report.topLevelItems[index]
-      let observesMarker = observesSwiftMarker(item)
+      let markerPolicy = BuiltInGeneratedMarkerPolicy.policy(for: item.path)
       guard
         let identity = item.scanTimeIdentity,
         let bytes = item.path.rawComponents.first,
@@ -291,7 +343,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
           component: component,
           rootDescriptor: rootDescriptor,
           rootIdentity: rootIdentity,
-          observesMarker: observesMarker,
+          markerPolicy: markerPolicy,
           trustedLocation: locationContext.observations[index]
         )
       } catch is CancellationError {
@@ -325,7 +377,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     component: DescriptorPathComponent,
     rootDescriptor: Int32,
     rootIdentity: FileIdentity,
-    observesMarker: Bool,
+    markerPolicy: BuiltInGeneratedMarkerPolicy?,
     trustedLocation: RuleObserved<Bool>
   ) throws -> CandidateRuleEvidence {
     let initiallyNamed = try DescriptorStatSnapshot.read(
@@ -356,7 +408,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
       return CandidateRuleEvidence(
         identityMatchesScan: .known(true),
         trustedLocation: trustedLocation,
-        generatedContentMarker: observesMarker ? .known(false) : .unknown(.notCollected)
+        generatedContentMarker: markerPolicy == nil ? .unknown(.notCollected) : .known(false)
       )
     }
 
@@ -379,12 +431,14 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     }
 
     let marker =
-      try observesMarker
-      ? observeSwiftWorkspaceMarker(
-        in: candidateDescriptor,
-        candidatePath: item.path,
-        rootIdentity: rootIdentity
-      ) : .unknown(.notCollected)
+      try markerPolicy.map { policy in
+        try observeGeneratedMarker(
+          policy,
+          in: candidateDescriptor,
+          candidatePath: item.path,
+          rootIdentity: rootIdentity
+        )
+      } ?? .unknown(.notCollected)
 
     try beforeFinalCandidateValidation(item.path)
     try cancellationCheckpoint()
@@ -545,35 +599,107 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     }
   }
 
-  private func observeSwiftWorkspaceMarker(
+  private func observeGeneratedMarker(
+    _ policy: BuiltInGeneratedMarkerPolicy,
     in candidateDescriptor: Int32,
     candidatePath: ScanRelativePath,
     rootIdentity: FileIdentity
   ) throws -> RuleObserved<Bool> {
-    guard let markerName = DescriptorPathComponent(Self.swiftWorkspaceMarkerName) else {
-      return .unknown(.invalidMetadata)
-    }
-
     do {
       try beforeMarkerObservation(candidatePath)
       try cancellationCheckpoint()
-      let marker = try DescriptorStatSnapshot.read(
-        at: candidateDescriptor,
-        component: markerName
+      let requirements = policy.requirements
+      let requiredNames = Set(requirements.map(\.rawName))
+      let observedNames = try exactRawEntryNames(
+        in: candidateDescriptor,
+        matching: requiredNames,
+        maximumNonDotEntries: Self.maximumGeneratedMarkerEntries
       )
-      guard marker.identity.device == rootIdentity.device else {
-        return .unknown(.changedDuringObservation)
-      }
-      return .known(marker.kind == .regularFile)
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch let error as DescriptorObservationError {
-      if case .posix(ENOENT) = error {
+      guard observedNames == requiredNames else {
         return .known(false)
       }
-      return .unknown(descriptorUnknownReason(for: error))
+
+      try beforeMarkerMetadataValidation(candidatePath)
+      try cancellationCheckpoint()
+      var observations: [RuleObserved<Bool>] = []
+      observations.reserveCapacity(requirements.count)
+      for requirement in requirements {
+        try cancellationCheckpoint()
+        guard let markerName = DescriptorPathComponent(requirement.rawName) else {
+          observations.append(.unknown(.invalidMetadata))
+          continue
+        }
+        do {
+          let marker = try DescriptorStatSnapshot.read(
+            at: candidateDescriptor,
+            component: markerName
+          )
+          if marker.identity.device != rootIdentity.device {
+            observations.append(.unknown(.changedDuringObservation))
+          } else {
+            observations.append(.known(marker.kind == requirement.expectedKind))
+          }
+        } catch is CancellationError {
+          throw CancellationError()
+        } catch {
+          observations.append(.unknown(descriptorUnknownReason(for: error)))
+        }
+      }
+      return combineGeneratedMarkerRequirements(observations)
+    } catch is CancellationError {
+      throw CancellationError()
     } catch {
       return .unknown(descriptorUnknownReason(for: error))
+    }
+  }
+
+  private func exactRawEntryNames(
+    in directoryDescriptor: Int32,
+    matching requiredNames: Set<[UInt8]>,
+    maximumNonDotEntries: Int
+  ) throws -> Set<[UInt8]> {
+    guard maximumNonDotEntries >= 0 else {
+      throw DescriptorObservationError.markerEntryLimitExceeded
+    }
+
+    let enumerationDescriptor = try descriptorOpenCurrentDirectory(directoryDescriptor)
+    guard let stream = Darwin.fdopendir(enumerationDescriptor) else {
+      let code = errno
+      descriptorCloseIgnoringErrors(enumerationDescriptor)
+      throw DescriptorObservationError.posix(code)
+    }
+    defer { _ = Darwin.closedir(stream) }
+
+    var observedNames: Set<[UInt8]> = []
+    var nonDotEntryCount = 0
+    var interruptedAttempts = 0
+    while true {
+      try cancellationCheckpoint()
+      errno = 0
+      guard let entry = Darwin.readdir(stream) else {
+        let code = errno
+        if code == EINTR, interruptedAttempts + 1 < 3 {
+          interruptedAttempts += 1
+          continue
+        }
+        guard code == 0 else {
+          throw DescriptorObservationError.posix(code)
+        }
+        return observedNames
+      }
+      interruptedAttempts = 0
+
+      let rawName = descriptorRawName(from: entry)
+      if rawName == [0x2E] || rawName == [0x2E, 0x2E] {
+        continue
+      }
+      nonDotEntryCount += 1
+      guard nonDotEntryCount <= maximumNonDotEntries else {
+        throw DescriptorObservationError.markerEntryLimitExceeded
+      }
+      if requiredNames.contains(rawName) {
+        observedNames.insert(rawName)
+      }
     }
   }
 
@@ -593,10 +719,6 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     guard reboundRoot.kind == .directory, reboundRoot.identity == expectedIdentity else {
       throw DescriptorObservationError.bindingChanged
     }
-  }
-
-  private func observesSwiftMarker(_ item: ScanItemSummary) -> Bool {
-    item.path.rawComponents == [Self.swiftBuildName]
   }
 
   private func cancellationCheckpoint() throws {
@@ -684,6 +806,7 @@ private struct DescriptorAbsolutePath {
 private enum DescriptorObservationError: Error {
   case bindingChanged
   case crossedVolume
+  case markerEntryLimitExceeded
   case posix(Int32)
 }
 
@@ -779,6 +902,44 @@ private func descriptorOpenRoot(_ url: URL) throws -> Int32 {
     }
   }
   return descriptor
+}
+
+func combineGeneratedMarkerRequirements(
+  _ observations: [RuleObserved<Bool>]
+) -> RuleObserved<Bool> {
+  if observations.contains(.known(false)) {
+    return .known(false)
+  }
+  for observation in observations {
+    if case .unknown(let reason) = observation {
+      return .unknown(reason)
+    }
+  }
+  return .known(true)
+}
+
+private func descriptorOpenCurrentDirectory(_ descriptor: Int32) throws -> Int32 {
+  var opened: Int32 = -1
+  try descriptorRetryingInterrupted {
+    var failureCode: Int32 = EINVAL
+    opened = Darwin.openat(
+      descriptor,
+      ".",
+      O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+    )
+    if opened < 0 { failureCode = errno }
+    guard opened >= 0 else {
+      throw DescriptorObservationError.posix(failureCode)
+    }
+  }
+  return opened
+}
+
+private func descriptorRawName(from entry: UnsafeMutablePointer<dirent>) -> [UInt8] {
+  let length = Int(entry.pointee.d_namlen)
+  return withUnsafeBytes(of: &entry.pointee.d_name) { rawBuffer in
+    Array(rawBuffer.prefix(length))
+  }
 }
 
 private func descriptorOpenDirectory(
@@ -1067,6 +1228,8 @@ private func descriptorUnknownReason(for error: Error) -> RuleUnknownReason {
       return .changedDuringObservation
     case .crossedVolume:
       return .changedDuringObservation
+    case .markerEntryLimitExceeded:
+      return .resourceLimit
     case .posix(let code):
       return descriptorUnknownReason(forPOSIXCode: code)
     }
