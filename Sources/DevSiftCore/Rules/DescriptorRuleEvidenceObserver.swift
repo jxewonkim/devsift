@@ -1082,7 +1082,7 @@ private func descriptorUnknownReason(for error: Error) -> RuleUnknownReason {
 private func descriptorUnknownReason(forPOSIXCode code: Int32) -> RuleUnknownReason {
   switch code {
   case EACCES, EPERM: .permissionDenied
-  case ENOENT, ENOTDIR, ELOOP, ESTALE, EAGAIN, EXDEV, ENOTCAPABLE:
+  case ENOENT, ENOTDIR, ELOOP, ESTALE, EAGAIN, EXDEV:
     .changedDuringObservation
   case EMFILE, ENFILE, ENOMEM, ERANGE: .resourceLimit
   case EINVAL, EOVERFLOW, ENAMETOOLONG: .invalidMetadata
