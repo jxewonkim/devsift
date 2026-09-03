@@ -1,18 +1,19 @@
 # Planning contract
 
 DevSiftCore can turn an explicitly selected subset of a validated scan and
-classification result into an immutable draft cleanup manifest, then compare
-two compatible drafts. Planning and diffing are pure, read-only value
-transformations. They do not inspect the filesystem, approve a cleanup, export
-a document, or grant authority to mutate anything.
+classification result into an immutable draft cleanup manifest, compare two
+compatible drafts, and bind explicit intent to one exact reviewed manifest.
+Planning and diffing are pure value transformations; approval is a read-only,
+process-local session transition. None inspects the filesystem, exports a
+document, or grants authority to mutate anything.
 
 The native app exposes explicit candidate selection and a read-only in-memory
 review over Core planning. It does not expose Core diffing. The CLI target has
 an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
 persistence, saved drafts, user-facing export, import, frontend diffing,
-approval, execution, execution-time filesystem revalidation, and cleanup
-remain separate later increments.
+frontend approval, execution, execution-time filesystem revalidation, and
+cleanup remain separate later increments.
 
 ## Inputs and selection
 
@@ -159,6 +160,57 @@ or window closure discards the selection and its complete in-memory planning
 context. There is no save, load, import, export, diff, approval, execution,
 execution-time filesystem revalidation, or filesystem operation in this flow.
 
+## Source-bound approval review
+
+The Core approval boundary begins from one exact source-bound
+`CleanupManifestRequest`; callers cannot supply a separate manifest to the
+approval step. The concrete Core planner validates that request and creates the
+manifest exposed by an opaque `CleanupApprovalReviewSession`. The session also
+retains the request's exact local absolute root and issues one entry reference
+for each manifest entry. Each reference is bound to its session, canonical
+ordinal, exact raw `ScanRelativePath`, and `RuleRevision` by a process-local
+object-identity seal.
+
+An empty selection can produce a valid draft manifest, but
+`CleanupApprover.beginReview(_:)` rejects the resulting empty manifest. An
+approval review session therefore always contains at least one entry.
+
+The caller turns session-owned entry references into explicit confirmations and
+must return every confirmation in the manifest's canonical order. Missing,
+extra, duplicate, reordered, changed, or foreign-session confirmations fail the
+whole request; the approver never silently sorts, drops, or adds an entry. The
+same visible path, rule, root identity, or complete manifest value in a separate
+review session does not make its references interchangeable.
+
+Partial approval is deliberately unsupported. To omit or add an item, the
+caller must return to selection, create a new exact source-bound
+`CleanupManifestRequest`, call `beginReview(_:)`, and review the manifest in the
+returned session before requesting approval. A manifest diff cannot transfer
+approval, and neither the app-owned review presentation nor the CLI-owned JSON
+projection can reconstruct the source request, opaque review session, or
+session-bound references required by this boundary.
+
+The resulting approval retains the session's exact source root and reviewed
+manifest in memory. It is non-`Codable`, has no importer or exporter, reads no
+clock, and performs no filesystem or network I/O. The session seal is neither a
+serialized identifier nor a secret. It correlates an explicit caller action
+with one Core-built review only; Core cannot prove that a human actually saw or
+understood it. Approval is not a fresh observation, stable digest, signature,
+authentication proof, single-use token, execution capability, or permission to
+mutate a path. The app and CLI do not invoke the approver in this increment.
+
+Review preparation and approval are bounded by the planning limits and check
+cancellation at phase boundaries and while processing confirmations. Approval
+regenerates the manifest from the session's exact immutable source request and
+requires full value equality with the reviewed manifest; this detects value
+substitution but does not refresh the filesystem. Deep source validation and
+whole-value equality can finish before the next cancellation checkpoint, so
+cancellation is cooperative rather than instantaneous. Failure is atomic and
+produces no partial approval. A future execution-time revalidation request must
+accept only `CleanupApproval`—not a separately supplied root, unapproved
+manifest, diff, or review projection—and must reopen the root stored within the
+approval and every candidate descriptor-relatively before any mutation.
+
 ## Internal manifest-review projection
 
 The CLI target owns review schema `devsift.cleanup-manifest-review` version 1,
@@ -242,6 +294,14 @@ planning and session identifiers protect UI state from stale asynchronous
 results; they are not stored in the manifest or presentation and do not change
 Core determinism.
 
+Approval likewise adds no random identifier or timestamp. Each review session
+uses an opaque object-identity seal so equal entry values from two live sessions
+remain distinct without creating a serialized digest or stable identifier. The
+seal is process-local correlation, not an authenticity or execution token.
+Core still cannot prove that the caller displayed the session's manifest or
+that a human approved it; the invoking frontend remains responsible for an
+explicit user interaction when that later surface is added.
+
 The manifest is a review artifact, not an authenticity proof. Swift `let`
 properties make a value immutable after construction but cannot prove that a
 review projection was not edited. Core models deliberately remain non-`Codable`;
@@ -252,24 +312,27 @@ cryptographic canonical form, stable digest, signature, or authenticity proof.
 
 The source binding retains the exact classification request and provenance in
 process, including the request's root URL, but is not a public report field and
-is never copied into `CleanupManifest`. The bounded provenance value itself is
-copied; rule definitions and the root URL are not. Access control is not
-encryption: callers must still treat the in-memory report, manifests, and diffs
-as sensitive and discard them with the analysis session.
+is never copied into `CleanupManifest`. An approval review session retains that
+exact planning request only for its process-local lifetime; the final approval
+keeps the exact source root and manifest but discards the larger source report.
+Access control is not encryption: callers must still treat in-memory reports,
+manifests, review sessions, approvals, and diffs as sensitive and discard them
+with the analysis session.
 
 ## Staleness and future execution
 
-A manifest can become stale immediately after its source scan. Matching a
-recorded `(device, inode)` pair is not enough to prove that content, activity,
-containment, protected descendants, or rule evidence is unchanged; inode reuse
-is also possible. The draft therefore has no “safe to execute” or approved
-state.
+A manifest can become stale immediately after its source scan, and approval
+does not refresh it. Matching a recorded `(device, inode)` pair is not enough
+to prove that content, activity, containment, protected descendants, or rule
+evidence is unchanged; inode reuse is also possible. The approval therefore has
+no “safe to execute” state.
 
-Future approval must be a separate action bound to the exact reviewed
-manifest. A future executor must receive an explicit root, reopen it and each
-candidate descriptor-relatively, and revalidate containment, kind, device,
-identity, activity, rule revision, and all required policy evidence immediately
-before any mutation. Changed or unavailable candidates must be skipped.
+A future executor must receive only the Core approval, reopen its stored root
+and each candidate descriptor-relatively, and revalidate containment, kind,
+device, identity, activity, rule revision, and all required policy evidence
+immediately before any mutation. Changed or unavailable candidates must be
+skipped. A caller-selected root, standalone manifest, diff, or presentation
+must never be an executor input.
 
 ## Test boundary
 
@@ -290,3 +353,11 @@ separation, exact source-request and report reuse, off-main planning, frozen
 selection, generic failures, cancellation and stale-result suppression,
 identity-free safe display, all seven quantities, and window-lifecycle
 invalidation. Optional screenshots use only synthetic in-memory values.
+
+Approval tests use source-bound synthetic planning requests and cover exact
+session preparation, source-root and complete-manifest retention, missing,
+extra, duplicate, reordered, mismatched, and foreign-session confirmations,
+cross-manifest and cross-root substitution, empty-review rejection, planning bounds,
+byte-distinct non-UTF-8 paths, pre-cancel rejection, and the absence of
+filesystem I/O, serialization, freshness, authentication, and execution
+authority.

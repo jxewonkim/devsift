@@ -5,10 +5,10 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 ```text
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
-                 scan -> rules -> plan -> diff -> executor
-                   now      now    Core    Core      later
-                                      \
-                                       +-> app review now
+                 scan -> rules -> plan -> diff -> approve -> executor
+                   now      now    now    Core      Core      later
+                                   |
+                                   +-> app review now
 ```
 
 ## Components
@@ -35,8 +35,14 @@ Core layers are:
   drafts, and between compatible drafts into deterministic differences.
   Planning and diffing perform no filesystem I/O, and neither selection nor a
   diff is approval;
-- **Execution:** revalidation and recoverable quarantine, introduced only after
-  the earlier layers are stable;
+- **Approval:** a read-only, Core-only transition from an exact source-bound
+  planning request through one opaque review session into an in-memory
+  approval. The session owns the exact root and manifest and issues
+  session-bound entry references. It permits no partial subset, performs no
+  filesystem I/O, and creates neither freshness, authenticity, nor execution
+  authority;
+- **Execution:** fresh revalidation of an approval and recoverable quarantine,
+  introduced only after the earlier layers are stable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 ### devsift CLI
@@ -120,6 +126,24 @@ and reports every stored entry-field change plus overflow-safe directional
 differences for observed totals. It does not infer renames from inode identity,
 reopen paths, render output, or create approval state.
 
+The Core approver starts from one exact `CleanupManifestRequest` rather than a
+caller-supplied manifest. It runs the concrete planner and returns an opaque
+review session that retains the request's exact local root, the resulting
+manifest, and entry references bound to a process-local session seal. The
+caller can turn only those references into confirmations, and the complete
+canonical confirmation sequence must belong to that same session. A mismatched
+or foreign-session value fails even when its visible raw path and rule revision
+are equal. A subset must first become a new draft and review.
+
+The approval output retains the session's exact root and manifest in memory
+without `Codable`, filesystem I/O, clock reads, or mutation capability. The
+opaque seal correlates values only inside the current process; it is not a
+secret, authenticity proof, proof of human review, or permission to execute.
+Neither frontend invokes this contract in the current increment. A future
+revalidation request must accept only `CleanupApproval` and reopen the root
+stored within it, rather than accepting a separately supplied root, unapproved
+manifest, diff, or review projection.
+
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
 profile removes paths, time, free-form text, and the complete rule roster while
@@ -176,11 +200,15 @@ identifies a requested path and rule revision; it is not approval. The differ
 receives only manifest values and likewise has no filesystem capability.
 The app-owned in-memory review projection and CLI-owned JSON projection are not
 serialized Core state and carry no authority. The app review is presentational
-only; user-facing export, import, persistence, diffing, approval, and execution
-remain separate future boundaries. The CLI projection's sorted `JSONEncoder`
-output targets repeatability only for the same input, privacy profile,
-implementation build, and Swift/Foundation runtime; it is not a cryptographic
-canonical form, stable digest, signature, or authenticity proof.
+only. A Core approval review session instead owns its exact planning request,
+source root, manifest, and session-bound entry references; it cannot be rebuilt
+from either projection. The approval retains the exact root and manifest but
+does not make either projection approvable. User-facing export, import,
+persistence, diffing, frontend approval, and execution remain separate future
+boundaries. The CLI projection's sorted `JSONEncoder` output targets
+repeatability only for the same input, privacy profile, implementation build,
+and Swift/Foundation runtime; it is not a cryptographic canonical form, stable
+digest, signature, or authenticity proof.
 
 The current scan-to-rule adapter projects only facts already present in the
 bounded `ScanReport`; it performs no additional filesystem I/O. Rules consume

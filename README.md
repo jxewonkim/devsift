@@ -8,9 +8,9 @@ folder, shows where apparent allocation is concentrated, and applies
 explainable read-only policy rules to recognized development caches.
 
 > [!IMPORTANT]
-> DevSift is pre-alpha. Scanning, classification, draft planning, and the
-> native app's in-memory draft review are read-only: DevSift does not delete,
-> move, quarantine, or otherwise modify files.
+> DevSift is pre-alpha. Scanning, classification, draft planning, Core approval,
+> and the native app's in-memory draft review are read-only: DevSift does not
+> delete, move, quarantine, or otherwise modify files.
 
 ## Why DevSift?
 
@@ -41,7 +41,7 @@ are large.
 
 - `DevSiftCore`: a Swift library for read-only scanning, versioned explainable
   classification, policy-provenanced in-memory draft manifests, and
-  deterministic compatible-manifest diffing;
+  deterministic compatible-manifest diffing, plus exact review-bound approval;
 - `devsift`: a scriptable command-line interface;
 - `DevSift`: a native SwiftUI dashboard with explicit folder selection,
   cancellable scans, observation results, policy explanations, explicit draft
@@ -55,12 +55,27 @@ The Core planner revalidates the exact source classification request and report
 before producing a draft. A real scan can legitimately expose zero eligible
 candidates.
 
+Core can now prepare an opaque approval-review session directly from one exact
+source-bound planning request. The session retains that request's exact root
+and Core-built manifest and issues entry references that cannot be reused in a
+different review session. The caller must explicitly confirm every session
+entry in canonical order; a missing, added, duplicate, reordered, changed, or
+foreign confirmation rejects the whole request. Partial approval is
+intentionally unsupported: changing the subset requires a new draft and review.
+Before issuing approval, Core regenerates the manifest from the retained source
+request and requires exact equality with the reviewed value. The resulting
+approval retains the exact root and manifest in memory and remains
+non-`Codable`. It proves neither freshness, authenticity, nor human review; it
+is copyable rather than single-use, grants no execution or filesystem authority,
+and performs no filesystem I/O. Only a future execution-time revalidation
+boundary may consume it.
+
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v1 encoder pinned to Core manifest contract
 version 2, but no command invokes it and it never writes a file. The app review
-is not a saved or serialized manifest. Neither frontend provides manifest
-persistence, import, export, diffing, approval, execution, or filesystem
-mutation.
+is not a saved or serialized manifest. Neither frontend invokes the Core
+approval contract or provides manifest persistence, import, export, diffing,
+approval, execution, or filesystem mutation.
 
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
@@ -95,14 +110,14 @@ swift run DevSiftApp
 ```
 
 DevSiftCore contains a read-only allocated-size scanner, rule classifier,
-Core-only draft-manifest planner, and fail-closed manifest differ. The CLI
-exposes the scanner and classifier as deterministic text and separately
-versioned JSON. It also owns an internal, non-importable review projection for
-privacy-contract testing; this is not a CLI command or file-export feature. The
-native app invokes the same Core scanner, classifier, and planner and does not
-contain a separate filesystem or policy implementation. Its review shows all
-seven stored observation and uncertainty quantities as point-in-time estimates,
-not guaranteed savings. See the
+Core-only draft-manifest planner, fail-closed manifest differ, and in-memory
+approval sessions. The CLI exposes the scanner and classifier as deterministic
+text and separately versioned JSON. It also owns an internal, non-importable
+review projection for privacy-contract testing; this is not a CLI command or
+file-export feature. The native app invokes the same Core scanner, classifier,
+and planner and does not contain a separate filesystem or policy
+implementation. Its review shows all seven stored observation and uncertainty
+quantities as point-in-time estimates, not guaranteed savings. See the
 [app contract](docs/APP.md),
 [CLI contract](docs/CLI.md), [scanning contract](docs/SCANNING.md),
 [rules contract](docs/RULES.md), and [planning contract](docs/PLANNING.md).
@@ -115,12 +130,13 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 
 - Current phase: policy-provenanced in-memory dry-run manifests, Core-only
   diffing, an internal CLI-owned privacy-aware review projection, and native
-  app selection plus identity-free draft review
-- Current behavior: Core scanner, rule classifier, in-memory draft planner, and
-  compatible-manifest differ, plus the existing text/JSON CLI and native
-  analysis dashboard with explicit in-memory draft review; no manifest-review
-  CLI command, persistence, import, user-facing export, frontend diff,
-  approval, execution, cleanup, quarantine, or deletion
+  app selection plus identity-free draft review, with a Core-only exact
+  review-bound approval contract
+- Current behavior: Core scanner, rule classifier, in-memory draft planner,
+  compatible-manifest differ, and approver, plus the existing text/JSON CLI and
+  native analysis dashboard with explicit in-memory draft review; no
+  manifest-review CLI command, persistence, import, user-facing export,
+  frontend diff or approval, execution, cleanup, quarantine, or deletion
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer

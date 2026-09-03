@@ -22,10 +22,12 @@ selected path shapes, explain why missing evidence keeps them protected, and
 build an immutable draft from explicitly selected eligible classifications.
 The app starts with zero included candidates and presents an identity-free
 review without persisting it. Core can also compare compatible
-policy-provenanced drafts without reading the filesystem. The CLI target can
-internally project one draft into a privacy-profiled, review-only JSON schema,
-but no command or file export exposes it. Job 5 remains later product
-direction.
+policy-provenanced drafts and prepare a root-bound, opaque review session from
+one exact source-bound planning request without reading the filesystem. The
+caller must fully confirm the returned session before Core issues approval. The
+CLI target can internally project one draft into a privacy-profiled, review-only
+JSON schema, but no command or file export exposes it. No frontend exposes
+approval, and job 5 remains later product direction.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -85,6 +87,17 @@ app review displays all seven observed size and uncertainty quantities; none is
 a guaranteed savings claim. Current real scans may have zero eligible
 candidates because unavailable required facts keep results Protected.
 
+Core can now prepare an opaque review session from an exact source-bound
+planning request. The session owns the exact source root and Core-built
+manifest and issues session-bound entry references. An in-memory approval is
+produced only when the caller confirms every canonical entry from that same
+session. Approval is all-or-nothing; mismatched or foreign-session values fail
+even when their visible path and rule are equal. A different subset requires a
+new draft and review. This contract is non-`Codable`, performs no filesystem
+I/O, and is not exposed in the app or CLI. It records intent, not proof of human
+review, freshness, authenticity, execution authority, or reclaimed space. The
+approval remains copyable and is not single-use.
+
 The CLI JSON projection is lossy and non-importable; it explicitly sets
 `canBeApproved` and `canBeExecuted` to `false`. The app projection is ephemeral,
 identity-free presentation state rather than a document. A diff requires the
@@ -92,6 +105,9 @@ same manifest contract, policy provenance, and expected root identity, and
 still says nothing about current disk freshness. No frontend workflow persists,
 imports, exports, diffs, approves, executes, performs live-filesystem
 revalidation, or mutates from a manifest, and no diff-export format exists.
+A future revalidation boundary must accept only `CleanupApproval` and reopen
+the root stored within it, rather than accepting a separately supplied root,
+standalone draft, diff, or review projection.
 
 ## Non-goals
 

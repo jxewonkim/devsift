@@ -91,6 +91,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   cancellable, scan and window lifecycle changes invalidate late results, and
   no persistence, import, export, diff, approval, execution, execution-time
   filesystem revalidation, or mutation surface was added.
+- A Core-only explicit approval contract prepared from one exact source-bound
+  planning request. Its opaque review session retains the exact source root and
+  Core-built manifest and issues session-bound entry references. Every entry
+  requires a matching confirmation; missing, extra, duplicate, reordered,
+  changed, or foreign-session input rejects the request atomically. Partial
+  approval is unsupported, so a different subset requires a new draft and
+  review. Approval regenerates the manifest from the retained source request and
+  requires full equality with the reviewed value. It then retains the exact root
+  and manifest in memory, remains non-`Codable`, and performs no filesystem I/O.
+  It is copyable rather than single-use and is not freshness evidence,
+  authentication, proof of human review, execution authority, or a frontend
+  feature. Only future execution-time revalidation may consume it.
 
 ### Changed
 
