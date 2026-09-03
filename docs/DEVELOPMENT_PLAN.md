@@ -134,10 +134,11 @@ classification are available in Core, CLI, and app without any mutation API.
 
 ## Phase 6: dry-run plans
 
-Status: the first two Core-only planning increments are implemented. They
-create policy-provenanced immutable draft manifests and deterministic
-compatible-manifest diffs in memory, with no CLI or app surface, serialization,
-export, approval, or filesystem mutation.
+Status: the Core planning increments create policy-provenanced immutable draft
+manifests and deterministic compatible-manifest diffs in memory. A third,
+CLI-owned increment adds an internal one-way CLI review JSON projection,
+but there is still no CLI or app planning surface, command, file writing,
+import, user-facing export, approval, or filesystem mutation.
 
 Implemented first commit: `feat(planner): create immutable cleanup manifests`.
 
@@ -162,17 +163,37 @@ Implemented next commits: `feat(rules): bind policy provenance` and
   and expected root identity; every incompatibility fails before entry output.
 - Merge by exact raw path in linear time, compare every stored entry field, and
   represent observed-total changes with full-width directional quantities.
-- Keep privacy-aware export and frontend review in later increments.
+- Keep user-facing privacy-aware export and frontend review in later
+  increments.
+
+Implemented next commit: `feat(cli): add privacy-aware manifest review projection`.
+
+- Pin the CLI-owned `devsift.cleanup-manifest-review` schema version 1 to Core
+  cleanup manifest contract version 2 without making Core models `Codable`.
+- Require an explicit redacted or root-relative-exact profile, always omit
+  filesystem identities, and make the lossy document non-importable,
+  non-approvable, and non-executable.
+- Keep the encoder internal: no argument parser or application command invokes
+  it, and it writes no file or standard output.
+- Bound encoded output to 128 MiB with preflight and post-encode checks while
+  retaining cooperative cancellation around non-interruptible Foundation
+  encoding calls.
+- Leave manifest-diff export, approval, execution, and frontend plan review to
+  separate increments.
 
 The recorded identity is comparison evidence, not mutation authority. A plan
 must not convert an observer's successful identity or marker check into
-permission to clean. Planning performs no filesystem I/O and the current
-manifest deliberately has no Codable, import, or export contract.
+permission to clean. Planning performs no filesystem I/O and the current Core
+manifest deliberately has no `Codable`, import, or frontend-owned wire
+contract. The separate CLI review projection is a lossy presentation document,
+not serialized Core state.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
 produce a partial diff, and a stale or edited candidate must invalidate future
-approval or execution.
+approval or execution. The review projection must not expose filesystem
+identities or create import, approval, execution, or user-facing export
+authority.
 
 Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 

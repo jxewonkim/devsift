@@ -27,6 +27,9 @@ DevSift is designed to work locally and reveal as little as possible.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
   absolute root URL, and is not exposed by the CLI or app.
+- The CLI target contains an internal one-way manifest-review JSON encoder, but
+  no command invokes it and it does not write standard output or a file. No
+  manifest importer, persistence path, upload, or background export exists.
 
 ## Sensitive output
 
@@ -64,10 +67,34 @@ root and candidate identities, observed allocation estimates, rule revisions,
 policy evidence, and bounded classifier/catalog provenance. A manifest diff can
 combine two such snapshots and expose both sides of added, removed, or modified
 entries, so it is at least as sensitive as either input. Those values remain
-sensitive even without an absolute root URL. Current Core manifests and diffs
-are not Codable, persisted, rendered, logged, or uploaded, and have no CLI or
-app import or export surface. Diffing does not copy the root URL or complete
-rule definitions.
+sensitive even without an absolute root URL. Core manifests and diffs remain
+non-`Codable`, unpersisted, unlogged, and unuploaded, and no CLI or app command
+imports or exports them. Diffing does not copy the root URL or complete rule
+definitions, and no diff-export projection exists.
+
+The internal CLI review schema is a separate lossy projection pinned to Core
+manifest contract version 2. Both profiles omit root and candidate filesystem
+identities and contain no dedicated absolute-root field. They explicitly say
+that import, approval, and execution are unsupported. This does not make the
+documents non-sensitive:
+
+- The redacted profile omits every path, the reference time, free-form text,
+  and the complete rule roster. It retains exact observed sizes and totals plus
+  the selected rule and finding identifiers, which can still reveal tools,
+  policy choices, and work patterns. It is neither anonymous nor automatically
+  safe to share.
+- The root-relative-exact profile includes exact raw path components as Base64,
+  an escaped display path, the exact reference time, escaped display names,
+  tool attribution, classification explanations, finding explanations, and the
+  complete provenance roster. Escaping prevents terminal control effects; it
+  does not redact the text.
+
+Redacted ordinals identify entries only inside one review document; they are
+not stable cross-document identifiers. Although neither profile has a
+dedicated root field, trusted custom-rule free-form text can contain an
+arbitrary absolute path. The encoder enforces a 128 MiB preflight and
+post-encoding limit, which bounds output size but does not lower its
+sensitivity.
 
 The app displays the selected root path so the user can verify scope, then shows
 top-level rows as root-relative names. Closing the window discards its in-memory
@@ -76,11 +103,13 @@ paths and is never run automatically by the application.
 
 ## Future changes
 
-A future plan export requires a separate, versioned frontend-owned privacy
-contract. It must keep export explicit, define path redaction and exact-byte
-handling, bound untrusted input before any import, and decide separately which
-identity fields—if any—belong in review and execution documents. Adding
-export must not silently make Core domain models Codable.
+A future user-facing plan export must explicitly select a privacy profile and
+must not silently turn the internal encoder into automatic persistence. Any
+future importer requires its own untrusted-input bounds and authenticity model;
+the current schema is one-way and cannot be imported. Review documents continue
+to omit filesystem identities, and any future execution document must decide
+its identity and authority fields in a separate security review. Adding these
+features must not silently make Core domain models `Codable`.
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

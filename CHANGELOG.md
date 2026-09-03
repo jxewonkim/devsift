@@ -74,6 +74,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   mismatches fail closed; exact raw paths identify added, removed, and modified
   entries, and all observed-total changes use overflow-safe directional
   `UInt64` values.
+- An internal CLI-owned `devsift.cleanup-manifest-review` JSON schema version 1
+  projection pinned to cleanup manifest contract version 2. Its explicit
+  redacted and root-relative-exact profiles always omit filesystem identities,
+  expose no decoder, and mark the result non-importable, non-approvable, and
+  non-executable. The encoder has no CLI command or file-writing path; manifest
+  diff export, approval, and execution remain absent.
 
 ### Changed
 

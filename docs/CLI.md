@@ -3,7 +3,10 @@
 The `devsift` command exposes DevSiftCore's read-only scanner and rule
 classifier without adding a second filesystem or policy implementation. It
 reads metadata under one explicitly named directory. It has no cleanup, move,
-quarantine, or delete command.
+quarantine, delete, plan-review, manifest-import, or manifest-export command.
+The CLI target contains an internal manifest-review JSON encoder described
+below, but no command invokes it and it performs no stream or file output by
+itself.
 
 ## Usage
 
@@ -309,6 +312,68 @@ A shortened synthetic decision has this shape:
 The `scanIntegrity` object and decision above are shortened, and the excerpt
 omits other required v1 keys for readability. It is not a complete schema
 fixture. Tests assert the exact key sets and round-trip the full DTO.
+
+## Cleanup manifest review JSON schema version 1 (internal only)
+
+The CLI target owns an internal one-way JSON projection for a future manifest
+review surface. It is not reachable from `CLIArguments` or `CLIApplication`, so
+there is currently no `devsift` command, standard-output path, or file-writing
+operation for it. It does not change the usage or exit-code contract above.
+
+The projection accepts only Core cleanup manifest contract version 2 and emits
+schema `devsift.cleanup-manifest-review` version 1. Its DTOs conform to
+`Encodable`, not `Decodable`; Core `CleanupManifest` and its entries remain
+non-`Codable`. The resulting JSON is deliberately lossy and cannot recreate a
+Core manifest. It also cannot serve as an input to `CleanupManifestDiffer`, an
+approval operation, or an executor. The envelope says `importSupported: false`,
+`canBeApproved: false`, `canBeExecuted: false`, and `executionAuthority: none`.
+There is no manifest-diff review schema in this increment.
+
+Every invocation requires one explicit privacy profile:
+
+- `redacted` omits the root-relative path, classification reference time,
+  display name, responsible-tool text, classification explanation, finding
+  explanations, and unselected policy-rule revisions. It substitutes a
+  canonical `candidate-00001`-style ordinal for each entry. It still includes
+  exact observed sizes and uncertainty counts, classification and catalog
+  identifiers, each selected rule revision, and every selected finding's
+  identifier, kind, and state. Those values can reveal tools, policy, storage
+  volume, and work patterns. Redacted output is neither anonymous nor
+  automatically safe to share.
+- `root-relative-exact` includes a terminal-safe display path, every exact raw
+  path component as Base64, the exact classification reference time, escaped
+  display and responsible-tool text, escaped classification and finding
+  explanations, and the complete policy rule-revision roster. This profile is
+  sensitive and requires inspection before any future export action.
+
+The document-local candidate ordinal follows the manifest's canonical raw-path
+order. It has no meaning outside that one document, is not stable identity
+across two documents, and must not be used to infer a rename or authorize an
+operation.
+
+Neither profile has a dedicated absolute-root field or emits the manifest's
+root or candidate `(device, inode)` values. This structural omission does not
+sanitize arbitrary text supplied by trusted custom rules: in the exact profile,
+a display name, tool label, or explanation could itself contain an absolute
+path or other sensitive text. The redacted profile omits those free-form
+fields, but retains the identifiers and quantities described above.
+
+All potentially wide integers, including the source manifest contract version,
+rule versions, timestamps, counts, and byte quantities, are decimal strings.
+Output keys and entry order are deterministic and the encoder appends exactly
+one newline. Repeated encoding of the same validated manifest and profile is
+intended to produce the same bytes within the same implementation build and
+Swift/Foundation runtime. `JSONEncoder` output is not a cryptographic canonical
+form, stable content digest, signature, authenticity proof, or approval token;
+consumers must not compare its bytes for security decisions.
+
+The encoder validates the version-2 manifest and bounded entry invariants
+before projection. It performs a per-entry encoded-size preflight and repeats a
+post-encode check against a hard 128 MiB limit. Cancellation is checked during
+validation, projection, and the per-entry preflight. A single Foundation
+`JSONEncoder.encode` call is not cooperatively interruptible, so cancellation
+requested during the final bounded encode is observed only after that call
+returns. No partial JSON document is returned.
 
 ## Exit codes
 

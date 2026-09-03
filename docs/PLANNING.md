@@ -6,9 +6,11 @@ two compatible drafts. Planning and diffing are pure, read-only value
 transformations. They do not inspect the filesystem, approve a cleanup, export
 a document, or grant authority to mutate anything.
 
-The CLI and native app do not expose planning or diffing yet. Codable
-persistence, frontend review, export, approval, revalidation, and cleanup
-remain separate later increments.
+The CLI and native app do not expose planning or diffing yet. The CLI target has
+an internal, one-way review JSON projection over an already constructed
+manifest, but no command invokes it and it writes no file. Core `Codable`
+persistence, frontend review, user-facing export, import, approval,
+revalidation, and cleanup remain separate later increments.
 
 ## Inputs and selection
 
@@ -115,6 +117,36 @@ estimates. Clones, snapshots, compression, concurrent changes, and later
 filesystem activity can make actual reclaimed space differ. A draft must not
 label either value as guaranteed reclaimable space.
 
+## Internal manifest-review projection
+
+The CLI target owns review schema `devsift.cleanup-manifest-review` version 1,
+pinned explicitly to Core cleanup manifest contract version 2. This is a lossy,
+frontend-owned `Encodable` projection rather than `Codable` conformance on Core
+models. No decoder or importer exists, no CLI command invokes it, and the
+encoder performs no stream, file, filesystem, or network I/O. It cannot
+reconstruct a manifest, compare drafts, approve a selection, or execute work;
+the envelope explicitly sets `canBeApproved` and `canBeExecuted` to `false`.
+Manifest-diff export remains undefined.
+
+Both privacy profiles omit root and candidate filesystem identities and have no
+dedicated absolute-root field. The redacted profile also omits paths, the
+reference time, all free-form text, and unselected rule revisions. It retains
+exact observed quantities plus selected rule and finding identifiers and is
+therefore neither anonymous nor automatically safe to share. The
+root-relative-exact profile includes exact Base64 path components, an escaped
+display path, the exact reference time, escaped free-form metadata and finding
+explanations, and the complete provenance roster. Trusted custom-rule text can
+contain an arbitrary absolute path even though the schema has no dedicated root
+field.
+
+Entry ordinals are assigned from canonical raw-path order solely for reference
+inside one output document. They are not persistent identity and cannot be
+compared across documents. Every wide integer is a decimal string. A 128 MiB
+hard output limit is checked with a per-entry encoded-size preflight and again
+after final encoding. Cancellation checkpoints surround validation, projection,
+and the preflight, but the single final Foundation encoding call cannot be
+interrupted until it returns.
+
 ## Compatible-manifest diff
 
 `CleanupManifestDiffer` compares a caller-designated baseline and comparison
@@ -165,8 +197,11 @@ define equality and ordering.
 
 The manifest is a review artifact, not an authenticity proof. Swift `let`
 properties make a value immutable after construction but cannot prove that a
-future serialized document was not edited. Core models are deliberately not
-`Codable` in this increment, and no import or export format is defined.
+review projection was not edited. Core models deliberately remain non-`Codable`;
+the CLI schema is one-way and non-importable. Repeated `JSONEncoder` bytes are
+intended to be stable only for the same validated input, privacy profile,
+implementation build, and Swift/Foundation runtime. They are not a
+cryptographic canonical form, stable digest, signature, or authenticity proof.
 
 The source binding retains the exact classification request and provenance in
 process, including the request's root URL, but is not a public report field and
@@ -191,11 +226,13 @@ before any mutation. Changed or unavailable candidates must be skipped.
 
 ## Test boundary
 
-Planning tests use constructed reports or newly created synthetic temporary
-fixtures. They cover deterministic raw-byte ordering, duplicate and hostile
-selections, malformed or incomplete inputs, protected decisions, missing
-identity, allocation overflow, provenance sealing and limits, diff
-compatibility, all stored entry fields, non-UTF-8 ordering, `UInt64` boundaries,
-50,000-entry inputs, 100,000-path output, cancellation, and unchanged fixture
-boundaries. Tests never plan from or compare a contributor's real cache,
-project, home directory, or other user data.
+Planning and review-projection tests use constructed reports or newly created
+synthetic temporary fixtures. They cover deterministic raw-byte ordering,
+duplicate and hostile selections, malformed or incomplete inputs, protected
+decisions, missing identity, allocation overflow, provenance sealing and
+limits, diff compatibility, all stored entry fields, non-UTF-8 ordering,
+`UInt64` boundaries, both review privacy profiles, identity omission, the
+one-way authority boundary, output limits, 50,000-entry inputs, 100,000-path
+diff output, cancellation, and unchanged fixture boundaries. Tests never plan
+from, render, or compare a contributor's real cache, project, home directory,
+or other user data.
