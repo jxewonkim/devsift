@@ -89,12 +89,15 @@ directories do not match. The selected root itself is never a candidate.
 
 The catalog policy is informed by the tools' own documentation:
 
-- uv documents its cache location and supported `uv cache clean` and
-  `uv cache prune` operations, while warning against modifying cache files
-  directly: [uv cache documentation](https://docs.astral.sh/uv/concepts/cache/).
-- npm documents `_cacache` as an integrity-verified, self-healing cache and
-  says clearing it is generally unnecessary: [npm cache documentation](https://docs.npmjs.com/cli/cache/).
-- Homebrew documents `brew --cache` and age-based `brew cleanup` behavior:
+- uv documents `$HOME/.cache/uv` as the Unix fallback cache location and
+  supports `uv cache clean` and `uv cache prune`, while warning against direct
+  modification: [uv cache documentation](https://docs.astral.sh/uv/concepts/cache/).
+- npm documents `~/.npm` as its default POSIX cache and `_cacache` as its
+  integrity-verified content store:
+  [npm configuration](https://docs.npmjs.com/cli/using-npm/config/) and
+  [npm cache documentation](https://docs.npmjs.com/cli/cache/).
+- Homebrew documents `~/Library/Caches/Homebrew` as its default macOS cache and
+  provides `brew --cache` and age-based `brew cleanup` behavior:
   [Homebrew manual](https://docs.brew.sh/Manpage).
 - Swift Package Manager documents `.build` as the default scratch directory:
   [SwiftPM build documentation](https://github.com/swiftlang/swift-package-manager/blob/main/Sources/PackageManagerDocs/Documentation.docc/SwiftBuild.md).
@@ -142,11 +145,27 @@ produces a known missing marker. Symbolic-link targets are never followed.
 Permission, resource-limit, invalid-metadata, incomplete, or changed-object
 cases remain structured unknowns.
 
+For exact top-level `uv`, `_cacache`, and `Homebrew` candidates, the observer
+also recognizes only the documented default containers `$HOME/.cache`,
+`$HOME/.npm`, and `$HOME/Library/Caches`, respectively. It obtains the current
+account home from the operating-system account record rather than the `$HOME`
+environment variable. A raw-path match is only a gate: the observer walks from
+`/` through individually validated directory components with descriptor-
+relative, no-follow opens and requires the final descriptor to match the held
+selected-root identity. It repeats that walk before returning. A different
+location is known false; permission, resource, malformed-path, symlink, device,
+or changed-binding cases remain unknown. Custom cache overrides, Xcode roots,
+and arbitrary Swift package roots are not collected by this profile.
+
+Trusted location proves only that location fact. It does not imply that a tool
+created the contents, that the tool is inactive, that descendants are safe, or
+that a later operation may mutate the path.
+
 The default classifier seals its returned Core report to the exact in-memory
 `RuleClassificationRequest` and `RulePolicyProvenance`. Validation rejects that
 report if it is later paired with a different root URL, scan report, reference
 time, or edited provenance. The provenance contains
-`devsift.classification.explainable@1`, the Core-owned
+`devsift.classification.explainable@2`, the Core-owned
 `devsift.builtin-rules@2` revision, and the complete sorted built-in rule roster.
 Neither the private binding nor provenance is part of CLI JSON. A report created
 with the public unbound initializer can still support a trusted custom
@@ -164,17 +183,18 @@ scanned. It is not proof of trusted location or ownership, is not durable
 filesystem identity, and grants no planning, cleanup, or deletion authority.
 Inodes can be reused, so any future execution must reopen and revalidate
 containment, kind, identity, and policy evidence immediately before mutation.
-Trusted-location, ownership, reliable-activity, and protected-descendant facts
-remain uncollected.
+Ownership, reliable-activity, and protected-descendant facts remain uncollected.
+Generated-marker evidence also remains uncollected outside the SwiftPM rule,
+and trusted location remains uncollected outside the three default cache
+profiles above.
 
-Consequently, a real scan can recognize a possible built-in candidate, but
-those unavailable facts keep its disposition `Protected` even when its age
-and generated-marker findings are satisfied. Tests may construct synthetic
-complete evidence to verify the catalog's eligible outcomes; that does not
-weaken the runtime boundary. The SwiftPM marker semantic advances
-`devsift.swiftpm.build` to revision 2 and the CLI catalog to version 2; other
-rule definitions, thresholds, eligible dispositions, and revisions are
-unchanged.
+Consequently, a real scan can recognize a possible built-in candidate and may
+satisfy one trusted-location finding, but the remaining unavailable facts keep
+its disposition `Protected`. Tests may construct synthetic complete evidence to
+verify the catalog's eligible outcomes; that does not weaken the runtime
+boundary. The location interpretation advances the classifier-wide contract to
+revision 2. The built-in catalog stays at version 2, SwiftPM stays at rule
+revision 2, and all other rule revisions remain at version 1.
 
 Any future observer for the remaining facts must preserve this
 descriptor-relative safety model. It must use operations such as `openat`,

@@ -101,17 +101,21 @@ struct ScanReportRuleAdapterTests {
 
   @Test("Evidence cardinality mismatches fail closed")
   func evidenceCardinalityMismatch() throws {
-    let item = ruleSummary(
+    let build = ruleSummary(
       rawComponents: [Array(".build".utf8)],
       scanTimeIdentity: FileIdentity(device: 1, inode: 2)
+    )
+    let cache = ruleSummary(
+      rawComponents: [Array("_cacache".utf8)],
+      scanTimeIdentity: FileIdentity(device: 1, inode: 3)
     )
     let report = ScanReport(
       root: ruleSummary(
         rawComponents: [],
         scanTimeIdentity: FileIdentity(device: 1, inode: 1)
       ),
-      topLevelItems: [item],
-      topLevelItemCount: 1,
+      topLevelItems: [build, cache],
+      topLevelItemCount: 2,
       topLevelItemsWereSuppressed: false,
       hardLinkAccountingIsComplete: true,
       traversalDetailsWereDiscarded: false,
@@ -126,10 +130,61 @@ struct ScanReportRuleAdapterTests {
       ),
       evidence: RuleEvidenceObservation(candidates: [])
     )
+    let observationsByPath = Dictionary(
+      uniqueKeysWithValues: observations.map { ($0.summary.path, $0) }
+    )
+    let buildObservation = try #require(observationsByPath[build.path])
+    let cacheObservation = try #require(observationsByPath[cache.path])
+
+    #expect(buildObservation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
+    #expect(buildObservation.facts.trustedLocation == .unknown(.notCollected))
+    #expect(buildObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
+    #expect(cacheObservation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
+    #expect(cacheObservation.facts.trustedLocation == .unknown(.invalidMetadata))
+    #expect(cacheObservation.facts.generatedContentMarker == .unknown(.notCollected))
+  }
+
+  @Test("Incomplete input overrides injected trusted-location evidence")
+  func incompleteTrustedLocationEvidence() throws {
+    let item = ruleSummary(
+      rawComponents: [Array("_cacache".utf8)],
+      scanTimeIdentity: FileIdentity(device: 1, inode: 2),
+      isComplete: false
+    )
+    let report = ScanReport(
+      root: ruleSummary(
+        rawComponents: [],
+        scanTimeIdentity: FileIdentity(device: 1, inode: 1),
+        isComplete: false
+      ),
+      topLevelItems: [item],
+      topLevelItemCount: 1,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let observations = ScanReportRuleAdapter.observations(
+      for: RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic/.npm", isDirectory: true),
+        report: report,
+        referenceUnixSeconds: 100
+      ),
+      evidence: RuleEvidenceObservation(
+        candidates: [
+          CandidateRuleEvidence(
+            identityMatchesScan: .known(true),
+            trustedLocation: .known(true),
+            generatedContentMarker: .unknown(.notCollected)
+          )
+        ]
+      )
+    )
     let observation = try #require(observations.first)
 
-    #expect(observation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
-    #expect(observation.facts.generatedContentMarker == .unknown(.invalidMetadata))
+    #expect(observation.integrity.identityMatchesScan == .unknown(.incompleteScan))
+    #expect(observation.facts.trustedLocation == .unknown(.incompleteScan))
   }
 
   @Test("Descriptor-scanned age rounds conservatively and stays protected")

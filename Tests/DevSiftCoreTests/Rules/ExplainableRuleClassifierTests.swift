@@ -554,10 +554,7 @@ private actor RuleEvidenceObserverSpy: RuleEvidenceObserving {
     calls += 1
     return RuleEvidenceObservation(
       candidates: request.report.topLevelItems.map { item in
-        .unavailable(
-          .notCollected,
-          observesGeneratedMarker: item.path.rawComponents == [Array(".build".utf8)]
-        )
+        .unavailable(.notCollected, for: item)
       }
     )
   }

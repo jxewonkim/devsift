@@ -65,8 +65,9 @@ statuses after reobserving each approved path, kind, device, identity, rule,
 findings, and policy decision. Incomplete and unknown observations fail closed.
 Its root-URL-free, non-`Codable` report is point-in-time and copyable; it is not
 freshness proof, mutation authority, or executor input. Current real entries
-remain Protected while trusted-location, ownership, reliable-activity, and
-protected-descendant evidence is uncollected.
+remain Protected. Exact default uv, npm, and Homebrew containers can satisfy
+trusted location, while ownership, reliable activity, protected descendants,
+non-SwiftPM generated markers, and location for other rules remain uncollected.
 
 ## Hard invariants
 
@@ -169,6 +170,10 @@ protected-descendant evidence is uncollected.
   read-only observation. It is not trusted-location or ownership evidence and
   grants no cleanup or deletion authority; inode reuse requires immediate
   revalidation before any future mutation.
+- A trusted-location result for uv, npm, or Homebrew requires both the exact
+  current-account default container path and a stable descriptor identity match.
+  It proves no tool ownership, inactivity, descendant safety, or mutation
+  authority. Environment and configuration overrides are not trusted inputs.
 - A satisfied SwiftPM `workspace-state.json` marker proves only that the exact
   metadata check passed. It does not override an unavailable required fact, so
   the candidate remains `Protected`.

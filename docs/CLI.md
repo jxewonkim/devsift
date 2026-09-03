@@ -46,9 +46,11 @@ scan report. For a complete retained item, the classifier can evaluate age from
 the conservative newest inode modification time observed during that scan.
 For an exact SwiftPM `.build` candidate, an identity-bound observer can also
 check metadata for an exact regular-file `workspace-state.json` generated
-marker. Trusted-location, ownership, activity, and protected-descendant
-evidence remain uncollected, so real recognized candidates stay protected even
-when age and marker findings are satisfied; see the [rules contract](RULES.md).
+marker. Exact default uv, npm, and Homebrew cache containers may also satisfy
+trusted-location evidence after descriptor-bound reobservation. Ownership,
+activity, protected-descendant, and non-SwiftPM generated-marker evidence remain
+uncollected, so real recognized candidates stay protected; see the
+[rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits

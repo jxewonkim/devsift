@@ -63,8 +63,9 @@ drops a requested candidate and never converts `possible-match`,
 An empty selection produces an empty draft when its enclosing scan and
 classification inputs are valid; the planner never invents candidates.
 
-The current real-scan adapter still leaves several required built-in facts
-unknown, so those recognized candidates remain `Protected` and cannot enter a
+The current real-scan pipeline can establish trusted location for three exact
+default cache containers, but still leaves several other required built-in facts
+unknown. Recognized candidates therefore remain `Protected` and cannot enter a
 nonempty draft. Synthetic complete evidence exercises eligible planning without
 weakening the runtime classification boundary.
 
@@ -76,7 +77,7 @@ and the catalog's complete rule-revision roster in canonical sorted order. The
 roster is limited to 128 rules and rejects duplicate identifiers rather than
 silently deduplicating them.
 
-The default classifier seals `devsift.classification.explainable@1`, the
+The default classifier seals `devsift.classification.explainable@2`, the
 Core-owned `devsift.builtin-rules@2` catalog revision, and the exact built-in
 roster into every report. `ExplainableRuleClassifier(rules:)` remains a
 presentation-only extension point: its reports are source-bound but

@@ -30,12 +30,15 @@ npm, and Homebrew caches. For a complete item, the scanner can now give its age
 check a conservative upper bound of the newest inode modification time observed
 during traversal. For an exact SwiftPM `.build` candidate, a bounded
 descriptor-relative observer can also verify the metadata of an exact regular
-file named `workspace-state.json`. Neither its scan-time identity nor a
-satisfied marker or age check is permission to clean: uncollected
-trusted-location, ownership, activity, and protected-descendant facts keep real
-candidates protected. Large AI models, virtual machines, user documents, and
-active application data are never treated as disposable merely because they
-are large.
+file named `workspace-state.json`. The observer can additionally establish
+trusted-location evidence for exact uv, npm, and Homebrew default cache
+containers by rebinding the selected root descriptor to the current account's
+raw home-relative path without following symbolic links. This location fact,
+scan-time identity, marker, and age are not permission to clean: ownership,
+activity, protected-descendant, and most generated-marker evidence remain
+unknown, so real candidates stay protected. Large AI models, virtual machines,
+user documents, and active application data are never treated as disposable
+merely because they are large.
 
 ## Current interfaces
 
@@ -74,9 +77,10 @@ built-in classification of its retained root. Its canonical per-entry report is
 a point-in-time, non-`Codable` diagnostic, not mutation authority or executor
 input. Root, path, kind, device, identity, rule, findings, and policy are
 reobserved; incomplete or unknown observations fail closed. Current runtime
-evidence still leaves real candidates Protected because trusted location,
-ownership, reliable activity, and protected descendants are uncollected. See
-the [revalidation contract](docs/REVALIDATION.md).
+evidence still leaves real candidates Protected. Exact default uv, npm, and
+Homebrew containers can now have trusted location reobserved, but ownership,
+reliable activity, protected descendants, and non-SwiftPM generated markers
+remain uncollected. See the [revalidation contract](docs/REVALIDATION.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v1 encoder pinned to Core manifest contract

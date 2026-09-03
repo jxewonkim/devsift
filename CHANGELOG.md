@@ -110,13 +110,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   provenance, and emits canonical per-entry revalidation results.
 - Reobservation of root identity plus each approved path, kind, device,
   identity, rule revision, findings, and policy decision. Incomplete or unknown
-  observations fail closed; current real candidates remain Protected while
-  trusted-location, ownership, reliable-activity, and protected-descendant
-  evidence is absent.
+  observations fail closed.
 - In-memory, non-`Codable`, copyable, root-URL-free revalidation reports that
   are diagnostic only, not execution inputs or mutation authority. No
   quarantine, restore, purge, persistence, frontend, CLI, network, or mutation
   surface was added.
+- Descriptor-bound trusted-location evidence for exact uv, npm, and Homebrew
+  default cache containers. The observer uses the current account record rather
+  than `$HOME`, validates raw components, refuses symbolic-link traversal, and
+  requires the selected root to retain the same filesystem identity across two
+  absolute descriptor walks.
+- Structured false or unknown location outcomes for non-default, unavailable,
+  malformed, cross-device, or changed observations. Xcode, SwiftPM, custom cache
+  roots, ownership, activity, protected descendants, and non-SwiftPM generated
+  markers remain uncollected, so real candidates remain Protected.
 
 ### Changed
 
@@ -130,3 +137,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   identifier and version now come from the Core-owned catalog revision rather
   than duplicate CLI constants; the classification JSON wire shape is
   unchanged.
+- The explainable-classification contract is now revision 2 for trusted-location
+  evidence interpretation. Built-in catalog version 2, every individual rule
+  revision, scan JSON v2, and classification JSON v1 remain unchanged.
