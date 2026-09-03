@@ -21,11 +21,13 @@ DevSift is designed to work locally and reveal as little as possible.
 - Classification runs locally. Its bounded evidence stage may reopen the
   selected root and retained top-level candidates descriptor-relatively to
   verify scan-time identity. For an exact `.build` candidate, it may also
-  inspect metadata for an exact `workspace-state.json` child. For exact uv,
-  npm, and Homebrew default cache candidates, it may resolve the current
-  account home and rewalk the matching container without following symbolic
-  links. It does not read file contents, invoke package managers, or make
-  network calls.
+  inspect metadata for an exact `workspace-state.json` child. For an exact npm
+  `_cacache`, it may enumerate direct-child names through EOF or the first entry
+  over a 256 non-dot-entry limit, and inspect the metadata of exact `content-v2`
+  and `index-v5` entries. For exact uv, npm, and Homebrew default cache
+  candidates, it may resolve the current account home and rewalk the matching
+  container without following symbolic links. It does not read file contents,
+  invoke package managers, or make network calls.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
   absolute root URL, and is not exposed by the CLI. The native app can invoke

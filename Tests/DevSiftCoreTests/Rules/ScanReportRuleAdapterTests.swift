@@ -141,11 +141,11 @@ struct ScanReportRuleAdapterTests {
     #expect(buildObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
     #expect(cacheObservation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
     #expect(cacheObservation.facts.trustedLocation == .unknown(.invalidMetadata))
-    #expect(cacheObservation.facts.generatedContentMarker == .unknown(.notCollected))
+    #expect(cacheObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
   }
 
-  @Test("Incomplete input overrides injected trusted-location evidence")
-  func incompleteTrustedLocationEvidence() throws {
+  @Test("Incomplete input overrides injected cache evidence")
+  func incompleteCacheEvidence() throws {
     let item = ruleSummary(
       rawComponents: [Array("_cacache".utf8)],
       scanTimeIdentity: FileIdentity(device: 1, inode: 2),
@@ -176,7 +176,7 @@ struct ScanReportRuleAdapterTests {
           CandidateRuleEvidence(
             identityMatchesScan: .known(true),
             trustedLocation: .known(true),
-            generatedContentMarker: .unknown(.notCollected)
+            generatedContentMarker: .known(true)
           )
         ]
       )
@@ -185,6 +185,8 @@ struct ScanReportRuleAdapterTests {
 
     #expect(observation.integrity.identityMatchesScan == .unknown(.incompleteScan))
     #expect(observation.facts.trustedLocation == .unknown(.incompleteScan))
+    #expect(observation.facts.generatedContentMarker == .unknown(.incompleteScan))
+    #expect(observation.facts.toolOwnership == .unknown(.notCollected))
   }
 
   @Test("Descriptor-scanned age rounds conservatively and stays protected")

@@ -57,6 +57,8 @@ struct DescriptorRuleEvidenceObserverTests {
           ".build/workspace-state.json",
           destination: outside
         )
+      case .caseVariantRegularFile:
+        _ = try fixture.write(".build/WORKSPACE-STATE.JSON", bytes: [1])
       }
 
       let scan = try await AllocatedSizeScanner().scan(root: fixture.root)
@@ -69,6 +71,248 @@ struct DescriptorRuleEvidenceObserverTests {
       #expect(observation.candidates.first?.identityMatchesScan == .known(true))
       #expect(try Data(contentsOf: outside) == Data([9]))
     }
+  }
+
+  @Test("npm marker requires an exact raw direct-child directory pair")
+  func npmMarkerBoundary() async throws {
+    for markerKind in NPMMarkerFixtureKind.allCases {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+
+      let home = try resolvedFixtureURL(
+        fixture.makeDirectory("synthetic-home", under: fixture.container)
+      )
+      let npmRoot = try fixture.makeDirectory(".npm", under: home)
+      let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+      let outsideSentinel = try fixture.write("sentinel", bytes: [0xA5], under: fixture.outside)
+
+      switch markerKind {
+      case .exactPair:
+        _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
+      case .missingContent:
+        _ = try fixture.makeDirectory("index-v5", under: cache)
+      case .missingIndex:
+        _ = try fixture.makeDirectory("content-v2", under: cache)
+      case .wrongKind:
+        _ = try fixture.write("content-v2", bytes: [1], under: cache)
+        _ = try fixture.makeDirectory("index-v5", under: cache)
+      case .wrongIndexKind:
+        _ = try fixture.makeDirectory("content-v2", under: cache)
+        _ = try fixture.write("index-v5", bytes: [1], under: cache)
+      case .symbolicLink:
+        _ = try fixture.makeSymbolicLink(
+          "content-v2",
+          destination: fixture.outside,
+          under: cache
+        )
+        _ = try fixture.makeDirectory("index-v5", under: cache)
+      case .indexSymbolicLink:
+        _ = try fixture.makeDirectory("content-v2", under: cache)
+        _ = try fixture.makeSymbolicLink(
+          "index-v5",
+          destination: fixture.outside,
+          under: cache
+        )
+      case .caseVariants:
+        _ = try fixture.makeDirectory("CONTENT-V2", under: cache)
+        _ = try fixture.makeDirectory("INDEX-V5", under: cache)
+      case .nestedPair:
+        _ = try fixture.makeDirectory("nested/content-v2", under: cache)
+        _ = try fixture.makeDirectory("nested/index-v5", under: cache)
+      }
+
+      let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+      let rootBefore = try treeSnapshot(at: npmRoot)
+      let outsideBefore = try treeSnapshot(at: fixture.outside)
+      let observation = try await DescriptorRuleEvidenceObserver(
+        rawHomeProvider: { .known(rawPathBytes(home)) }
+      ).observe(request(root: npmRoot, report: scan))
+      let evidence = try #require(observation.candidates.first)
+
+      #expect(
+        evidence.generatedContentMarker == .known(markerKind == .exactPair),
+        "Unexpected npm marker result for \(markerKind)"
+      )
+      #expect(evidence.identityMatchesScan == .known(true))
+      #expect(evidence.trustedLocation == .known(true))
+      #expect(try Data(contentsOf: outsideSentinel) == Data([0xA5]))
+      #expect(try treeSnapshot(at: npmRoot) == rootBefore)
+      #expect(try treeSnapshot(at: fixture.outside) == outsideBefore)
+    }
+  }
+
+  @Test("Generated-marker policies remain isolated by exact candidate name")
+  func generatedMarkerPolicyIsolation() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let home = try resolvedFixtureURL(
+      fixture.makeDirectory("synthetic-home", under: fixture.container)
+    )
+    for candidateName in ["_cacache", "uv", "Homebrew", ".build", "ordinary"] {
+      let candidate = try fixture.makeDirectory(candidateName)
+      _ = try makeNPMMarkerPair(in: candidate, fixture: fixture)
+    }
+
+    let scan = try await AllocatedSizeScanner().scan(root: fixture.root)
+    let observation = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) }
+    ).observe(request(root: fixture.root, report: scan))
+    let evidence = try evidenceByPath(report: scan, observation: observation)
+
+    #expect(evidence[path("_cacache")]?.generatedContentMarker == .known(true))
+    #expect(evidence[path("_cacache")]?.trustedLocation == .known(false))
+    #expect(evidence[path(".build")]?.generatedContentMarker == .known(false))
+    for candidateName in ["uv", "Homebrew", "ordinary"] {
+      #expect(
+        evidence[path(candidateName)]?.generatedContentMarker == .unknown(.notCollected)
+      )
+    }
+  }
+
+  @Test("Generated-marker enumeration enforces its exact entry bound")
+  func generatedMarkerEntryBound() async throws {
+    for extraEntryCount in [254, 255] {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+
+      let home = try resolvedFixtureURL(
+        fixture.makeDirectory("synthetic-home", under: fixture.container)
+      )
+      let npmRoot = try fixture.makeDirectory(".npm", under: home)
+      let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+      _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
+      for index in 0..<extraEntryCount {
+        _ = try fixture.makeDirectory(
+          String(format: "noise-%03d", index),
+          under: cache
+        )
+      }
+
+      let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+      let observation = try await DescriptorRuleEvidenceObserver(
+        rawHomeProvider: { .known(rawPathBytes(home)) }
+      ).observe(request(root: npmRoot, report: scan))
+      let marker = try #require(observation.candidates.first?.generatedContentMarker)
+      let expected: RuleObserved<Bool> =
+        extraEntryCount == 254 ? .known(true) : .unknown(.resourceLimit)
+
+      #expect(marker == expected)
+    }
+  }
+
+  @Test("A stable false marker requirement outranks sibling metadata uncertainty")
+  func generatedMarkerFalsePrecedence() {
+    let metadataError = RuleObserved<Bool>.unknown(.permissionDenied)
+    let wrongKind = RuleObserved<Bool>.known(false)
+
+    #expect(
+      combineGeneratedMarkerRequirements([metadataError, wrongKind]) == .known(false)
+    )
+    #expect(
+      combineGeneratedMarkerRequirements([wrongKind, metadataError]) == .known(false)
+    )
+    #expect(
+      combineGeneratedMarkerRequirements([.known(true), metadataError]) == metadataError
+    )
+  }
+
+  @Test("An npm marker swap before metadata validation cannot preserve true evidence")
+  func npmMarkerMetadataRace() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let home = try resolvedFixtureURL(
+      fixture.makeDirectory("synthetic-home", under: fixture.container)
+    )
+    let npmRoot = try fixture.makeDirectory(".npm", under: home)
+    let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+    let markerPair = try makeNPMMarkerPair(in: cache, fixture: fixture)
+    let outsideSentinel = try fixture.write("sentinel", bytes: [0x5A], under: fixture.outside)
+    let outsideBefore = try treeSnapshot(at: fixture.outside)
+    let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+
+    let observer = DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      beforeMarkerMetadataValidation: { path in
+        guard path.rawComponents == [Array("_cacache".utf8)] else { return }
+        try FileManager.default.moveItem(
+          at: markerPair.content,
+          to: cache.appendingPathComponent("original-content-v2")
+        )
+        try FileManager.default.createSymbolicLink(
+          at: markerPair.content,
+          withDestinationURL: fixture.outside
+        )
+      }
+    )
+    let observation = try await observer.observe(request(root: npmRoot, report: scan))
+    let evidence = try #require(observation.candidates.first)
+
+    #expect(evidence.identityMatchesScan == .unknown(.changedDuringObservation))
+    #expect(evidence.trustedLocation == .unknown(.changedDuringObservation))
+    #expect(evidence.generatedContentMarker == .unknown(.changedDuringObservation))
+    #expect(try Data(contentsOf: outsideSentinel) == Data([0x5A]))
+    #expect(try treeSnapshot(at: fixture.outside) == outsideBefore)
+  }
+
+  @Test("npm marker observation maps errors without discarding stable identity or location")
+  func npmMarkerErrorIsolation() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let home = try resolvedFixtureURL(
+      fixture.makeDirectory("synthetic-home", under: fixture.container)
+    )
+    let npmRoot = try fixture.makeDirectory(".npm", under: home)
+    let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+    _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
+    let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+    let observer = DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      beforeMarkerObservation: { path in
+        guard path.rawComponents == [Array("_cacache".utf8)] else { return }
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))
+      }
+    )
+
+    let observation = try await observer.observe(request(root: npmRoot, report: scan))
+    let evidence = try #require(observation.candidates.first)
+
+    #expect(evidence.identityMatchesScan == .known(true))
+    #expect(evidence.trustedLocation == .known(true))
+    #expect(evidence.generatedContentMarker == .unknown(.permissionDenied))
+  }
+
+  @Test("Cancellation during bounded marker enumeration aborts the whole observation")
+  func generatedMarkerEnumerationCancellation() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let home = try resolvedFixtureURL(
+      fixture.makeDirectory("synthetic-home", under: fixture.container)
+    )
+    let npmRoot = try fixture.makeDirectory(".npm", under: home)
+    let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+    _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
+    for index in 0..<32 {
+      _ = try fixture.makeDirectory("noise-\(index)", under: cache)
+    }
+    let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+    let gate = MarkerCancellationGate(cancelAfterArmedCheckpoints: 8)
+    let observer = DescriptorRuleEvidenceObserver(
+      checkpoint: { try gate.checkpoint() },
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      beforeMarkerObservation: { path in
+        guard path.rawComponents == [Array("_cacache".utf8)] else { return }
+        gate.arm()
+      }
+    )
+
+    await expectCancellation {
+      _ = try await observer.observe(request(root: npmRoot, report: scan))
+    }
+    #expect(gate.armedCheckpointCount == 8)
   }
 
   @Test("Trusted cache locations require an exact home-relative root and candidate pair")
@@ -252,9 +496,9 @@ struct DescriptorRuleEvidenceObserverTests {
     )
     let npmRoot = try fixture.makeDirectory(".npm", under: home)
     let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
-    _ = try fixture.write("original", bytes: [1], under: cache)
+    _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
     let replacement = try fixture.makeDirectory("replacement", under: fixture.container)
-    _ = try fixture.write("replacement", bytes: [2], under: replacement)
+    _ = try makeNPMMarkerPair(in: replacement, fixture: fixture)
     let outsideSentinel = try fixture.write("sentinel", bytes: [3], under: fixture.outside)
     let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
 
@@ -277,7 +521,7 @@ struct DescriptorRuleEvidenceObserverTests {
 
     #expect(evidence.identityMatchesScan == .unknown(.changedDuringObservation))
     #expect(evidence.trustedLocation == .unknown(.changedDuringObservation))
-    #expect(evidence.generatedContentMarker == .unknown(.notCollected))
+    #expect(evidence.generatedContentMarker == .unknown(.changedDuringObservation))
     #expect(try Data(contentsOf: outsideSentinel) == Data([3]))
   }
 
@@ -312,8 +556,8 @@ struct DescriptorRuleEvidenceObserverTests {
     }
   }
 
-  @Test("Trusted location alone cannot make a runtime cache classification eligible")
-  func trustedLocationAloneStaysProtected() async throws {
+  @Test("Trusted location and an npm marker cannot make runtime cleanup eligible")
+  func trustedLocationAndNPMMarkerStayProtected() async throws {
     let fixture = try ScannerFixture()
     defer { fixture.remove() }
 
@@ -322,8 +566,12 @@ struct DescriptorRuleEvidenceObserverTests {
     )
     let npmRoot = try fixture.makeDirectory(".npm", under: home)
     let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+    let markerPair = try makeNPMMarkerPair(in: cache, fixture: fixture)
+    try fixture.setModificationTime(100, for: markerPair.content)
+    try fixture.setModificationTime(100, for: markerPair.index)
     try fixture.setModificationTime(100, for: cache)
     let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+    let treeBefore = try treeSnapshot(at: npmRoot)
     let classifier = try ExplainableRuleClassifier(
       rules: BuiltInRuleCatalog.rules,
       evidenceObserver: DescriptorRuleEvidenceObserver(
@@ -348,11 +596,13 @@ struct DescriptorRuleEvidenceObserverTests {
 
     #expect(states["trusted-location"] == .satisfied)
     #expect(states["tool-ownership"] == .unknown(.notCollected))
-    #expect(states["generated-content-marker"] == .unknown(.notCollected))
+    #expect(states["generated-content-marker"] == .satisfied)
     #expect(states["no-protected-descendants"] == .unknown(.notCollected))
     #expect(states["activity-requirement"] == .unknown(.notCollected))
+    #expect(states["age-requirement"] == .satisfied)
     #expect(evaluation.matchState == .possibleMatch)
     #expect(evaluation.disposition == .protected)
+    #expect(evaluation.rule?.version == testRuleVersion(2))
     let visibleText =
       ([
         evaluation.displayName,
@@ -361,6 +611,7 @@ struct DescriptorRuleEvidenceObserverTests {
         evaluation.path.description,
       ] + evaluation.findings.map(\.explanation)).joined(separator: "\n")
     #expect(!visibleText.contains(home.path))
+    #expect(try treeSnapshot(at: npmRoot) == treeBefore)
   }
 
   @Test("A candidate replacement between lookup and open invalidates both facts")
@@ -592,7 +843,7 @@ struct DescriptorRuleEvidenceObserverTests {
     )
   }
 
-  @Test("Incomplete and duplicate cache observations cannot retain trusted evidence")
+  @Test("Incomplete and duplicate cache observations cannot retain runtime evidence")
   func trustedLocationInvalidInputNormalization() async throws {
     let missingRoot = URL(fileURLWithPath: "/devsift-observer-does-not-exist")
     let rootIdentity = FileIdentity(device: 10, inode: 20)
@@ -623,6 +874,10 @@ struct DescriptorRuleEvidenceObserverTests {
       incomplete.candidates.first?.trustedLocation
         == .unknown(.incompleteScan)
     )
+    #expect(
+      incomplete.candidates.first?.generatedContentMarker
+        == .unknown(.incompleteScan)
+    )
 
     let cache = ruleSummary(
       rawComponents: [Array("_cacache".utf8)],
@@ -639,6 +894,7 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(
       duplicate.candidates.allSatisfy {
         $0.trustedLocation == .unknown(.invalidMetadata)
+          && $0.generatedContentMarker == .unknown(.invalidMetadata)
       }
     )
   }
@@ -668,6 +924,19 @@ private enum MarkerFixtureKind: CaseIterable {
   case absent
   case directory
   case symbolicLink
+  case caseVariantRegularFile
+}
+
+private enum NPMMarkerFixtureKind: CaseIterable, Equatable {
+  case exactPair
+  case missingContent
+  case missingIndex
+  case wrongKind
+  case wrongIndexKind
+  case symbolicLink
+  case indexSymbolicLink
+  case caseVariants
+  case nestedPair
 }
 
 private enum TrustedCacheFixtureRoot: CaseIterable {
@@ -694,6 +963,56 @@ private enum TrustedCacheFixtureRoot: CaseIterable {
 
 private func rawPathBytes(_ url: URL) -> [UInt8] {
   Array(url.path.utf8)
+}
+
+private func path(_ name: String) -> ScanRelativePath {
+  ScanRelativePath(rawComponents: [Array(name.utf8)])
+}
+
+private func makeNPMMarkerPair(
+  in cache: URL,
+  fixture: ScannerFixture
+) throws -> (content: URL, index: URL) {
+  (
+    content: try fixture.makeDirectory("content-v2", under: cache),
+    index: try fixture.makeDirectory("index-v5", under: cache)
+  )
+}
+
+private final class MarkerCancellationGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private let cancelAfterArmedCheckpoints: Int
+  private var isArmed = false
+  private var checkpointCount = 0
+
+  init(cancelAfterArmedCheckpoints: Int) {
+    self.cancelAfterArmedCheckpoints = cancelAfterArmedCheckpoints
+  }
+
+  var armedCheckpointCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return checkpointCount
+  }
+
+  func arm() {
+    lock.lock()
+    isArmed = true
+    lock.unlock()
+  }
+
+  func checkpoint() throws {
+    lock.lock()
+    if isArmed {
+      checkpointCount += 1
+    }
+    let shouldCancel = isArmed && checkpointCount == cancelAfterArmedCheckpoints
+    lock.unlock()
+
+    if shouldCancel {
+      throw CancellationError()
+    }
+  }
 }
 
 private func resolvedFixtureURL(_ url: URL) throws -> URL {

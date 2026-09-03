@@ -36,11 +36,11 @@ an unobserved value is safe.
 
 The current built-in runtime evidence deliberately remains conservative. Exact
 default uv, npm, and Homebrew containers may satisfy trusted location after a
-descriptor-bound root check. Ownership, reliable activity, protected
-descendants, non-SwiftPM generated markers, and location for the other rules
-remain uncollected, so real entries still receive no eligible result. This is a
-policy outcome, not a promise that no future observer can make those facts
-available.
+descriptor-bound root check. An npm `_cacache` may also satisfy its supported
+cacache-layout marker. Ownership, reliable activity, protected descendants,
+generated markers for the other rules, and location for the other rules remain
+uncollected, so real entries still receive no eligible result. This is a policy
+outcome, not a promise that no future observer can make those facts available.
 
 ## Output and failures
 

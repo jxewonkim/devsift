@@ -173,11 +173,13 @@ differ from the observation. A real scan may show its age requirement as
 Satisfied from the newest inode modification time observed for a complete item.
 An exact SwiftPM `.build` row may also show its generated-marker finding as
 Satisfied after an identity-bound metadata check for `workspace-state.json`.
+An exact npm `_cacache` row may satisfy the same finding when bounded raw
+directory enumeration confirms exact `content-v2` and `index-v5` directories.
 An exact uv, npm, or Homebrew default cache location may show trusted-location
 as Satisfied after descriptor-bound root reobservation. The app does not display
 the raw candidate timestamp, scan-time identity, or current account home path,
 and none of these findings changes disposition by itself. Missing ownership,
-activity, protected-descendant, or generated-marker evidence keeps the candidate
+activity, protected-descendant, or other required evidence keeps the candidate
 Protected. Scan-time identity is not cleanup or deletion authority.
 
 “Complete observation” describes traversal within the configured limits. A

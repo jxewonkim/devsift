@@ -4,7 +4,7 @@ public enum BuiltInRuleCatalog {
   /// revision changes.
   public static let revision = RuleRevision(
     identifier: makeRuleIdentifier("devsift.builtin-rules"),
-    version: makeRuleVersion(2)
+    version: makeRuleVersion(3)
   )
 
   public static let rules: [any ExplainableRule] = [
@@ -24,7 +24,10 @@ public enum BuiltInRuleCatalog {
         name: "npm content cache",
         tool: "npm",
         recognition: "The candidate raw name must be exactly `_cacache`.",
-        disposition: .reviewRequired
+        disposition: .reviewRequired,
+        version: 2,
+        generatedMarkerExplanation:
+          "Exact raw `content-v2` and `index-v5` directory children form the supported cacache layout signature."
       ),
       recognition: .exactName(Array("_cacache".utf8))
     ),
@@ -82,7 +85,9 @@ public enum BuiltInRuleCatalog {
     disposition: RuleDisposition,
     version: UInt32 = 1,
     minimumAgeSeconds: UInt64 = 7 * 24 * 60 * 60,
-    includesPackageManifestCheck: Bool = false
+    includesPackageManifestCheck: Bool = false,
+    generatedMarkerExplanation: String =
+      "A generated-content marker identifies reproducible output."
   ) -> RuleDefinition {
     var checks = [
       RuleCheckDefinition(
@@ -103,7 +108,7 @@ public enum BuiltInRuleCatalog {
       RuleCheckDefinition(
         identifier: BuiltInCheckIdentifier.generatedMarker,
         kind: .positiveEvidence,
-        explanation: "A generated-content marker identifies reproducible output."
+        explanation: generatedMarkerExplanation
       ),
     ]
     if includesPackageManifestCheck {

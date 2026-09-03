@@ -72,7 +72,7 @@ struct RulePolicyProvenanceTests {
         == BuiltInRuleCatalog.rules.map { $0.definition.revision }.sorted()
     )
     #expect(policy.classificationContractRevision.version.rawValue == 2)
-    #expect(policy.catalogRevision.version.rawValue == 2)
+    #expect(policy.catalogRevision.version.rawValue == 3)
     #expect(
       Dictionary(
         uniqueKeysWithValues: policy.ruleRevisions.map {
@@ -81,7 +81,7 @@ struct RulePolicyProvenanceTests {
       )
         == [
           "devsift.cache.homebrew": 1,
-          "devsift.cache.npm": 1,
+          "devsift.cache.npm": 2,
           "devsift.cache.uv": 1,
           "devsift.swiftpm.build": 2,
           "devsift.xcode.derived-data": 1,

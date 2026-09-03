@@ -70,7 +70,7 @@ struct ClassificationOutputTests {
 
     #expect(first == second)
     #expect(first.hasSuffix("\n"))
-    #expect(first.contains("Catalog: devsift.builtin-rules v2"))
+    #expect(first.contains("Catalog: devsift.builtin-rules v3"))
     #expect(first.contains("Catalog rules: 6"))
     #expect(first.contains("Scan completeness: partial"))
     #expect(first.contains("Reference time (Unix seconds): -42"))
@@ -238,7 +238,7 @@ struct ClassificationOutputTests {
     #expect(decoded.pathStyle == "root-relative")
     #expect(decoded.catalog.identifier == BuiltInRuleCatalog.revision.identifier.rawValue)
     #expect(decoded.catalog.version == String(BuiltInRuleCatalog.revision.version.rawValue))
-    #expect(decoded.catalog.version == "2")
+    #expect(decoded.catalog.version == "3")
     #expect(decoded.catalog.ruleCount == String(BuiltInRuleCatalog.rules.count))
     #expect(decoded.referenceUnixSeconds == String(Int64.min))
     #expect(decoded.scanIntegrity.retainedTopLevelItemCount == "1")
