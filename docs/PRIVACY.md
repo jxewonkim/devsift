@@ -30,7 +30,9 @@ DevSift is designed to work locally and reveal as little as possible.
   may also compare the POSIX UID metadata of the held selected root and held
   `_cacache` directory with the current account UID. It reads no descendant
   ownership or ACL metadata for that fact. It does not read file contents,
-  invoke package managers, inspect processes, or make network calls.
+  invoke package managers, inspect processes, or make network calls. The
+  activity capability review changes no runtime collection: no PID, command,
+  executable path, open-file path, or system event is collected or retained.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
   absolute root URL, and is not exposed by the CLI. The native app can invoke

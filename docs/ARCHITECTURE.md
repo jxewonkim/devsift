@@ -261,6 +261,12 @@ traversal and identity checks rather than reconstructing descendant `URL`
 values from untrusted names. See the [rules contract](RULES.md) and
 [planning contract](PLANNING.md).
 
-Activity is the last npm eligibility fact and must be designed with the
-executor's descriptor-held revalidation immediately before mutation rather
-than treated as durable classification evidence.
+Activity is the remaining npm eligibility fact. The completed
+[capability review](ACTIVITY.md) found no supported, unprivileged macOS API that
+can establish the absence of active subtree use and hold that result through a
+later operation. Classification therefore leaves the fact unknown. A positive-
+only conflict probe may add a protective signal in a separately versioned
+increment, but a negative result must not become `inactive`. Any executor must
+use a separately approved activity policy and descriptor-held inline
+revalidation; neither a process snapshot nor a returned diagnostic is durable
+authority.

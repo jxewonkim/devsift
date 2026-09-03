@@ -76,6 +76,10 @@ operation. That executor must independently establish containment, kind,
 identity, device, activity, and current policy evidence; it must not treat this
 report as a capability or proof that a later path lookup is safe.
 
-Activity is the final npm eligibility fact, so its observer and the future
-executor's immediate, descriptor-held revalidation can be designed as one
-coordinated safety boundary.
+Activity is the remaining npm eligibility fact. The
+[activity safety contract](ACTIVITY.md) establishes that the current
+unprivileged product has no supported primitive for proving subtree-wide
+inactivity or preventing access after a check. Revalidation therefore keeps npm
+activity unknown and cannot emit execution authority. Any future executor must
+adopt a separately reviewed activity policy while retaining this immediate,
+descriptor-held revalidation boundary.

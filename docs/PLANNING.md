@@ -352,9 +352,14 @@ unavailable candidates must be skipped. A caller-selected root, standalone
 manifest, diff, presentation, or revalidation report must never be an executor
 input.
 
-Before executor work, npm activity remains the final eligibility fact. Its
-observation must be coordinated with that executor's immediate, descriptor-held
-revalidation instead of being mistaken for durable authority.
+Before executor work, npm activity remains the unresolved eligibility fact.
+The [activity safety contract](ACTIVITY.md) records why the current
+unprivileged product cannot prove a subtree-wide negative observation and must
+not convert a quiet tree or empty process result into `inactive`. npm therefore
+stays Protected and cannot enter a real draft. Any policy that later permits a
+recoverable operation without such proof requires an explicit, separately
+versioned approval and execution design; immediate descriptor-held
+revalidation still cannot be replaced by this planning state.
 
 ## Test boundary
 

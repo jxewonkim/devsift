@@ -138,9 +138,13 @@ draft, diff, or review projection. A future executor must take the approval,
 not the report, and revalidate inline while holding descriptors before a
 recoverable operation.
 
-The final npm eligibility fact is activity. It will be designed together with
-executor-time inline revalidation; a prior inactivity observation will not
-authorize an operation.
+The remaining npm eligibility fact is activity. The capability review in the
+[activity safety contract](ACTIVITY.md) found no supported, unprivileged macOS
+primitive that can prove subtree-wide inactivity or prevent a new cache access
+between a check and an operation. The current product therefore leaves this
+fact unknown and npm Protected. A future execution milestone must explicitly
+select and review a different capability or policy; a quiet-tree or empty-
+process snapshot will not be called inactivity evidence.
 
 ## Non-goals
 

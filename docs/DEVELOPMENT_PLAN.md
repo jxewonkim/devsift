@@ -112,7 +112,10 @@ and treats any unexpected path or kind, non-empty `tmp`, link, special node,
 different-device entry, different-account owner, or unstable observation as
 blocking or unknown. Other rules retain unknown tool ownership and descendant
 evidence. npm activity, generated markers outside SwiftPM and npm, and location
-for other rules remain uncollected, so real candidates stay `Protected`.
+for other rules remain uncollected, so real candidates stay `Protected`. The
+later activity capability review confirmed that the current unprivileged
+product cannot safely turn a negative process or quiet-tree observation into
+`inactive`; see the [activity safety contract](ACTIVITY.md).
 
 Implemented commit sequence:
 
@@ -140,7 +143,8 @@ Implemented commit sequence:
 - `feat(rules): bind npm account-owned namespace`;
 - `docs(rules): define npm account namespace evidence`;
 - `feat(rules): bind npm protected descendants`;
-- `docs(rules): define npm descendant evidence`.
+- `docs(rules): define npm descendant evidence`;
+- `docs(safety): define npm activity capability boundary`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.
@@ -356,27 +360,62 @@ Implemented fifth increment: `feat(rules): bind npm protected descendants`.
   classification JSON v1, cleanup manifest contract v2, and manifest-review
   JSON v1 remain unchanged.
 
-Next: design npm activity observation together with the future executor's
-immediate descriptor-held pre-operation revalidation. A classification-time
-inactivity result alone cannot close the race. Only after that contract is
-stable should recoverable quarantine be implemented. The future executor must
-accept the approval, not the diagnostic report, and revalidate inline while
-holding descriptors immediately before an operation.
+Implemented sixth increment:
+`docs(safety): define npm activity capability boundary`.
 
-Later Phase 7 work, after activity evidence and executor design:
+- Record the primary-source capability review in the
+  [activity safety contract](ACTIVITY.md). The
+  current unprivileged macOS product has no supported API that can prove the
+  absence of active use across an entire cache subtree and preserve that
+  result until a later operation.
+- Reject quiet-tree sampling, empty process queries, advisory-lock success,
+  kqueue, and FSEvents as automatic `inactive` evidence. cacache is explicitly
+  lockless, libproc is private and cannot supply an exhaustive negative proof,
+  and Endpoint Security requires a restricted entitlement and a materially
+  different distribution and privacy model.
+- Keep npm activity unknown and every real npm candidate `Protected`. Add no
+  runtime process inspection, filesystem access, mutation, public capability,
+  or schema change. Keep npm at rule revision 4, the built-in catalog at
+  revision 5, the classifier contract at revision 2, scan JSON v2,
+  classification JSON v1, cleanup manifest contract v2, manifest-review JSON
+  v1, approval contract v1, and revalidation contract v1.
+- Require a separate product and security decision before execution work:
+  either a privileged authorization gate, an explicit user-attested policy for
+  atomic recoverable quarantine that makes no inactivity claim, or an upstream
+  cooperative lock. A positive-only conflict detector may harden any option,
+  but no-match, permission, race, or resource-limit results stay unknown.
+
+Decision gate before later Phase 7 execution work:
+
+- Select and version one activity-policy path. The default remains no
+  execution while the decision is unresolved.
+- Specify the approval semantics, distribution/privacy impact, and behavior
+  when activity is positive, unavailable, or changes around the operation.
+- Complete a focused threat model and security review before adding mutation.
+
+Later Phase 7 work, after that activity-policy decision and executor design:
 
 - Accept only `CleanupApproval` and reopen the root stored within it, never a
   separately supplied root, draft manifest, diff, or presentation.
-- Revalidate identity, containment, activity, and rule version.
-- Move approved items to a recoverable quarantine.
+- Revalidate identity, containment, activity, rule version, and every required
+  policy fact within one non-escaping descriptor-held operation scope.
+- Validate and hold a trusted same-device quarantine parent, then atomically
+  claim an absent bounded destination leaf with an exclusive descriptor-
+  relative rename. Never pre-create the destination entry.
+- After the rename linearizes, finish post-validation and sync a crash-
+  consistent restore receipt even if cancellation arrives.
+- Make rollback best-effort and non-overwriting. If the source was recreated or
+  either binding changed, preserve both entries and require manual recovery.
 - Report completed, failed, changed, and skipped items individually.
 - Add restore support before considering purge.
 
 Gate: adversarial tests cover symlink swaps, path races, mounts, partial
-failures, interruption, restore, and fixture-boundary integrity. A focused
-security review is required. Revalidation must reopen the target and establish
-fresh containment, kind, identity, and policy evidence immediately before any
-mutation; scan-time inode identity alone is never sufficient.
+failures, cancellation on both sides of the rename linearization point, crash-
+consistent receipt recovery, non-overwriting rollback, restore, and fixture-
+boundary integrity. A focused security review is required. Revalidation must
+reopen the target and establish fresh containment, kind, identity, and policy
+evidence immediately before any mutation; scan-time inode identity alone is
+never sufficient.
 
 Milestone: `v0.3.0-alpha.1` -- quarantine-based cleanup. Permanent removal is a
 later, separately reviewed milestone.
