@@ -1313,8 +1313,8 @@ struct DescriptorRuleEvidenceObserverTests {
     }
   }
 
-  @Test("Satisfied npm namespace facts cannot bypass remaining runtime safety checks")
-  func trustedLocationAndNPMMarkerStayProtected() async throws {
+  @Test("A clean npm observation defers unobserved activity to an execution precondition")
+  func cleanNPMObservationDefersActivity() async throws {
     let fixture = try ScannerFixture()
     defer { fixture.remove() }
 
@@ -1361,9 +1361,16 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(states["no-protected-descendants"] == .satisfied)
     #expect(states["activity-requirement"] == .unknown(.notCollected))
     #expect(states["age-requirement"] == .satisfied)
-    #expect(evaluation.matchState == .possibleMatch)
-    #expect(evaluation.disposition == .protected)
-    #expect(evaluation.rule?.version == testRuleVersion(4))
+    #expect(evaluation.matchState == .matched)
+    #expect(evaluation.disposition == .reviewRequired)
+    #expect(evaluation.rule?.version == testRuleVersion(5))
+    #expect(
+      evaluation.deferredExecutionPreconditions == [
+        .requiresUserAttestationThatResponsibleToolIsStopped
+      ]
+    )
+    #expect(evaluation.deferredExecutionPreconditionsAreWellFormed)
+    #expect(evaluation.nonDeferredBlockingFindings.isEmpty)
     let visibleText =
       ([
         evaluation.displayName,
@@ -1373,6 +1380,9 @@ struct DescriptorRuleEvidenceObserverTests {
       ] + evaluation.findings.map(\.explanation)).joined(separator: "\n")
     #expect(!visibleText.contains(home.path))
     #expect(!visibleText.contains(String(accountUID)))
+    #expect(visibleText.contains("does not prove inactivity"))
+    #expect(visibleText.contains("does not"))
+    #expect(visibleText.contains("execution authority"))
     #expect(try treeSnapshot(at: npmRoot) == treeBefore)
   }
 

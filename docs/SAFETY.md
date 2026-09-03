@@ -14,13 +14,24 @@ Every recognized item belongs to one of three policy classes:
 - **Protected:** user content, active data, unknown data, broad system paths, or
   anything that fails a safety check.
 
-Unknown is protected, not reclaimable or review-required.
+Unknown is protected, not reclaimable or review-required, except for one
+versioned policy deferral: npm activity may remain exactly
+`unknown(.notCollected)` while an otherwise valid npm candidate becomes Review
+required with `requires-user-attestation-that-responsible-tool-is-stopped@1`.
+That exception records
+future work; it is neither inactivity evidence nor operation authority.
 
 ## Required workflow
 
 Cleanup functionality must preserve this ordering:
 
-`scan -> classify -> plan -> approve -> revalidate -> quarantine -> report`
+`scan -> classify -> plan -> approve -> revalidate -> authorize attempt -> quarantine -> report`
+
+Current versions are classifier contract 3, cleanup manifest 3, manifest diff
+2, approval 2, revalidation 2, classification JSON 2, and internal manifest-
+review JSON 2 over source manifest 3. npm is rule revision 5 in built-in catalog
+6. Scan JSON remains version 2. Old manifests, approvals, and exports are
+regenerated rather than imported or migrated.
 
 Scanning and planning are read-only. A plan records the exact candidate,
 evidence, expected identity, rule version, and estimated allocated bytes. Before
@@ -31,9 +42,10 @@ The current Core planner produces only an immutable policy-provenanced draft,
 and the Core differ compares only compatible drafts. An explicit
 `CleanupCandidateSelection` binds an exact root-relative raw path to an exact
 rule revision, but selection and diff output are not approval. Core can now
-record explicit intent for one fully confirmed reviewed manifest. Core now has
-an approval-only, read-only revalidation diagnostic. Execution, quarantine, and
-deletion APIs do not exist in this phase.
+record explicit intent for one fully confirmed reviewed manifest and its
+pending execution conditions. Core now has an approval-only, read-only
+revalidation diagnostic. Attempt authorization, execution, quarantine,
+restore, purge, and deletion APIs do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -41,17 +53,23 @@ and is independent from table-row focus. The app's exact current-session
 path-and-rule-revision whitelist is only a UI restriction; it cannot weaken or
 replace the planner's complete fail-closed validation. The review has no save,
 load, import, export, diff, approval, execution, live-filesystem revalidation,
-or mutation operation.
+attestation, authorization, or mutation operation. A pending npm condition is
+shown as unobserved policy metadata, never as proof that npm is inactive.
 
 The Core approval boundary is not wired to the app or CLI. It prepares an
 opaque review session from the exact source-bound planning request, retaining
 the exact source root and Core-built manifest. Every entry reference and
-confirmation is bound to that process-local session. The complete canonical
-sequence is required, and foreign, mismatched, missing, duplicate, or reordered
-input rejects the request. It never grants a partial subset: changing the set
-requires a new draft and review session. The resulting approval retains the
-exact root and manifest in memory, is non-`Codable`, performs no filesystem I/O,
-and is neither fresh evidence, authentication, nor execution authority.
+confirmation is bound to that process-local session. The session separately
+issues a canonical reference for each deferred execution precondition, and
+approval requires all entry confirmations and precondition review
+acknowledgements. Foreign, mismatched, missing, duplicate, or reordered input
+rejects the request. A precondition review acknowledgement records only that
+the condition and risk were reviewed; it is copyable, replayable review intent,
+not an attestation that npm stopped. Approval never grants a
+partial subset: changing the set requires a new draft and review session. The
+resulting approval retains the exact root and manifest in memory, is non-
+`Codable`, performs no filesystem I/O, and is neither fresh evidence,
+authentication, nor execution authority.
 
 The CLI target has an internal one-way review JSON encoder over an already
 constructed manifest. No command or file-writing workflow invokes it. It is
@@ -62,10 +80,12 @@ that its document cannot be approved or executed.
 approval's retained root, and uses only current built-in policy provenance. It
 requires the observed root identity to match, then emits canonical diagnostic
 statuses after reobserving each approved path, kind, device, identity, rule,
-findings, and policy decision. Incomplete and unknown observations fail closed.
-Its root-URL-free, non-`Codable` report is point-in-time and copyable; it is not
-freshness proof, mutation authority, or executor input. Current real entries
-remain Protected. Exact default uv, npm, and Homebrew containers can satisfy
+findings, and policy decision. Incomplete and unknown observations fail closed,
+except that the one canonical deferred npm activity finding remains explicitly
+pending rather than becoming eligible. Its root-URL-free, non-`Codable` report
+is point-in-time and copyable; it is not freshness proof, mutation authority,
+or executor input. Current real entries mostly remain Protected. Exact default
+uv, npm, and Homebrew containers can satisfy
 trusted location, and npm may satisfy its supported cacache-layout marker.
 An exact top-level npm `_cacache` may also satisfy
 `account-owned-cache-namespace` when the held selected root and held candidate
@@ -74,8 +94,10 @@ generic tool ownership only for npm; it is not mutation authority. A separate
 bounded traversal may satisfy npm's protected-descendant exclusion only for a
 stable same-device, current-account-owned tree whose names and kinds match the
 pinned cacache grammar and whose count matches the earlier scan. npm activity
-remains uncollected, while other rules retain unknown tool ownership,
-protected-descendant evidence, and other required facts.
+remains `unknown(.notCollected)`; an otherwise unchanged npm entry is reported
+as `awaitingExecutionPreconditions`, not eligible, inactive, or authorized.
+Other rules retain unknown tool ownership, protected-descendant evidence, and
+other required facts.
 
 ## Hard invariants
 
@@ -87,56 +109,70 @@ protected-descendant evidence, and other required facts.
   contract, catalog revision, and complete rule-revision roster. Missing,
   edited, or undeclared provenance fails closed.
 - A selected candidate must resolve unambiguously to one matched evaluation
-  with a `Reclaimable` or `Review required` disposition and only satisfied
-  findings. Selection cannot override `Protected`, unknown, partial,
-  conflicting, invalid, or incomplete state.
+  with a `Reclaimable` or `Review required` disposition and no non-deferred
+  blocking findings. The only allowed deferred shape is one activity
+  `unknown(.notCollected)` paired with the sole canonical precondition on a
+  Review-required result. Valid custom rules can opt in; the current built-in
+  catalog does so only for npm. Selection cannot override `Protected`, another
+  unknown reason, active use, partial, conflicting, invalid, or incomplete
+  state.
 - The app includes no candidate automatically. Row focus never changes the
   included set, and only an exact path-and-rule-revision value from the current
   result's whitelist can enter it. Core remains the final authority.
 - A draft manifest is not approval or an execution capability. It stores no
-  absolute root URL, and copying expected identities into it grants no path
-  authority.
+  absolute root URL, and copying expected identities or pending preconditions
+  into it grants no path authority.
 - Approval review must begin from the exact source-bound planning request. Core
   alone creates the reviewed manifest and binds its exact local root; callers
   cannot substitute either value at approval time.
-- Every entry reference and confirmation is bound to one opaque process-local
-  review session, canonical ordinal, exact raw path, and rule revision. Missing,
-  extra, duplicate, reordered, changed, or foreign-session confirmations fail
-  atomically even when their visible values are otherwise equal.
+- Every entry confirmation and precondition review acknowledgement is bound to
+  one opaque process-local review session, canonical ordinal, exact raw path,
+  and rule revision. Missing, extra, duplicate, reordered, changed, or foreign-
+  session values fail atomically even when their visible values are otherwise
+  equal. A precondition review acknowledgement is not a user attestation or
+  satisfaction of the condition.
 - Partial approval is forbidden. A different entry set requires a new draft
   and review rather than transferring intent from an old manifest or diff.
 - A Core approval is in-memory, non-`Codable` intent only. It retains the exact
   source root and reviewed manifest but establishes no freshness, authenticity,
   signature, proof of human review, single-use semantics, execution capability,
   filesystem authority, or permission to mutate the filesystem.
-- Approval performs no filesystem or network I/O. Future execution-time
-  revalidation must accept only `CleanupApproval` and reopen the root stored
-  within it, rather than accepting a separately supplied root, standalone draft,
-  diff, app presentation, or CLI review document.
+- A timestamp or wall-clock TTL must not turn an approval, entry confirmation,
+  precondition review acknowledgement, attestation, or diagnostic into
+  freshness. The future attempt boundary must use process-local identity and
+  single consumption, plus inline descriptor-held checks.
+- Approval performs no filesystem or network I/O. It cannot be passed directly
+  to a future executor. A later `CleanupQuarantineAuthorization` must bind the
+  exact approval with a fresh, explicit, attempt-scoped user attestation and
+  process-local single-attempt identity and consumption.
 - Revalidation accepts only `CleanupApproval`, uses its retained root, and
   accepts only current built-in policy provenance. It returns canonical,
   point-in-time diagnostic entries; incomplete or unknown observations fail
   closed. Its report omits the absolute root URL and is not an execution input
   or filesystem capability.
 - Revalidation does not make a later operation race-free. A future executor
-  must receive the approval rather than the report and revalidate containment,
-  kind, device, identity, activity, and current policy inline while holding
-  verified descriptors immediately before mutation.
+  must receive only `CleanupQuarantineAuthorization`, never the approval or
+  report directly, and revalidate containment, kind, device, identity, activity
+  policy, and current policy inline while holding verified descriptors
+  immediately before mutation.
 - App planning reuses the exact retained classification request and report,
   freezes the selected set, and runs without a filesystem capability or active
   security scope. Planning and scan-session tokens must reject any late result
   after cancellation, rescan, root change, or window closure.
 - The app-owned review projection retains no filesystem identity, manifest,
   source request, provenance roster, reference time, serialization, approval,
-  or execution state. Its raw relative path is only an in-memory row identity;
-  the UI renders escaped text.
+  attestation, authorization, or execution state. It may retain the fixed
+  pending-precondition identifier and policy revision as disclosure metadata.
+  Its raw relative path is only an in-memory row identity; the UI renders
+  escaped text.
 - All seven displayed size and uncertainty quantities are point-in-time
   observations, not promised reclaimed bytes. A legitimate current scan can
   expose zero eligible candidates.
 - The CLI-owned review projection is lossy, non-importable, and never an
   executor input. It always omits root and candidate filesystem identities,
   sets `canBeApproved` and `canBeExecuted` to `false`, and defines no diff
-  export, approval, or execution operation.
+  export, approval, attestation, authorization, or execution operation. Both
+  privacy profiles retain fixed pending-precondition identifiers and revisions.
 - Redaction is not anonymity. Redacted documents retain exact observed sizes
   and totals plus selected rule and finding identifiers; their entry ordinals
   identify entries only inside that one document. Exact-profile documents also
@@ -163,7 +199,7 @@ protected-descendant evidence, and other required facts.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
 - Scan code cannot mutate files.
-- The app and CLI expose no cleanup, delete, move, quarantine, or
+- The app and CLI expose no cleanup, delete, move, quarantine, restore, purge, or
   permission-escalation action; scan and classification reports remain
   read-only.
 - The app never presents a partial, bounded, or overflowed observation as
@@ -206,20 +242,24 @@ protected-descendant evidence, and other required facts.
   remain unknown. The observer reads no file content and does not inspect ACLs,
   extended attributes, flags, effective access, cache provenance, or activity.
 - A candidate remains `Protected` when a required activity check reports active
-  use or is unavailable. npm therefore remains `Protected` even when all of its
-  currently collected structural facts pass.
+  use or any unavailable reason other than npm's exact
+  `unknown(.notCollected)` deferral. That one state may produce Review required
+  with the pending attestation precondition, but it is not eligible to execute.
 - A changed candidate is skipped during revalidation.
 - Partial failures are reported item by item.
 - Permanent deletion is not part of the initial milestones.
 
-Activity is the remaining npm eligibility fact. The
+Activity is the remaining npm execution fact. The
 [activity safety contract](ACTIVITY.md) records that no supported,
 unprivileged macOS API can prove the absence of subtree-wide active use and
 preserve that result until a later operation. DevSift must not infer
 `inactive` from a quiet interval, empty process query, advisory lock, kqueue, or
-FSEvents result. npm remains Protected. A future executor requires a separately
-reviewed activity policy plus descriptor-held revalidation immediately before
-any recoverable operation; a prior observation is never execution authority.
+FSEvents result. The selected recoverable-quarantine policy therefore preserves
+`unknown(.notCollected)` and carries an explicit pending precondition. A later
+`CleanupQuarantineAuthorization` must bind the exact approval to a fresh,
+attempt-scoped user attestation and be consumed once in process; only that
+authorization may reach a future executor. A prior observation, review
+acknowledgement, or elapsed-time test is never execution authority.
 
 Cancellation is safe but may not be instantaneous. A blocking filesystem call
 can finish before the next cancellation checkpoint is reached. The scanner
@@ -250,6 +290,8 @@ A cleanup rule must declare:
 - exclusions and protected descendants;
 - an eligible disposition and reproducibility class;
 - required activity and age checks;
+- any versioned deferred execution precondition and the exact finding shape it
+  is permitted to defer;
 - user-facing explanations;
 - synthetic tests for matches, near misses, and hostile paths.
 
@@ -259,15 +301,17 @@ contain user-owned content.
 The current classifier enforces common integrity checks centrally. Rules only
 recognize raw path shapes and project declared evidence; they cannot directly
 grant a disposition. An unavailable required fact, invalid rule assessment,
-classification conflict, or incomplete scan produces `Protected`. A malformed
-returned report is rejected against the request's reference time and original
-`ScanReport` before either frontend renders it. The adapter performs no extra
-filesystem probing and may project the conservative newest inode time already
-retained by a complete scan summary. A separate bounded observer may rebind
+classification conflict, or incomplete scan produces `Protected`, except for
+the sole versioned deferred activity shape described above. The current built-
+in catalog enables it only for npm. A malformed returned report is rejected
+against the request's reference time and original `ScanReport` before either
+frontend renders it. The adapter performs no extra filesystem probing and may
+project the conservative newest inode time already retained by a complete scan
+summary. A separate bounded observer may rebind
 retained top-level candidates to their scan-time identities and, for an exact
 SwiftPM `.build` directory, inspect only the metadata of an exact
 `workspace-state.json` child. A satisfied age or marker check alone is
-insufficient: every remaining unknown required fact keeps the real candidate
+insufficient: every non-deferred unknown required fact keeps the real candidate
 protected. See the complete [rules contract](RULES.md).
 
 The planner validates that classification again before processing any
@@ -286,18 +330,22 @@ bounded work. It never reads a path or transfers approval between drafts. See
 the [planning contract](PLANNING.md).
 
 The approver creates one opaque review session from an exact source-bound
-planning request, then accepts only that session's complete per-entry
-confirmation sequence. The session binds its source root, full manifest,
-canonical ordinals, raw paths, and rule revisions without deriving intent from
-a diff or lossy projection. Its process-local seal prevents cross-session value
-mixing but is not proof of human review or authenticity. The revalidator is a
+planning request, then accepts only that session's complete entry-confirmation
+and precondition-review-acknowledgement sequences. The session binds its source
+root, full manifest, canonical ordinals, raw paths, rule revisions, and pending-
+condition identifiers without deriving intent from a diff or lossy projection.
+Its
+process-local seal prevents cross-session value mixing but is not proof of
+human review, authenticity, attestation, or freshness. The revalidator is a
 read-only diagnostic that consumes only the approval and reopens its stored
-root. A future executor must independently establish policy and object
+root. A future authorizer must combine that exact approval with a fresh
+attempt-scoped attestation; a future executor must accept only the resulting
+single-attempt `CleanupQuarantineAuthorization` and establish policy and object
 evidence inline while holding verified descriptors before any mutation. See
 the [planning contract](PLANNING.md) and [revalidation contract](REVALIDATION.md).
 
-The internal review encoder accepts only Core manifest contract version 2 and
-emits CLI schema `devsift.cleanup-manifest-review` version 1. A per-entry
+The internal review encoder accepts only Core manifest contract version 3 and
+emits CLI schema `devsift.cleanup-manifest-review` version 2. A per-entry
 encoded-size preflight and final post-encoding check enforce a 128 MiB hard
 cap. Sorted `JSONEncoder` bytes target repeatability only for the same validated
 input, privacy profile, implementation build, and Swift/Foundation runtime;
@@ -317,21 +365,25 @@ Manifest-diff tests use only in-memory synthetic drafts and include incompatible
 inputs, non-UTF-8 path collisions, full-width quantities, and maximum bounds.
 Manifest-review projection tests use synthetic in-memory drafts and cover both
 privacy profiles, exact identity omission, document-local ordinals, unsupported
-source versions, non-importable authority flags, deterministic same-runtime
-bytes, output limits, and cancellation without writing files.
+source versions, deferred-precondition projection, non-importable authority
+flags, deterministic same-runtime bytes, output limits, and cancellation
+without writing files.
 
 Native app draft-review tests use only synthetic values and cover conservative
 eligibility, default-zero and exact-whitelist selection, exact source-request
 and report reuse, off-main planning, frozen selection, cancellation, stale
 results, lifecycle invalidation, bounded generic failures, escaped display,
 identity omission, canonical ordering, and all seven observed quantities.
+They also verify that deferred npm activity remains displayed as unobserved and
+that no approval, attestation, safety, or execution claim is introduced.
 
 Approval tests use source-bound synthetic planning requests and cover opaque
-session preparation, exact root and manifest retention, complete confirmations,
-missing, extra, duplicate, reordered, changed, and foreign-session input,
-cross-root and cross-manifest substitution, planning bounds, pre-cancel
-rejection, non-UTF-8 raw-path identity, and the absence of filesystem,
-serialization, freshness, authentication, and execution authority.
+session preparation, exact root and manifest retention, complete entry
+confirmations and precondition review acknowledgements, missing, extra,
+duplicate, reordered, changed, and foreign-session input, cross-root and cross-
+manifest substitution, planning bounds, pre-cancel rejection, non-UTF-8 raw-
+path identity, and the absence of filesystem, serialization, attestation,
+freshness, authentication, and execution authority.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

@@ -7,6 +7,13 @@ let approvalTestRuleDefinition = syntheticDefinition(
   id: "devsift.test.approval-session"
 )
 
+let approvalPendingPreconditionRuleDefinition = syntheticDefinition(
+  id: "devsift.test.approval-pending-precondition",
+  disposition: .reviewRequired,
+  reproducibility: .conditional,
+  activity: .mustBeInactiveOrDeferToAttestationWhenUnobserved
+)
+
 struct ApprovalTestSource {
   let classificationRequest: RuleClassificationRequest
   let classificationReport: RuleClassificationReport
@@ -29,7 +36,9 @@ struct ApprovalTestSource {
 
 func approvalTestSource(
   rawNames: [[UInt8]] = [Array("a-cache".utf8), Array("b-cache".utf8)],
-  root: URL = URL(fileURLWithPath: "/synthetic/ApprovalRoot", isDirectory: true)
+  root: URL = URL(fileURLWithPath: "/synthetic/ApprovalRoot", isDirectory: true),
+  ruleDefinition: RuleDefinition = approvalTestRuleDefinition,
+  facts: RuleObservationFacts = satisfiedRuleFacts()
 ) async throws -> ApprovalTestSource {
   let candidates = rawNames.enumerated().map { index, rawName in
     PlanningTestCandidate(
@@ -39,12 +48,13 @@ func approvalTestSource(
         logicalBytes: UInt64((index + 1) * 2_000),
         allocatedBytes: UInt64((index + 1) * 1_500)
       ),
-      hardLinkExclusiveAllocatedBytes: UInt64((index + 1) * 1_250)
+      hardLinkExclusiveAllocatedBytes: UInt64((index + 1) * 1_250),
+      facts: facts
     )
   }
   let scenario = try await makePlanningTestScenario(
     candidates: candidates,
-    rules: [SyntheticRule(definition: approvalTestRuleDefinition)]
+    rules: [SyntheticRule(definition: ruleDefinition)]
   )
   let classificationRequest = RuleClassificationRequest(
     root: root,
@@ -57,7 +67,7 @@ func approvalTestSource(
   let selections = candidates.map { candidate in
     CleanupCandidateSelection(
       path: candidate.path,
-      ruleRevision: approvalTestRuleDefinition.revision
+      ruleRevision: ruleDefinition.revision
     )
   }
 
@@ -68,11 +78,31 @@ func approvalTestSource(
   )
 }
 
+func approvalPendingPreconditionTestSource(
+  rawNames: [[UInt8]] = [Array("a-cache".utf8), Array("b-cache".utf8)],
+  root: URL = URL(fileURLWithPath: "/synthetic/ApprovalRoot", isDirectory: true)
+) async throws -> ApprovalTestSource {
+  try await approvalTestSource(
+    rawNames: rawNames,
+    root: root,
+    ruleDefinition: approvalPendingPreconditionRuleDefinition,
+    facts: satisfiedRuleFacts(activity: .unknown(.notCollected))
+  )
+}
+
 func approvalConfirmations(
   from session: CleanupApprovalReviewSession
 ) throws -> [CleanupApprovalEntryConfirmation] {
   try session.entryReferences.map { reference in
     try session.confirm(reference)
+  }
+}
+
+func approvalPreconditionReviewAcknowledgements(
+  from session: CleanupApprovalReviewSession
+) throws -> [CleanupApprovalPreconditionReviewAcknowledgement] {
+  try session.preconditionReferences.map { reference in
+    try session.acknowledgePreconditionForReview(reference)
   }
 }
 

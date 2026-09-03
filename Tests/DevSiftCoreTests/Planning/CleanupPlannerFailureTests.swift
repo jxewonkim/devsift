@@ -58,6 +58,94 @@ struct CleanupPlannerFailureTests {
     )
   }
 
+  @Test("Forged deferred execution preconditions cannot cross the planner boundary")
+  func malformedDeferredExecutionPreconditions() async throws {
+    let candidate = PlanningTestCandidate(
+      rawName: Array("candidate".utf8),
+      identity: FileIdentity(device: 42, inode: 2),
+      facts: satisfiedRuleFacts(activity: .unknown(.notCollected))
+    )
+    let definition = syntheticDefinition(
+      id: "devsift.test.planning-malformed-precondition",
+      disposition: .reviewRequired,
+      reproducibility: .conditional,
+      activity: .mustBeInactiveOrDeferToAttestationWhenUnobserved
+    )
+    let scenario = try await makePlanningTestScenario(
+      candidates: [candidate],
+      rules: [SyntheticRule(definition: definition)]
+    )
+    let selection = scenario.selection(for: candidate.path)
+    let evaluation = try #require(scenario.classificationReport.evaluations.first)
+    #expect(
+      evaluation.deferredExecutionPreconditions
+        == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+
+    let missing = planningEvaluation(
+      evaluation,
+      deferredExecutionPreconditions: []
+    )
+    expectPlanningError(
+      .invalidClassificationReport(
+        .semanticInvariant(path: candidate.path, invariant: .matchedFindings)
+      ),
+      request: scenario.manifestRequest(
+        selections: [selection],
+        classificationReport: planningClassificationReport(
+          scenario.classificationReport,
+          evaluations: [missing]
+        )
+      )
+    )
+
+    let forgedFindings = evaluation.findings.map { finding in
+      guard finding.identifier == AutomaticCheckIdentifier.activity else { return finding }
+      return RuleFinding(
+        identifier: finding.identifier,
+        kind: finding.kind,
+        state: .satisfied,
+        explanation: finding.explanation
+      )
+    }
+    let forged = planningEvaluation(evaluation, findings: forgedFindings)
+    expectPlanningError(
+      .invalidClassificationReport(
+        .semanticInvariant(
+          path: candidate.path,
+          invariant: .deferredExecutionPreconditions
+        )
+      ),
+      request: scenario.manifestRequest(
+        selections: [selection],
+        classificationReport: planningClassificationReport(
+          scenario.classificationReport,
+          evaluations: [forged]
+        )
+      )
+    )
+
+    let duplicate = planningEvaluation(
+      evaluation,
+      deferredExecutionPreconditions: [
+        .requiresUserAttestationThatResponsibleToolIsStopped,
+        .requiresUserAttestationThatResponsibleToolIsStopped,
+      ]
+    )
+    expectPlanningError(
+      .invalidClassificationReport(
+        .deferredExecutionPreconditionsNotSortedAndUnique(candidate.path)
+      ),
+      request: scenario.manifestRequest(
+        selections: [selection],
+        classificationReport: planningClassificationReport(
+          scenario.classificationReport,
+          evaluations: [duplicate]
+        )
+      )
+    )
+  }
+
   @Test("Partial scans and missing root identities cannot produce drafts")
   func rootPreconditions() async throws {
     let rootIdentity = FileIdentity(device: 42, inode: 1)

@@ -12,6 +12,7 @@ public struct CleanupRevalidationEntry: Hashable, Sendable {
 
 public enum CleanupRevalidationStatus: Hashable, Sendable {
   case eligibleAtObservation
+  case awaitingExecutionPreconditions([RuleDeferredExecutionPrecondition])
   case rejected(CleanupRevalidationRejection)
 }
 
@@ -36,7 +37,7 @@ public enum CleanupRevalidationRejection: Hashable, Sendable {
 /// authorizes mutation nor removes the need for descriptor-relative checks in
 /// the executor immediately before each operation.
 public struct CleanupRevalidationReport: Hashable, Sendable {
-  public static let currentContractVersion: UInt32 = 1
+  public static let currentContractVersion: UInt32 = 2
 
   public let contractVersion: UInt32
   public let observedRootIdentity: FileIdentity
@@ -48,6 +49,15 @@ public struct CleanupRevalidationReport: Hashable, Sendable {
   public var requiresImmediateExecutionRevalidation: Bool { true }
   public var isFullyEligibleAtObservation: Bool {
     !entries.isEmpty && entries.allSatisfy { $0.status == .eligibleAtObservation }
+  }
+
+  public var hasPendingExecutionPreconditions: Bool {
+    entries.contains { entry in
+      if case .awaitingExecutionPreconditions = entry.status {
+        return true
+      }
+      return false
+    }
   }
 
   init(
@@ -79,6 +89,8 @@ public enum CleanupRevalidationApprovalInvariant: String, Hashable, Sendable {
   case undeclaredRuleRevision = "undeclared-rule-revision"
   case ineligibleDisposition = "ineligible-disposition"
   case invalidFindings = "invalid-findings"
+  case invalidPreconditionReviewAcknowledgements =
+    "invalid-precondition-review-acknowledgements"
   case invalidTotals = "invalid-totals"
 }
 

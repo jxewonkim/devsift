@@ -43,6 +43,8 @@ struct CleanupManifestReviewPresentationTests {
     #expect(presentation.entryCount == 2)
     #expect(presentation.reclaimableCount == 1)
     #expect(presentation.reviewRequiredCount == 1)
+    #expect(presentation.deferredExecutionPreconditionCount == 0)
+    #expect(!presentation.hasDeferredExecutionPreconditions)
     #expect(presentation.entries.map(\.id) == [reclaimableEntry.path, reviewEntry.path])
     #expect(presentation.entries.map(\.displayPath) == ["a-reclaimable", "z-review"])
 
@@ -109,6 +111,56 @@ struct CleanupManifestReviewPresentationTests {
     #expect(invalidUTF8Row.displayPath == "\\x66\\xFF\\x80")
   }
 
+  @Test("Deferred activity is presented as unobserved and not as authorization")
+  func deferredActivityDisclosure() throws {
+    let activityFinding = try ManifestReviewFixture.finding(
+      identifier: "activity-requirement",
+      kind: .activity,
+      state: .unknown(.notCollected),
+      explanation: "Reliable tool activity information was not collected."
+    )
+    let entry = try ManifestReviewFixture.entry(
+      responsibleTool: "npm",
+      findings: [try ManifestReviewFixture.finding(), activityFinding],
+      deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+    let manifest = try ManifestReviewFixture.manifest(entries: [entry])
+
+    let presentation = try CleanupManifestReviewPresentation.prepare(manifest: manifest)
+    let row = try #require(presentation.entries.first)
+    let precondition = try #require(row.deferredExecutionPreconditions.first)
+
+    #expect(presentation.hasDeferredExecutionPreconditions)
+    #expect(presentation.deferredExecutionPreconditionCount == 1)
+    #expect(presentation.deferredExecutionNoticeTitle == "Activity remains unobserved")
+    #expect(
+      presentation.deferredExecutionNoticeMessage.contains("not evidence that a tool is inactive")
+    )
+    #expect(presentation.deferredExecutionNoticeMessage.contains("fresh revalidation"))
+    #expect(presentation.deferredExecutionNoticeMessage.contains("attempt-scoped authorization"))
+    #expect(
+      presentation.deferredExecutionNoticeMessage.contains("does not provide that authorization")
+    )
+    #expect(row.deferredExecutionPreconditions.count == 1)
+    #expect(precondition.identifier == "requires-user-attestation-that-responsible-tool-is-stopped")
+    #expect(precondition.policyRevision == 1)
+    #expect(
+      precondition.identifierAndRevisionLabel
+        == "requires-user-attestation-that-responsible-tool-is-stopped@1")
+    #expect(precondition.title == "Activity remains unobserved")
+    #expect(precondition.explanation.contains("did not observe whether npm is active"))
+    #expect(precondition.explanation.contains("attempt-scoped authorization"))
+    #expect(precondition.explanation.contains("This draft is not that authorization"))
+    #expect(precondition.explanation.contains("cannot be executed"))
+    #expect(!precondition.explanation.localizedCaseInsensitiveContains("known to be inactive"))
+    #expect(!precondition.explanation.localizedCaseInsensitiveContains("safe to clean"))
+    let displayedActivityFinding = row.findings.first { finding in
+      finding.identifier == "activity-requirement"
+    }
+    #expect(displayedActivityFinding?.kind == .activity)
+    #expect(displayedActivityFinding?.state == .unknown(.notCollected))
+  }
+
   @Test("Projection omits filesystem identity, roots, time, Base64, and authority")
   func privacyAndNonAuthorityBoundary() throws {
     let rawName = Array("private-client-project".utf8)
@@ -148,11 +200,13 @@ struct CleanupManifestReviewPresentationTests {
     #expect(row.id == entry.path)
     #expect(
       storedPropertyLabels(of: presentation) == [
-        "entries", "entryCount", "reclaimableCount", "reviewRequiredCount", "totals",
+        "deferredExecutionPreconditionCount", "entries", "entryCount", "reclaimableCount",
+        "reviewRequiredCount", "totals",
       ])
     #expect(
       storedPropertyLabels(of: row) == [
         "classificationExplanation",
+        "deferredExecutionPreconditions",
         "displayName",
         "displayPath",
         "disposition",
@@ -190,7 +244,7 @@ struct CleanupManifestReviewPresentationTests {
 
     let forbiddenFieldFragments = [
       "identity", "inode", "device", "root", "time", "base64", "authority", "approval",
-      "execute", "manifest",
+      "manifest",
     ]
     let allFieldLabels =
       storedPropertyLabels(of: presentation)
@@ -312,6 +366,7 @@ private enum ManifestReviewFixture {
     responsibleTool: String = "Review tool",
     classificationExplanation: String = "Synthetic review classification.",
     findings: [RuleFinding]? = nil,
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
     logicalBytes: UInt64 = 1_024,
     allocatedBytes: UInt64 = 768,
     hardLinkExclusiveAllocatedBytes: UInt64 = 512,
@@ -342,6 +397,7 @@ private enum ManifestReviewFixture {
       responsibleTool: responsibleTool,
       classificationExplanation: classificationExplanation,
       findings: try findings ?? [self.finding()],
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
       size: CleanupManifestSizeObservation(summary: summary)
     )
   }

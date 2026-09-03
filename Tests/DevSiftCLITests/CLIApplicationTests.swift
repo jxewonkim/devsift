@@ -98,7 +98,7 @@ struct CLIApplicationTests {
     #expect(classificationRequests.first?.referenceUnixSeconds == 123)
   }
 
-  @Test("Complete classifications support text and classification JSON v1")
+  @Test("Complete classifications support text and classification JSON v2")
   func completeClassification() async throws {
     let path = [Array("cache".utf8)]
     let scanReport = CLITestReportFactory.report(
@@ -126,9 +126,9 @@ struct CLIApplicationTests {
     #expect(json.exitCode == CLIExitCode.success)
     #expect(json.standardError.isEmpty)
     let data = try #require(json.standardOutput.data(using: .utf8))
-    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
+    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV2.self, from: data)
     #expect(decoded.schema == "devsift.classification")
-    #expect(decoded.schemaVersion == 1)
+    #expect(decoded.schemaVersion == 2)
     #expect(decoded.scanIsComplete)
   }
 
@@ -286,7 +286,7 @@ struct CLIApplicationTests {
       #expect(result.exitCode == CLIExitCode.partialResult)
       #expect(result.standardError.contains("partial scan results"))
       let data = try #require(result.standardOutput.data(using: .utf8))
-      let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
+      let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV2.self, from: data)
       #expect(decoded.scanIsComplete == false)
     }
   }

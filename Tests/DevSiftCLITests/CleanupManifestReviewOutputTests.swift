@@ -78,7 +78,8 @@ struct CleanupManifestReviewOutputTests {
         "entries",
       ])
     #expect(document["schema"] as? String == "devsift.cleanup-manifest-review")
-    #expect(document["schemaVersion"] as? Int == 1)
+    #expect(document["schemaVersion"] as? Int == 2)
+    #expect(document["sourceManifestContractVersion"] as? String == "3")
     #expect(document["privacyProfile"] as? String == "redacted")
     #expect(document["documentPurpose"] as? String == "review-only")
     #expect(document["executionAuthority"] as? String == "none")
@@ -122,9 +123,11 @@ struct CleanupManifestReviewOutputTests {
         "ruleRevision",
         "disposition",
         "reproducibility",
+        "deferredExecutionPreconditions",
         "findings",
         "size",
       ])
+    #expect(try array(renderedEntry["deferredExecutionPreconditions"]).isEmpty)
     #expect(Set(summary.keys) == ["entryCount", "totals"])
 
     #expect(policy["ruleRevisionScope"] as? String == "selected-only")
@@ -251,6 +254,7 @@ struct CleanupManifestReviewOutputTests {
         "ruleRevision",
         "disposition",
         "reproducibility",
+        "deferredExecutionPreconditions",
         "displayName",
         "responsibleTool",
         "classificationExplanation",
@@ -323,6 +327,57 @@ struct CleanupManifestReviewOutputTests {
     #expect(outputText.hasSuffix("\n\n") == false)
     #expect(outputText.contains("\"device\"") == false)
     #expect(outputText.contains("\"inode\"") == false)
+  }
+
+  @Test("Deferred execution preconditions are explicit in both review profiles")
+  func deferredExecutionPreconditions() throws {
+    let precondition = RuleDeferredExecutionPrecondition
+      .requiresUserAttestationThatResponsibleToolIsStopped
+    let findings = CLITestManifestFactory.validFindings().map { finding in
+      guard finding.identifier.rawValue == "activity-requirement" else {
+        return finding
+      }
+      return CLITestClassificationFactory.finding(
+        identifier: "activity-requirement",
+        kind: .activity,
+        state: .unknown(.notCollected),
+        explanation: "Activity remains unobserved."
+      )
+    }
+    let manifest = try CLITestManifestFactory.manifest(
+      entries: [
+        CLITestManifestFactory.entry(
+          deferredExecutionPreconditions: [precondition],
+          findings: findings
+        )
+      ]
+    )
+
+    for profile in CleanupManifestReviewPrivacyProfile.allCases {
+      let output = try CleanupManifestReviewJSONEncoder().encode(
+        manifest: manifest,
+        privacyProfile: profile
+      )
+      let document = try jsonObject(output)
+      let entry = try dictionary(try array(document["entries"]).first)
+      let rendered = try dictionary(
+        try array(entry["deferredExecutionPreconditions"]).first
+      )
+      let activity = try #require(
+        try array(entry["findings"]).compactMap { $0 as? [String: Any] }.first { finding in
+          finding["identifier"] as? String == "activity-requirement"
+        }
+      )
+      let state = try dictionary(activity["state"])
+
+      #expect(Set(rendered.keys) == ["identifier", "policyRevision"])
+      #expect(rendered["identifier"] as? String == precondition.rawValue)
+      #expect(rendered["policyRevision"] as? String == String(precondition.policyRevision))
+      #expect(state["status"] as? String == "unknown")
+      #expect(state["reason"] as? String == "not-collected")
+      #expect(document["canBeApproved"] as? Bool == false)
+      #expect(document["canBeExecuted"] as? Bool == false)
+    }
   }
 
   @Test("Output is repeatable, raw-path ordered, and keeps full-width integers")
@@ -477,8 +532,9 @@ struct CleanupManifestReviewOutputTests {
       let document = try jsonObject(output)
       let renderedEntry = try dictionary(try array(document["entries"]).first)
 
-      #expect(document["sourceManifestContractVersion"] as? String == "2")
+      #expect(document["sourceManifestContractVersion"] as? String == "3")
       #expect(renderedEntry["candidate"] as? String == "candidate-00001")
+      #expect(try array(renderedEntry["deferredExecutionPreconditions"]).isEmpty)
       #expect(try array(renderedEntry["findings"]).count == manifest.entries[0].findings.count)
       #expect(try utf8String(output).contains("/synthetic/manifest-review") == false)
     }
@@ -536,6 +592,22 @@ struct CleanupManifestReviewOutputTests {
       )
     ) {
       try CleanupManifestReviewValidator.validate(invalidEvidence)
+    }
+
+    let unpairedPrecondition = try CLITestManifestFactory.manifest(
+      entries: [
+        CLITestManifestFactory.entry(
+          deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+        )
+      ]
+    )
+    #expect(
+      throws: CleanupManifestReviewExportError.invalidEntry(
+        index: 0,
+        issue: .invalidDeferredExecutionPreconditions
+      )
+    ) {
+      try CleanupManifestReviewValidator.validate(unpairedPrecondition)
     }
 
     let missingIdentity = try CLITestManifestFactory.manifest(
@@ -721,6 +793,7 @@ struct CleanupManifestReviewOutputTests {
     #expect(
       storedPropertyLabels(of: entry) == [
         "classificationExplanation",
+        "deferredExecutionPreconditions",
         "displayName",
         "disposition",
         "expectedIdentity",

@@ -195,6 +195,9 @@ public struct CleanupManifestDiffer: CleanupManifestDiffing, Sendable {
     if baseline.findings != comparison.findings {
       fields.append(.findings)
     }
+    if baseline.deferredExecutionPreconditions != comparison.deferredExecutionPreconditions {
+      fields.append(.deferredExecutionPreconditions)
+    }
     if baseline.size.observedLogicalBytes != comparison.size.observedLogicalBytes {
       fields.append(.observedLogicalBytes)
     }

@@ -49,7 +49,7 @@ struct CleanupPlannerHappyPathTests {
 
     #expect(first == second)
     #expect(first.contractVersion == CleanupManifest.currentContractVersion)
-    #expect(first.contractVersion == 2)
+    #expect(first.contractVersion == 3)
     #expect(first.policyProvenance == scenario.classificationReport.policyProvenance)
     #expect(first.policyProvenance.catalogRevision == BuiltInRuleCatalog.revision)
     #expect(first.classificationReferenceUnixSeconds == 1_000_000)
@@ -58,6 +58,7 @@ struct CleanupPlannerHappyPathTests {
     #expect(first.entries.map(\.disposition) == [.reviewRequired, .reclaimable])
     #expect(first.entries.allSatisfy { $0.expectedKind == .directory })
     #expect(first.entries.map(\.expectedIdentity) == [npm.identity, uv.identity])
+    #expect(first.entries.allSatisfy { $0.deferredExecutionPreconditions.isEmpty })
     #expect(
       first.entries.allSatisfy { entry in
         entry.findings == entry.findings.sorted { $0.identifier < $1.identifier }
@@ -83,6 +84,46 @@ struct CleanupPlannerHappyPathTests {
       entries: first.entries.reversed()
     )
     #expect(rebuilt == first)
+  }
+
+  @Test("Manifest retains a valid deferred execution precondition without rewriting its evidence")
+  func deferredExecutionPreconditionRetention() async throws {
+    let candidate = PlanningTestCandidate(
+      rawName: Array("candidate".utf8),
+      identity: FileIdentity(device: 42, inode: 2),
+      facts: satisfiedRuleFacts(activity: .unknown(.notCollected))
+    )
+    let definition = syntheticDefinition(
+      id: "devsift.test.planning-deferred-activity",
+      disposition: .reviewRequired,
+      reproducibility: .conditional,
+      activity: .mustBeInactiveOrDeferToAttestationWhenUnobserved
+    )
+    let scenario = try await makePlanningTestScenario(
+      candidates: [candidate],
+      rules: [SyntheticRule(definition: definition)]
+    )
+    let evaluation = try #require(scenario.classificationReport.evaluations.first)
+
+    let manifest = try CleanupPlanner().makeManifest(
+      scenario.manifestRequest(selections: [scenario.selection(for: candidate.path)])
+    )
+    let entry = try #require(manifest.entries.first)
+
+    #expect(evaluation.matchState == .matched)
+    #expect(evaluation.disposition == .reviewRequired)
+    #expect(
+      evaluation.deferredExecutionPreconditions
+        == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+    #expect(entry.findings == evaluation.findings.sorted { $0.identifier < $1.identifier })
+    #expect(entry.deferredExecutionPreconditions == evaluation.deferredExecutionPreconditions)
+    #expect(entry.deferredExecutionPreconditionsAreWellFormed)
+    #expect(entry.nonDeferredBlockingFindings.isEmpty)
+    #expect(
+      entry.findings.first { $0.identifier == AutomaticCheckIdentifier.activity }?.state
+        == .unknown(.notCollected)
+    )
   }
 
   @Test("An explicit empty selection produces a bound empty draft")

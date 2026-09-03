@@ -37,8 +37,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Read-only `devsift classify` text and JSON output plus native dashboard policy
   explanations. That classification increment added no planning or filesystem
   mutation action.
-- Classification JSON schema version 1, including a bounded `scanIntegrity`
-  projection with decimal-string counts and explicit uncertainty flags.
+- The initial classification JSON schema version 1, including a bounded
+  `scanIntegrity` projection with decimal-string counts and explicit uncertainty
+  flags. The deferred-precondition increment below supersedes it with version 2.
 - Shared fail-closed validation for classifier output, including reference-time
   and scan-report binding, path coverage, rule-specific evidence, diagnostics,
   and aggregate output bounds before either frontend renders a result.
@@ -68,7 +69,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   size observations.
 - Core-owned `RulePolicyProvenance`, binding the explainable-classification
   contract revision, catalog revision, and complete canonical rule-revision
-  roster to classifier reports and cleanup manifest contract version 2.
+  roster to classifier reports and, at that planning increment, cleanup
+  manifest contract version 2. The deferred-precondition increment below
+  supersedes that manifest contract with version 3.
   Presentation-only custom catalogs remain unprovenanced unless they opt into
   an explicit non-built-in catalog revision.
 - A Core-only `CleanupManifestDiffer` for deterministic, linear comparison of
@@ -76,8 +79,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   mismatches fail closed; exact raw paths identify added, removed, and modified
   entries, and all observed-total changes use overflow-safe directional
   `UInt64` values.
-- An internal CLI-owned `devsift.cleanup-manifest-review` JSON schema version 1
-  projection pinned to cleanup manifest contract version 2. Its explicit
+- The initial internal CLI-owned `devsift.cleanup-manifest-review` JSON schema
+  version 1 projection, pinned at that increment to cleanup manifest contract
+  version 2. The deferred-precondition increment below supersedes both with
+  review schema version 2 over source manifest version 3. Its explicit
   redacted and root-relative-exact profiles always omit filesystem identities,
   expose no decoder, and mark the result non-importable, non-approvable, and
   non-executable. The encoder has no CLI command or file-writing path; manifest
@@ -147,27 +152,48 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   entry, depth, or raw-name-byte limits remain structured unknowns. The pass
   reads no file contents and adds no mutation authority.
 - A primary-source npm activity capability review and fail-closed contract.
-  The current unprivileged product cannot prove subtree-wide inactivity or
-  hold that observation through a later operation, so empty process results,
-  quiet-tree sampling, advisory locks, kqueue, and FSEvents cannot produce
-  `inactive`. npm remains Protected. No process observation, execution,
-  filesystem mutation, policy revision, or schema change was added.
+  At that decision-review increment, the unprivileged product could not prove
+  subtree-wide inactivity or hold that observation through a later operation,
+  so empty process results, quiet-tree sampling, advisory locks, kqueue, and
+  FSEvents could not produce `inactive`; npm remained Protected. That increment
+  added no process observation, execution, filesystem mutation, policy
+  revision, or schema change. The deferred-precondition increment below later
+  changed the policy result without changing the unknown activity evidence.
+- A narrowly scoped deferred execution-precondition policy for future
+  recoverable npm quarantine. Runtime activity remains exactly
+  `unknown(.notCollected)`; when every non-deferred npm fact passes, the
+  classifier emits Review required plus
+  `requires-user-attestation-that-responsible-tool-is-stopped@1` instead of
+  claiming inactivity.
+  The planner and cleanup manifest preserve that condition, the differ treats
+  it as a first-class changed field, and revalidation reports it as awaiting an
+  execution precondition rather than eligible or rejected.
+- Process-local approval-review references and acknowledgements for every
+  pending execution precondition. Acknowledgement binds that the condition and
+  risk were reviewed; it is copyable, replayable review intent, explicitly not
+  an attestation that npm stopped, fresh activity evidence, or execution
+  authority.
+- Deferred-precondition disclosure in classification text and JSON, the
+  internal manifest-review JSON projection, and the native draft review. The
+  app says activity remains unobserved and provides no attestation or approval
+  action.
 
 ### Changed
 
-- Scan JSON v2 and classification JSON v1 retain their existing wire shapes.
-  Raw candidate timestamps and scan-time identities remain Core-only;
-  classification reflects the timestamp only through the existing age finding
-  state and generic explanation.
-- The CLI built-in catalog is now version 5. `devsift.cache.npm` advances to
-  rule revision 4 for its account-owned cache-namespace and bounded protected-
-  descendant requirements;
-  `devsift.swiftpm.build` remains at revision 2 and every other rule remains at
-  revision 1. The catalog
-  identifier and version come from the Core-owned catalog revision rather than
-  duplicate CLI constants; the classification JSON wire shape is unchanged.
-- The explainable-classification contract is now revision 2 for trusted-location
-  evidence interpretation. The npm-specific namespace and descendant facts
-  advance only that rule and the built-in catalog; scan JSON v2,
-  classification JSON v1, cleanup manifest contract v2, and manifest-review
-  JSON v1 remain unchanged.
+- The explainable-classification contract is revision 3, the built-in catalog
+  is version 6, and `devsift.cache.npm` is rule revision 5. SwiftPM remains at
+  revision 2 and every other built-in rule remains at revision 1.
+- Cleanup manifest is contract version 3, manifest diff is contract version 2,
+  approval is contract version 2, and revalidation is contract version 2.
+  Older in-memory manifests and approvals must be regenerated; there is no
+  import migration.
+- Scan JSON remains version 2. Classification JSON is version 2, and the
+  internal cleanup-manifest-review JSON is version 2 pinned to source manifest
+  version 3. Both projections always carry the sorted deferred-precondition
+  array. Older exports are not imported or migrated and must be regenerated.
+- The project selected the user-attested policy option only for a future
+  recoverable quarantine attempt. A later `CleanupQuarantineAuthorization`
+  must combine one exact approval with a fresh, explicit, attempt-scoped user
+  attestation and process-local single-attempt identity and consumption. A
+  wall-clock TTL is not freshness. Executor, quarantine, restore, purge, and
+  deletion APIs remain absent.

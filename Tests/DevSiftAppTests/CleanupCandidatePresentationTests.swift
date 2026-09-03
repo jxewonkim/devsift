@@ -59,6 +59,126 @@ struct CleanupCandidatePresentationTests {
         == Set([first.path, second.path].map(\.rawComponents)))
   }
 
+  @Test("A sole deferred activity observation remains explicit and selectable for review")
+  func deferredActivitySelection() async throws {
+    let rule = try revision("devsift.test.deferred-cache")
+    let candidate = item(rawComponents: [Array("deferred-cache".utf8)], inode: 12)
+    let activityFinding = finding(
+      "activity-requirement",
+      kind: .activity,
+      state: .unknown(.notCollected)
+    )
+    let classification = try classification(
+      evaluations: [
+        evaluation(
+          path: candidate.path,
+          rule: rule,
+          matchingRules: [rule],
+          matchState: .matched,
+          disposition: .reviewRequired,
+          reproducibility: .conditional,
+          findings: satisfiedEvidence() + [activityFinding],
+          deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+        )
+      ],
+      declaredRules: [rule]
+    )
+
+    let presentation = try await ScanPresentation.prepare(
+      report: completeReport(items: [candidate]),
+      classification: classification
+    )
+
+    let row = try #require(presentation.items.first)
+    #expect(row.policy.isMalformed == false)
+    #expect(row.cleanupSelection?.path == candidate.path)
+    #expect(row.policy.findings.contains(activityFinding))
+    #expect(
+      row.policy.evaluation?.deferredExecutionPreconditions
+        == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+  }
+
+  @Test("Deferred activity never excuses another blocker or a malformed policy mapping")
+  func deferredActivityFailClosedBoundaries() async throws {
+    let rule = try revision("devsift.test.deferred-cache")
+    let candidates = (0..<5).map { index in
+      item(rawComponents: [Array("deferred-\(index)".utf8)], inode: UInt64(70 + index))
+    }
+    let deferredActivity = finding(
+      "activity-requirement",
+      kind: .activity,
+      state: .unknown(.notCollected)
+    )
+    let wrongActivity = finding(
+      "activity-requirement",
+      kind: .activity,
+      state: .unknown(.permissionDenied)
+    )
+    let evaluations = [
+      evaluation(
+        path: candidates[0].path,
+        rule: rule,
+        matchingRules: [rule],
+        matchState: .matched,
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        findings: satisfiedEvidence() + [deferredActivity, blockingFinding()],
+        deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+      ),
+      evaluation(
+        path: candidates[1].path,
+        rule: rule,
+        matchingRules: [rule],
+        matchState: .matched,
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        findings: satisfiedEvidence() + [wrongActivity],
+        deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+      ),
+      evaluation(
+        path: candidates[2].path,
+        rule: rule,
+        matchingRules: [rule],
+        matchState: .matched,
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        findings: satisfiedEvidence() + [deferredActivity],
+        deferredExecutionPreconditions: [
+          .requiresUserAttestationThatResponsibleToolIsStopped,
+          .requiresUserAttestationThatResponsibleToolIsStopped,
+        ]
+      ),
+      evaluation(
+        path: candidates[3].path,
+        rule: rule,
+        matchingRules: [rule],
+        matchState: .matched,
+        disposition: .reclaimable,
+        reproducibility: .reproducible,
+        findings: satisfiedEvidence() + [deferredActivity],
+        deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+      ),
+      evaluation(
+        path: candidates[4].path,
+        rule: rule,
+        matchingRules: [rule],
+        matchState: .matched,
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        findings: satisfiedEvidence() + [deferredActivity]
+      ),
+    ]
+
+    let presentation = try await ScanPresentation.prepare(
+      report: completeReport(items: candidates),
+      classification: try classification(evaluations: evaluations, declaredRules: [rule])
+    )
+
+    #expect(presentation.items.allSatisfy { $0.policy.isMalformed })
+    #expect(presentation.items.allSatisfy { $0.cleanupSelection == nil })
+  }
+
   @Test("Protected, possible-match and conflicting decisions never become candidates")
   func protectedPolicyDecisions() async throws {
     let firstRule = try revision("devsift.test.first")
@@ -420,7 +540,8 @@ struct CleanupCandidatePresentationTests {
     matchState: RuleMatchState,
     disposition: RuleDisposition,
     reproducibility: RuleReproducibility,
-    findings: [RuleFinding]
+    findings: [RuleFinding],
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = []
   ) -> RuleEvaluation {
     RuleEvaluation(
       path: path,
@@ -432,6 +553,7 @@ struct CleanupCandidatePresentationTests {
       disposition: disposition,
       reproducibility: reproducibility,
       findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
       explanation: "Synthetic classification."
     )
   }

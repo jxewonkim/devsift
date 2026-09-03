@@ -12,6 +12,9 @@ struct CleanupManifestReviewView: View {
       VStack(alignment: .leading, spacing: 14) {
         reviewHeading
         safetyNotice
+        if review.hasDeferredExecutionPreconditions {
+          deferredExecutionNotice
+        }
         summary
         uncertaintySummary
         entryList
@@ -77,6 +80,32 @@ struct CleanupManifestReviewView: View {
     .overlay {
       RoundedRectangle(cornerRadius: 10)
         .stroke(Color.blue.opacity(0.25), lineWidth: 0.5)
+    }
+    .accessibilityElement(children: .combine)
+  }
+
+  private var deferredExecutionNotice: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .font(.title2)
+        .foregroundStyle(.orange)
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text(review.deferredExecutionNoticeTitle)
+          .font(.headline)
+        Text(review.deferredExecutionNoticeMessage)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10)
+        .stroke(Color.orange.opacity(0.3), lineWidth: 0.5)
     }
     .accessibilityElement(children: .combine)
   }
@@ -249,7 +278,34 @@ private struct CleanupManifestReviewEntryView: View {
 
         Divider()
 
-        Text("Satisfied policy evidence")
+        if !entry.deferredExecutionPreconditions.isEmpty {
+          Text("Pending execution requirements")
+            .font(.caption.weight(.semibold))
+
+          ForEach(entry.deferredExecutionPreconditions, id: \.identifier) { precondition in
+            HStack(alignment: .top, spacing: 7) {
+              Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+              VStack(alignment: .leading, spacing: 2) {
+                Text(precondition.title)
+                  .font(.caption.weight(.medium))
+                Text(precondition.identifierAndRevisionLabel)
+                  .font(.caption2.monospaced())
+                  .foregroundStyle(.secondary)
+                Text(precondition.explanation)
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+            }
+            .accessibilityElement(children: .combine)
+          }
+
+          Divider()
+        }
+
+        Text("Policy findings")
           .font(.caption.weight(.semibold))
 
         ForEach(entry.findings, id: \.identifier) { finding in

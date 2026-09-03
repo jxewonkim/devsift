@@ -428,7 +428,7 @@ private struct ClassifyingView: View {
         .accessibilityLabel("Analyzing read-only storage policies")
 
       Label(
-        "Missing ownership, age, activity, or location evidence stays protected.",
+        "Missing evidence stays protected. A versioned rule may expose deliberately unobserved activity only as a pending execution requirement.",
         systemImage: "lock.shield"
       )
       .font(.callout)

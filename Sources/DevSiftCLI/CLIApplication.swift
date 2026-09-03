@@ -401,8 +401,9 @@ enum CLIHelp {
 
     The directory is scanned first, then each retained top-level item receives
     one deterministic rule decision. Paths in output are root-relative. Missing,
-    failed, conflicting, or incomplete evidence always remains protected. A
-    classification derived from a partial scan exits with status 2.
+    failed, conflicting, or incomplete evidence remains protected. A versioned
+    rule may expose deliberately unobserved activity only as a pending execution
+    precondition. A classification derived from a partial scan exits with status 2.
 
     This command reads filesystem metadata only. A classification is not deletion
     authorization, and this build cannot delete, move, or modify files.

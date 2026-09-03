@@ -93,16 +93,17 @@ for complete items. Summaries also retain their own scan-time identity, and a
 bounded identity-bound observer can now verify the metadata of an exact
 `workspace-state.json` marker inside an exact SwiftPM `.build` candidate. This
 advances that rule to revision 2. The observer also establishes trusted location
-for exact uv, npm, and Homebrew default containers, advancing the classification
-contract to revision 2, and recognizes the supported npm cacache layout from
+for exact uv, npm, and Homebrew default containers, which first advanced the
+classification contract to revision 2, and recognizes the supported npm cacache layout from
 exact `content-v2` and `index-v5` directory children. That npm rule is now
-revision 4 and the built-in catalog is version 5 after adding its distinct
-`account-owned-cache-namespace` fact: both the held selected root and held
-`_cacache` directory must carry the current account's exact POSIX UID. A
+revision 5 and the built-in catalog is version 6. Its structural evidence still
+includes the distinct `account-owned-cache-namespace` fact: both the held
+selected root and held `_cacache` directory must carry the current account's
+exact POSIX UID. A
 bounded descriptor-relative traversal now also collects npm protected-
 descendant evidence against the pinned cacache grammar and prior scan count.
-The classifier contract stays at revision 2 because common evidence
-interpretation is unchanged.
+The classifier contract is now revision 3 because the narrow npm activity
+policy adds a first-class deferred execution precondition.
 
 The scan-time identity only binds this read-only reobservation; it is not cleanup
 or deletion authority. The npm-specific namespace check is not generic tool
@@ -112,10 +113,12 @@ and treats any unexpected path or kind, non-empty `tmp`, link, special node,
 different-device entry, different-account owner, or unstable observation as
 blocking or unknown. Other rules retain unknown tool ownership and descendant
 evidence. npm activity, generated markers outside SwiftPM and npm, and location
-for other rules remain uncollected, so real candidates stay `Protected`. The
-later activity capability review confirmed that the current unprivileged
-product cannot safely turn a negative process or quiet-tree observation into
-`inactive`; see the [activity safety contract](ACTIVITY.md).
+for other rules remain uncollected. npm activity stays exactly
+`unknown(.notCollected)`; only an otherwise valid npm result can become Review
+required with the versioned pending attestation condition. The activity
+capability review confirmed that the current unprivileged product cannot safely
+turn a negative process or quiet-tree observation into `inactive`; see the
+[activity safety contract](ACTIVITY.md).
 
 Implemented commit sequence:
 
@@ -167,9 +170,10 @@ now adds explicit current-session candidate selection and an identity-free,
 read-only in-memory draft review. A Core-only increment now prepares an opaque
 review session from one exact source-bound planning request, binds its source
 root and manifest, and records intent only after confirming every session-owned
-entry. There is still no CLI planning command, manifest persistence, import,
-user-facing export, frontend diff or approval, execution, execution-time
-filesystem revalidation, or mutation.
+entry and acknowledging every pending condition for review. The acknowledgement
+is not an activity attestation. There is still no CLI planning command,
+manifest persistence, import, user-facing export, frontend diff or approval,
+authorization, execution, execution-time filesystem revalidation, or mutation.
 
 Implemented first commit: `feat(planner): create immutable cleanup manifests`.
 
@@ -187,20 +191,27 @@ Implemented next commits: `feat(rules): bind policy provenance` and
 `feat(planner): diff compatible manifests`.
 
 - Bind the classification contract revision, catalog revision, and complete
-  rule-revision roster to reports and manifest contract version 2.
+  rule-revision roster to reports and, in that increment, manifest contract
+  version 2. The current deferred-precondition milestone advances the manifest
+  to version 3.
 - Keep legacy custom catalogs presentation-only unless they opt into an
   explicit non-built-in catalog revision.
 - Compare only manifests with the same supported contract, exact provenance,
   and expected root identity; every incompatibility fails before entry output.
 - Merge by exact raw path in linear time, compare every stored entry field, and
   represent observed-total changes with full-width directional quantities.
+- Manifest diff contract version 2 now treats deferred execution preconditions
+  as a first-class changed field.
 - Keep user-facing privacy-aware export outside these Core increments and
   frontend review as a separate increment.
 
 Implemented next commit: `feat(cli): add privacy-aware manifest review projection`.
 
-- Pin the CLI-owned `devsift.cleanup-manifest-review` schema version 1 to Core
-  cleanup manifest contract version 2 without making Core models `Codable`.
+- The original increment pinned CLI-owned
+  `devsift.cleanup-manifest-review` schema version 1 to Core cleanup manifest
+  contract version 2 without making Core models `Codable`. The current schema
+  is version 2 pinned to source manifest version 3 and always projects the
+  deferred-precondition array.
 - Require an explicit redacted or root-relative-exact profile, always omit
   filesystem identities, and make the lossy document non-importable,
   non-approvable, and non-executable.
@@ -230,8 +241,10 @@ Implemented next commit: `feat(app): present in-memory cleanup draft review`.
   that shows all seven observed size and uncertainty quantities. Keep the flow
   in memory with no persistence, import, export, diff, approval, execution,
   execution-time filesystem revalidation, or filesystem access.
-- Present an honest zero-candidate state. Current real classifications can all
-  remain Protected while required runtime facts are unavailable.
+- Present an honest zero-candidate state. Current real classifications can
+  remain Protected while non-deferred runtime facts are unavailable; an exact
+  npm result may now reach Review required with an explicitly unobserved
+  pending condition.
 
 Implemented next commit: `feat(approval): bind intent to reviewed manifests`.
 
@@ -249,9 +262,10 @@ Implemented next commit: `feat(approval): bind intent to reviewed manifests`.
 - Perform only bounded, cancellation-aware value validation. Approval performs
   no filesystem I/O or mutation and establishes neither freshness,
   authenticity, nor execution authority.
-- Retain the exact source root and manifest in the approval. Require any future
-  executor and its inline revalidation to consume only that approval rather
-  than a separately supplied root or unapproved manifest.
+- Retain the exact source root and manifest in the approval. At that increment,
+  reserve later authority derivation to that approval rather than a separately
+  supplied root or unapproved manifest; the current design adds a distinct
+  `CleanupQuarantineAuthorization` before any executor.
 
 The recorded identity is comparison evidence, not mutation authority. A plan
 must not convert an observer's successful identity or marker check into
@@ -260,26 +274,34 @@ manifest deliberately has no `Codable`, import, or frontend-owned wire
 contract. The separate CLI review projection is a lossy presentation document,
 not serialized Core state. The app review is a separate ephemeral presentation,
 not a wire format or approval input. The Core approval review session retains
-the exact planning request, root, manifest, and process-local entry bindings.
-The final approval drops the larger source request and retains the root and
-manifest. It is accepted by the read-only revalidator but grants no execution
-authority; a future executor requires its own inline revalidation boundary.
+the exact planning request, root, manifest, and process-local entry and pending-
+condition bindings. The final approval drops the larger source request and
+retains the root, manifest, and review acknowledgements. It is accepted by the
+read-only revalidator but grants no execution authority; a future authorizer
+must add fresh attempt-scoped attestation and single-consumption identity before
+an executor can receive anything.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
 produce a partial diff, and a substituted review value must invalidate approval.
 A stale candidate must be rejected by future execution-time revalidation. The
 review projection must not expose filesystem identities or create import,
-approval, execution, or user-facing export authority. App selection must default
-to zero, remain independent from row focus, reuse the exact source request and
-report, and suppress cancelled or superseded planning results without filesystem
-access. Approval must originate from one opaque source-bound review session,
-cover its exact root and complete manifest, reject foreign-session confirmations,
-fail atomically, remain in memory, and add no filesystem or execution capability.
+approval, attestation, authorization, execution, or user-facing export
+authority. App selection must default to zero, remain independent from row
+focus, reuse the exact source request and report, and suppress cancelled or
+superseded planning results without filesystem access. Approval must originate
+from one opaque source-bound review session, cover its exact root, complete
+manifest, and pending-condition acknowledgement set, reject foreign-session
+values, fail atomically, remain in memory, and add no filesystem or execution
+capability.
 
 Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 
 ## Phase 7: recoverable cleanup
+
+Each implemented-increment block below is a historical snapshot of the
+contract at that increment. The seventh block records the current contracts and
+supersedes the earlier version numbers and npm disposition statements.
 
 Implemented first commit: `feat(revalidation): reobserve approved cleanup intent`.
 
@@ -373,30 +395,79 @@ Implemented sixth increment:
   lockless, libproc is private and cannot supply an exhaustive negative proof,
   and Endpoint Security requires a restricted entitlement and a materially
   different distribution and privacy model.
-- Keep npm activity unknown and every real npm candidate `Protected`. Add no
-  runtime process inspection, filesystem access, mutation, public capability,
-  or schema change. Keep npm at rule revision 4, the built-in catalog at
-  revision 5, the classifier contract at revision 2, scan JSON v2,
-  classification JSON v1, cleanup manifest contract v2, manifest-review JSON
-  v1, approval contract v1, and revalidation contract v1.
-- Require a separate product and security decision before execution work:
+- At that historical decision-review increment, keep npm activity unknown and
+  every real npm candidate `Protected`. Add no runtime process inspection,
+  filesystem access, mutation, public capability, or schema change. At that
+  point npm was rule revision 4, the built-in catalog was revision 5, the
+  classifier contract was revision 2, scan JSON was v2, classification JSON was
+  v1, cleanup manifest was v2, manifest-review JSON was v1, approval was v1,
+  and revalidation was v1.
+- Require a separate product and security decision, subsequently completed,
+  before execution work:
   either a privileged authorization gate, an explicit user-attested policy for
   atomic recoverable quarantine that makes no inactivity claim, or an upstream
   cooperative lock. A positive-only conflict detector may harden any option,
   but no-match, permission, race, or resource-limit results stay unknown.
 
-Decision gate before later Phase 7 execution work:
+Implemented seventh increment:
+`feat(policy): defer unobserved npm activity for recoverable quarantine`.
 
-- Select and version one activity-policy path. The default remains no
-  execution while the decision is unresolved.
-- Specify the approval semantics, distribution/privacy impact, and behavior
-  when activity is positive, unavailable, or changes around the operation.
+- Select option 2 only for a future recoverable npm quarantine attempt.
+  Runtime activity remains literally `unknown(.notCollected)`; the classifier
+  does not observe or claim inactivity.
+- Add `RuleActivityRequirement.mustBeInactiveOrDeferToAttestationWhenUnobserved`
+  and the policy-revision-1 pending condition
+  `requiresUserAttestationThatResponsibleToolIsStopped`. Permit only one exact
+  activity `unknown(.notCollected)` to be deferred on an otherwise valid,
+  matched, Review-required npm result. Active use, another unknown reason,
+  duplicates, or another blocker remains Protected.
+- Advance the classifier contract to revision 3, npm to rule revision 5, and
+  the built-in catalog to version 6. Scan JSON remains version 2;
+  classification JSON advances to version 2 and always includes sorted
+  `deferredExecutionPreconditions`.
+- Carry the pending condition through cleanup manifest contract version 3.
+  Manifest diff contract version 2 compares it as a first-class changed field.
+  Internal manifest-review JSON version 2 is pinned to source manifest version
+  3 and always projects the condition identifier and decimal-string policy
+  revision in both privacy profiles.
+- Advance approval to contract version 2. Review sessions expose exact pending-
+  condition references, `acknowledgePreconditionForReview` creates
+  `CleanupApprovalPreconditionReviewAcknowledgement`, and approval retains the
+  canonical `preconditionReviewAcknowledgements`. This binds only that the
+  condition and risk were reviewed; it is not the user's statement that npm
+  stopped, freshness, or execution authority.
+- Advance revalidation to contract version 2. Revalidate the unchanged pending
+  policy and report an otherwise valid npm entry as
+  `awaitingExecutionPreconditions`; expose
+  `hasPendingExecutionPreconditions` without calling the entry eligible or
+  authorized.
+- Let the native app select the exact canonical deferred result and display
+  “Activity remains unobserved,” fresh-revalidation and separate attempt-
+  authorization language. Add no approval, acknowledgement, or attestation
+  control.
+- Regenerate older manifests, approvals, and exports instead of importing or
+  migrating them. Add no wall-clock TTL freshness rule and no executor,
+  quarantine, restore, purge, or deletion implementation.
+
+Current boundary before later Phase 7 execution work:
+
+- The activity-policy choice is complete only for recoverable quarantine; the
+  current milestone still performs no execution.
+- Preserve the distinction between review acknowledgement, explicit user
+  attestation, and execution authorization. Activity that is positive or
+  unavailable for any non-deferred reason remains blocking.
 - Complete a focused threat model and security review before adding mutation.
 
-Later Phase 7 work, after that activity-policy decision and executor design:
+Later Phase 7 work, after a separate authorization and executor design:
 
-- Accept only `CleanupApproval` and reopen the root stored within it, never a
-  separately supplied root, draft manifest, diff, or presentation.
+- Create `CleanupQuarantineAuthorization` only from one exact
+  `CleanupApproval`, a fresh explicit user attestation scoped to the exact
+  attempt, and process-local single-attempt identity and consumption. Do not
+  accept a review acknowledgement as the attestation or use wall-clock TTL as
+  freshness.
+- Let the executor accept only `CleanupQuarantineAuthorization` and reopen the
+  root bound through it, never a bare approval, separately supplied root, draft
+  manifest, diff, revalidation report, or presentation.
 - Revalidate identity, containment, activity, rule version, and every required
   policy fact within one non-escaping descriptor-held operation scope.
 - Validate and hold a trusted same-device quarantine parent, then atomically

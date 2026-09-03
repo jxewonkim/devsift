@@ -5,13 +5,15 @@ import Foundation
 /// Only `CleanupApprover` can issue this value. It remains copyable and does
 /// not authenticate its caller, provide single-use semantics, prove human
 /// review, or grant filesystem authority. Fresh execution-time revalidation is
-/// always required.
+/// always required. Stored precondition review acknowledgements are replayable
+/// review intent, not proof that a pending condition is currently satisfied.
 public struct CleanupApproval: Sendable {
-  public static let currentContractVersion: UInt32 = 1
+  public static let currentContractVersion: UInt32 = 2
 
   public let contractVersion: UInt32
   public let sourceRoot: URL
   public let reviewedManifest: CleanupManifest
+  public let preconditionReviewAcknowledgements: [CleanupApprovalPreconditionReviewAcknowledgement]
 
   public var requiresExecutionRevalidation: Bool { true }
   public var isSingleUse: Bool { false }
@@ -21,11 +23,13 @@ public struct CleanupApproval: Sendable {
   fileprivate init(
     contractVersion: UInt32 = CleanupApproval.currentContractVersion,
     sourceRoot: URL,
-    reviewedManifest: CleanupManifest
+    reviewedManifest: CleanupManifest,
+    preconditionReviewAcknowledgements: [CleanupApprovalPreconditionReviewAcknowledgement]
   ) {
     self.contractVersion = contractVersion
     self.sourceRoot = sourceRoot
     self.reviewedManifest = reviewedManifest
+    self.preconditionReviewAcknowledgements = preconditionReviewAcknowledgements
   }
 }
 
@@ -82,6 +86,10 @@ public struct CleanupApprover: CleanupApproving, Sendable {
       throw CleanupApprovalError.emptyManifest
     }
     try validateConfirmations(request.confirmations, in: session)
+    try validatePreconditionReviewAcknowledgements(
+      request.preconditionReviewAcknowledgements,
+      in: session
+    )
     try Task.checkCancellation()
 
     let regeneratedManifest = try CleanupPlanner().makeManifest(session.sourceRequest)
@@ -92,7 +100,8 @@ public struct CleanupApprover: CleanupApproving, Sendable {
 
     let approval = CleanupApproval(
       sourceRoot: sourceRoot,
-      reviewedManifest: regeneratedManifest
+      reviewedManifest: regeneratedManifest,
+      preconditionReviewAcknowledgements: request.preconditionReviewAcknowledgements
     )
     try Task.checkCancellation()
     return approval
@@ -113,6 +122,25 @@ public struct CleanupApprover: CleanupApproving, Sendable {
       try Task.checkCancellation()
       guard session.matches(confirmations[index], at: index) else {
         throw CleanupApprovalError.confirmationMismatch(index: index)
+      }
+    }
+  }
+
+  private func validatePreconditionReviewAcknowledgements(
+    _ acknowledgements: [CleanupApprovalPreconditionReviewAcknowledgement],
+    in session: CleanupApprovalReviewSession
+  ) throws {
+    guard acknowledgements.count == session.preconditionReferences.count else {
+      throw CleanupApprovalError.preconditionReviewAcknowledgementCountMismatch(
+        expected: session.preconditionReferences.count,
+        actual: acknowledgements.count
+      )
+    }
+
+    for index in session.preconditionReferences.indices {
+      try Task.checkCancellation()
+      guard session.matches(acknowledgements[index], at: index) else {
+        throw CleanupApprovalError.preconditionReviewAcknowledgementMismatch(index: index)
       }
     }
   }

@@ -5,7 +5,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
   /// automatic findings, evidence interpretation, or validation changes.
   public static let classificationContractRevision = RuleRevision(
     identifier: makeRuleIdentifier("devsift.classification.explainable"),
-    version: makeRuleVersion(2)
+    version: makeRuleVersion(3)
   )
 
   private let rules: [any ExplainableRule]
@@ -230,10 +230,20 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     )
     findings.append(contentsOf: integrityFindings(observation.integrity))
 
-    let hasBlockingFinding = findings.contains { finding in
-      finding.state != .satisfied
-    }
-    if hasBlockingFinding {
+    let deferredExecutionPreconditions = deferredExecutionPreconditions(
+      requirement: definition.activityRequirement,
+      observation: observation.facts.activity
+    )
+    let provisionalEvaluation = makeEvaluation(
+      definition: definition,
+      observation: observation,
+      state: .matched,
+      disposition: definition.eligibleDisposition,
+      findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
+      explanation: "Pending classification decision."
+    )
+    if !provisionalEvaluation.nonDeferredBlockingFindings.isEmpty {
       return makeEvaluation(
         definition: definition,
         observation: observation,
@@ -253,7 +263,9 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
         "All required evidence was satisfied; the item is classified as reclaimable."
     case .reviewRequired:
       dispositionExplanation =
-        "All required evidence was satisfied, but this rule requires explicit review."
+        deferredExecutionPreconditions.isEmpty
+        ? "All required evidence was satisfied, but this rule requires explicit review."
+        : "All non-deferred evidence was satisfied. Activity remains unobserved, so review may continue only with the recorded execution precondition; this does not prove inactivity or grant execution authority."
     case .protected:
       dispositionExplanation = "This rule protects the item."
     }
@@ -264,6 +276,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
       state: .matched,
       disposition: disposition,
       findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
       explanation: dispositionExplanation
     )
   }
@@ -371,6 +384,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     state: RuleMatchState,
     disposition: RuleDisposition,
     findings: [RuleFinding],
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
     explanation: String
   ) -> RuleEvaluation {
     RuleEvaluation(
@@ -383,6 +397,7 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
       disposition: disposition,
       reproducibility: definition.reproducibility,
       findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
       explanation: explanation
     )
   }
@@ -551,7 +566,52 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
           explanation: "The responsible tool is known to be inactive."
         )
       }
+    case .mustBeInactiveOrDeferToAttestationWhenUnobserved:
+      switch observation {
+      case .unknown(.notCollected):
+        return RuleFinding(
+          identifier: AutomaticCheckIdentifier.activity,
+          kind: .activity,
+          state: .unknown(.notCollected),
+          explanation:
+            "Activity was not observed. Review can continue only with a pending user-attestation requirement; this is not inactivity evidence."
+        )
+      case .unknown(let reason):
+        return RuleFinding(
+          identifier: AutomaticCheckIdentifier.activity,
+          kind: .activity,
+          state: .unknown(reason),
+          explanation:
+            "Activity information failed or was unavailable in a way this policy does not defer."
+        )
+      case .known(.active):
+        return RuleFinding(
+          identifier: AutomaticCheckIdentifier.activity,
+          kind: .activity,
+          state: .failed,
+          explanation: "The responsible tool is active and user confirmation cannot override it."
+        )
+      case .known(.inactive):
+        return RuleFinding(
+          identifier: AutomaticCheckIdentifier.activity,
+          kind: .activity,
+          state: .satisfied,
+          explanation: "The responsible tool is known to be inactive."
+        )
+      }
     }
+  }
+
+  private func deferredExecutionPreconditions(
+    requirement: RuleActivityRequirement,
+    observation: RuleObserved<RuleActivityState>
+  ) -> [RuleDeferredExecutionPrecondition] {
+    guard requirement == .mustBeInactiveOrDeferToAttestationWhenUnobserved,
+      observation == .unknown(.notCollected)
+    else {
+      return []
+    }
+    return [.requiresUserAttestationThatResponsibleToolIsStopped]
   }
 
   private func integrityFindings(_ integrity: RuleScanIntegrity) -> [RuleFinding] {
@@ -753,6 +813,13 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
         }
         guard definition.activityRequirement == .mustBeInactive else {
           throw RuleCatalogValidationError.reclaimableRuleRequiresInactiveCheck(identifier)
+        }
+      }
+      if definition.activityRequirement == .mustBeInactiveOrDeferToAttestationWhenUnobserved {
+        guard definition.eligibleDisposition == .reviewRequired else {
+          throw RuleCatalogValidationError.deferredActivityRequiresReviewDisposition(
+            identifier
+          )
         }
       }
     }

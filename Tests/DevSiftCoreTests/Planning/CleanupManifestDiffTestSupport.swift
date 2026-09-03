@@ -46,6 +46,7 @@ func diffEntry(
       explanation: "Diff evidence is satisfied."
     )
   ],
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
   observedLogicalBytes: UInt64 = 10,
   observedAllocatedBytes: UInt64 = 8,
   observedHardLinkExclusiveAllocatedBytes: UInt64 = 6,
@@ -79,6 +80,7 @@ func diffEntry(
     responsibleTool: responsibleTool,
     classificationExplanation: classificationExplanation,
     findings: findings,
+    deferredExecutionPreconditions: deferredExecutionPreconditions,
     size: CleanupManifestSizeObservation(summary: candidate.summary)
   )
 }

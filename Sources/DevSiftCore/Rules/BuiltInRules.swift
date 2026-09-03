@@ -4,7 +4,7 @@ public enum BuiltInRuleCatalog {
   /// revision changes.
   public static let revision = RuleRevision(
     identifier: makeRuleIdentifier("devsift.builtin-rules"),
-    version: makeRuleVersion(5)
+    version: makeRuleVersion(6)
   )
 
   public static let rules: [any ExplainableRule] = [
@@ -25,7 +25,8 @@ public enum BuiltInRuleCatalog {
         tool: "npm",
         recognition: "The candidate raw name must be exactly `_cacache`.",
         disposition: .reviewRequired,
-        version: 4,
+        version: 5,
+        activityRequirement: .mustBeInactiveOrDeferToAttestationWhenUnobserved,
         usesAccountOwnedCacheNamespaceCheck: true,
         generatedMarkerExplanation:
           "Exact raw `content-v2` and `index-v5` directory children form the supported cacache layout signature.",
@@ -88,6 +89,7 @@ public enum BuiltInRuleCatalog {
     disposition: RuleDisposition,
     version: UInt32 = 1,
     minimumAgeSeconds: UInt64 = 7 * 24 * 60 * 60,
+    activityRequirement: RuleActivityRequirement = .mustBeInactive,
     includesPackageManifestCheck: Bool = false,
     usesAccountOwnedCacheNamespaceCheck: Bool = false,
     generatedMarkerExplanation: String =
@@ -156,7 +158,7 @@ public enum BuiltInRuleCatalog {
       eligibleDisposition: disposition,
       reproducibility: disposition == .reclaimable ? .reproducible : .conditional,
       ageRequirement: .minimumSeconds(minimumAgeSeconds),
-      activityRequirement: .mustBeInactive,
+      activityRequirement: activityRequirement,
       checks: checks
     )
   }

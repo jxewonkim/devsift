@@ -8,8 +8,8 @@ enum CleanupManifestReviewPrivacyProfile: String, CaseIterable, Hashable, Sendab
 
 enum CleanupManifestReviewOutputContract {
   static let schema = "devsift.cleanup-manifest-review"
-  static let schemaVersion = 1
-  static let supportedSourceManifestContractVersion: UInt32 = 2
+  static let schemaVersion = 2
+  static let supportedSourceManifestContractVersion: UInt32 = 3
   static let maximumEncodedBytes = 128 * 1_024 * 1_024
 }
 
@@ -29,6 +29,7 @@ enum CleanupManifestReviewEntryIssue: Equatable, Sendable {
   case tooManyFindings(maximum: Int, actual: Int)
   case findingsOutOfOrder
   case duplicateFindingIdentifier
+  case invalidDeferredExecutionPreconditions
   case unsatisfiedFinding
   case emptyMetadata(RuleEvaluationMetadataField)
   case emptyFindingExplanation
@@ -74,7 +75,7 @@ struct CleanupManifestReviewJSONEncoder: Sendable {
     try Task.checkCancellation()
     try preflightEncodedSize(manifest: manifest, privacyProfile: privacyProfile)
 
-    let document = try CleanupManifestReviewJSONDocumentV1(
+    let document = try CleanupManifestReviewJSONDocumentV2(
       manifest: manifest,
       privacyProfile: privacyProfile
     )
@@ -103,7 +104,7 @@ struct CleanupManifestReviewJSONEncoder: Sendable {
     privacyProfile: CleanupManifestReviewPrivacyProfile
   ) throws {
     let encoder = makeEncoder()
-    let envelope = try CleanupManifestReviewJSONDocumentV1(
+    let envelope = try CleanupManifestReviewJSONDocumentV2(
       manifest: manifest,
       privacyProfile: privacyProfile,
       projectedEntries: []
@@ -112,7 +113,7 @@ struct CleanupManifestReviewJSONEncoder: Sendable {
 
     for (index, entry) in manifest.entries.enumerated() {
       try Task.checkCancellation()
-      let projectedEntry = CleanupManifestReviewJSONEntryV1(
+      let projectedEntry = CleanupManifestReviewJSONEntryV2(
         entry: entry,
         index: index,
         privacyProfile: privacyProfile
@@ -317,6 +318,14 @@ enum CleanupManifestReviewValidator {
         to: reportTextBytes
       )
 
+      guard entry.deferredExecutionPreconditionsAreWellFormed else {
+        throw CleanupManifestReviewExportError.invalidEntry(
+          index: index,
+          issue: .invalidDeferredExecutionPreconditions
+        )
+      }
+      let nonDeferredBlockingFindings = entry.nonDeferredBlockingFindings
+
       var previousFindingIdentifier: CheckIdentifier?
       var findingsByIdentifier: [CheckIdentifier: RuleFinding] = [:]
       for finding in entry.findings {
@@ -338,7 +347,7 @@ enum CleanupManifestReviewValidator {
         previousFindingIdentifier = finding.identifier
         findingsByIdentifier[finding.identifier] = finding
 
-        guard finding.state == .satisfied else {
+        guard !nonDeferredBlockingFindings.contains(finding) else {
           throw CleanupManifestReviewExportError.invalidEntry(
             index: index,
             issue: .unsatisfiedFinding
@@ -577,7 +586,7 @@ private struct MutableReviewTotals {
   }
 }
 
-private struct CleanupManifestReviewJSONDocumentV1: Encodable, Sendable {
+private struct CleanupManifestReviewJSONDocumentV2: Encodable, Sendable {
   let schema = CleanupManifestReviewOutputContract.schema
   let schemaVersion = CleanupManifestReviewOutputContract.schemaVersion
   let documentPurpose = "review-only"
@@ -593,26 +602,26 @@ private struct CleanupManifestReviewJSONDocumentV1: Encodable, Sendable {
   let policy: CleanupManifestReviewJSONPolicyV1
   let classificationReferenceUnixSeconds: String?
   let summary: CleanupManifestReviewJSONSummaryV1
-  let entries: [CleanupManifestReviewJSONEntryV1]
+  let entries: [CleanupManifestReviewJSONEntryV2]
 
   init(
     manifest: CleanupManifest,
     privacyProfile: CleanupManifestReviewPrivacyProfile,
-    projectedEntries: [CleanupManifestReviewJSONEntryV1]? = nil
+    projectedEntries: [CleanupManifestReviewJSONEntryV2]? = nil
   ) throws {
     try Task.checkCancellation()
     sourceManifestContractVersion = String(manifest.contractVersion)
     self.privacyProfile = privacyProfile.rawValue
     disclosures = CleanupManifestReviewJSONDisclosuresV1(privacyProfile: privacyProfile)
     var selectedRuleRevisions = Set<RuleRevision>()
-    var generatedEntries: [CleanupManifestReviewJSONEntryV1] = []
+    var generatedEntries: [CleanupManifestReviewJSONEntryV2] = []
     generatedEntries.reserveCapacity(projectedEntries == nil ? manifest.entries.count : 0)
     for (index, entry) in manifest.entries.enumerated() {
       try Task.checkCancellation()
       selectedRuleRevisions.insert(entry.ruleRevision)
       if projectedEntries == nil {
         generatedEntries.append(
-          CleanupManifestReviewJSONEntryV1(
+          CleanupManifestReviewJSONEntryV2(
             entry: entry,
             index: index,
             privacyProfile: privacyProfile
@@ -757,13 +766,14 @@ private struct CleanupManifestReviewJSONSummaryV1: Encodable, Sendable {
   }
 }
 
-private struct CleanupManifestReviewJSONEntryV1: Encodable, Sendable {
+private struct CleanupManifestReviewJSONEntryV2: Encodable, Sendable {
   let candidate: String
   let path: CleanupManifestReviewJSONPathV1?
   let expectedKind: String
   let ruleRevision: CleanupManifestReviewJSONRuleRevisionV1
   let disposition: String
   let reproducibility: String
+  let deferredExecutionPreconditions: [CleanupManifestReviewJSONDeferredExecutionPreconditionV1]
   let displayName: String?
   let responsibleTool: String?
   let classificationExplanation: String?
@@ -783,6 +793,9 @@ private struct CleanupManifestReviewJSONEntryV1: Encodable, Sendable {
     ruleRevision = CleanupManifestReviewJSONRuleRevisionV1(revision: entry.ruleRevision)
     disposition = entry.disposition.rawValue
     reproducibility = entry.reproducibility.rawValue
+    deferredExecutionPreconditions = entry.deferredExecutionPreconditions.map(
+      CleanupManifestReviewJSONDeferredExecutionPreconditionV1.init
+    )
     displayName =
       privacyProfile == .rootRelativeExact ? TerminalText.escaped(entry.displayName) : nil
     responsibleTool =
@@ -812,11 +825,29 @@ private struct CleanupManifestReviewJSONEntryV1: Encodable, Sendable {
     case ruleRevision
     case disposition
     case reproducibility
+    case deferredExecutionPreconditions
     case displayName
     case responsibleTool
     case classificationExplanation
     case findings
     case size
+  }
+}
+
+private struct CleanupManifestReviewJSONDeferredExecutionPreconditionV1:
+  Encodable, Sendable
+{
+  let identifier: String
+  let policyRevision: String
+
+  init(precondition: RuleDeferredExecutionPrecondition) {
+    identifier = precondition.rawValue
+    policyRevision = String(precondition.policyRevision)
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case identifier
+    case policyRevision
   }
 }
 

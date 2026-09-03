@@ -160,6 +160,9 @@ struct PolicyDecisionPresentation: Hashable, Sendable {
     guard !evaluation.findings.isEmpty else {
       return .malformed("The policy evaluation contains no structured findings.")
     }
+    guard evaluation.deferredExecutionPreconditionsAreWellFormed else {
+      return .malformed("The policy evaluation contains invalid deferred execution requirements.")
+    }
 
     switch evaluation.matchState {
     case .matched:
@@ -175,8 +178,10 @@ struct PolicyDecisionPresentation: Hashable, Sendable {
           "A matched policy evaluation did not name exactly the same single rule revision."
         )
       }
-      guard evaluation.findings.allSatisfy(\.isSatisfied) else {
-        return .malformed("A matched policy evaluation contains an unsatisfied finding.")
+      guard evaluation.nonDeferredBlockingFindings.isEmpty else {
+        return .malformed(
+          "A matched policy evaluation contains an unsatisfied finding that is not deferred."
+        )
       }
       guard
         evaluation.findings.contains(where: {
@@ -454,7 +459,8 @@ struct ScanPresentation: Equatable, Sendable {
       evaluation.matchingRules == [rule],
       policyProvenance.ruleRevisions.contains(rule),
       !evaluation.findings.isEmpty,
-      evaluation.findings.allSatisfy(\.isSatisfied),
+      evaluation.deferredExecutionPreconditionsAreWellFormed,
+      evaluation.nonDeferredBlockingFindings.isEmpty,
       evaluation.findings.contains(where: {
         $0.identifier.rawValue == "identity-matches-scan"
           && $0.state == .satisfied

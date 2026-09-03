@@ -33,6 +33,9 @@ DevSift is designed to work locally and reveal as little as possible.
   invoke package managers, inspect processes, or make network calls. The
   activity capability review changes no runtime collection: no PID, command,
   executable path, open-file path, or system event is collected or retained.
+  npm activity remains literally `unknown(.notCollected)`; a deferred
+  attestation requirement is fixed policy metadata, not newly collected user or
+  process data.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
   absolute root URL, and is not exposed by the CLI. The native app can invoke
@@ -45,8 +48,9 @@ DevSift is designed to work locally and reveal as little as possible.
 - Core approval review sessions retain one exact source-bound planning request,
   including its absolute root URL, complete scan and classification reports,
   source binding, and selections, together with the Core-built manifest and
-  process-local entry references. A final approval itself retains the exact
-  root and manifest, but not that larger source request. These values are
+  process-local entry and pending-condition references. A final approval itself
+  retains the exact root, manifest, and pending-condition review
+  acknowledgements, but not that larger source request. These values are
   non-`Codable`, perform no filesystem or network I/O, and are not invoked by
   either frontend. No session or approval is persisted, logged, uploaded,
   imported, or exported. Non-`Codable` does not prevent in-memory copying or
@@ -73,11 +77,13 @@ reviewed before sharing. Redirecting standard output is the explicit export
 action; DevSift never writes a report file on its own.
 
 Classification output is also root-relative, but adds tool attribution, rule
-identifiers, evidence findings, policy results, and one captured reference
-timestamp. These details may reveal installed tools and work patterns and must
-be reviewed before sharing. The current scan and classification JSON schemas do
-not expose a candidate's raw modification-time aggregate or scan-time identity;
-classification emits only the resulting findings and its reference timestamp.
+identifiers, evidence findings, policy results, deferred-precondition
+identifiers and revisions, and one captured reference timestamp. These details
+may reveal installed tools and work patterns and must be reviewed before
+sharing. The current scan and classification JSON schemas do not expose a
+candidate's raw modification-time aggregate or scan-time identity;
+classification emits only the resulting findings, pending policy metadata, and
+its reference timestamp.
 
 The classifier retains a non-public seal containing its exact source request
 and policy provenance inside the in-memory Core report so planning cannot mix
@@ -88,7 +94,8 @@ analysis session; access control does not make it non-sensitive.
 
 An in-memory draft manifest contains exact root-relative raw path components,
 root and candidate identities, observed allocation estimates, rule revisions,
-policy evidence, and bounded classifier/catalog provenance. A manifest diff can
+policy evidence, deferred execution-precondition identifiers and revisions, and
+bounded classifier/catalog provenance. A manifest diff can
 combine two such snapshots and expose both sides of added, removed, or modified
 entries, so it is at least as sensitive as either input. Those values remain
 sensitive even without an absolute root URL. Core manifests and diffs remain
@@ -102,26 +109,30 @@ and source binding, and selections, plus the reviewed manifest. It can therefore
 retain raw paths, identities, sizes, timestamps, and policy evidence for
 unselected items and is more sensitive than the manifest alone. Its entry
 references and confirmations repeat canonical ordinals, exact raw paths, and
-rule revisions and carry an opaque process-local session binding. They are
-validation input, not a redacted review format, stable identifier, digest,
-signature, secret, or anonymous identifier. Partial approval is unsupported;
-changing the subset requires a new planning request and review session rather
-than copying old intent.
+rule revisions. Pending-condition references and
+`CleanupApprovalPreconditionReviewAcknowledgement` values additionally reveal
+the condition identifier and policy revision. All carry an opaque process-local
+session binding. They are validation input, not a redacted review format,
+activity attestation, stable identifier, digest, signature, secret, or anonymous
+identifier. Partial approval is unsupported; changing the subset requires a new
+planning request and review session rather than copying old intent.
 
 The final approval itself does not retain the larger source request; it retains
-its exact root and manifest. Callers can still copy the session, source request,
-references, confirmations, and approval, and must discard every copy when the
-analysis session ends. These values remain non-`Codable`, unpersisted,
+its exact root, manifest, and `preconditionReviewAcknowledgements`. Callers can
+still copy the session, source request, references, entry confirmations, review
+acknowledgements, and approval, and must discard every copy when the analysis
+session ends. These values remain non-`Codable`, unpersisted,
 unlogged, and unuploaded, and neither frontend currently creates one.
 Non-`Codable` supplies no encryption, zeroization, confidentiality, or copy
 prevention.
 
 A revalidation report retains the observed root identity, policy provenance,
-reference time, and canonical root-relative entry statuses, but deliberately
-omits the absolute root URL. It is non-`Codable`, in-memory, copyable, and not
-created by either frontend. It is not persisted, logged, uploaded, imported, or
-exported. Omitting the root URL does not make raw relative paths, rule revisions,
-findings, or policy results non-sensitive.
+reference time, and canonical root-relative entry statuses, including any
+pending execution-precondition identifiers, but deliberately omits the absolute
+root URL. It is non-`Codable`, in-memory, copyable, and not created by either
+frontend. It is not persisted, logged, uploaded, imported, or exported. Omitting
+the root URL does not make raw relative paths, rule revisions, findings,
+conditions, or policy results non-sensitive.
 
 Trusted-location observation resolves the current account home from the local
 operating-system account record and compares only bounded raw path components
@@ -138,20 +149,23 @@ keeps an exact raw root-relative path only as the in-memory row identifier and
 renders an escaped display form. The review still contains sensitive relative
 names, display names, tool attribution, rule and finding identifiers, free-form
 explanations, and all seven exact observed size and uncertainty quantities. It
-is not anonymized or automatically safe to share, even though the app provides
-no save, copy-as-manifest, import, export, or upload workflow.
+is not anonymized or automatically safe to share. For a deferred npm entry it
+also retains the fixed condition identifier and revision and displays that
+activity remains unobserved. It stores no acknowledgement or attestation, and
+the app provides no save, copy-as-manifest, import, export, or upload workflow.
 
-The internal CLI review schema is a separate lossy projection pinned to Core
-manifest contract version 2. Both profiles omit root and candidate filesystem
+The internal CLI review schema version 2 is a separate lossy projection pinned
+to Core manifest contract version 3. Both profiles omit root and candidate filesystem
 identities and contain no dedicated absolute-root field. They explicitly say
 that import, approval, and execution are unsupported. This does not make the
 documents non-sensitive:
 
 - The redacted profile omits every path, the reference time, free-form text,
   and the complete rule roster. It retains exact observed sizes and totals plus
-  the selected rule and finding identifiers, which can still reveal tools,
-  policy choices, and work patterns. It is neither anonymous nor automatically
-  safe to share.
+  the selected rule and finding identifiers plus fixed deferred-precondition
+  identifiers and policy revisions, which can still reveal tools, policy
+  choices, and work patterns. It is neither anonymous nor automatically safe
+  to share.
 - The root-relative-exact profile includes exact raw path components as Base64,
   an escaped display path, the exact reference time, escaped display names,
   tool attribution, classification explanations, finding explanations, and the
@@ -179,15 +193,21 @@ automatically by the application.
 A future user-facing plan export must explicitly select a privacy profile and
 must not silently turn the internal encoder into automatic persistence. Any
 future importer requires its own untrusted-input bounds and authenticity model;
-the current schema is one-way and cannot be imported. Review documents continue
-to omit filesystem identities, and the current app presentation must not be
-treated as a wire format or approval input. Future execution-time revalidation
-must receive only the in-memory Core approval and use its retained root without
-turning either into automatic persistence. A revalidation report must never be
-used as an execution input or mutation capability. Any future execution
-document must decide its identity and authority fields in a separate security
-review. Adding these features must not silently make Core domain models
-`Codable`.
+the current schemas are one-way and cannot be imported. Older manifests,
+approvals, and exports are regenerated rather than migrated. Review documents
+continue to omit filesystem identities, and the current app presentation must
+not be treated as a wire format or approval input. A revalidation report must
+never be used as an execution input or mutation capability.
+
+A later `CleanupQuarantineAuthorization` will be more sensitive than a review
+acknowledgement because it must bind the exact in-memory approval to a fresh,
+explicit user attestation for one quarantine attempt and process-local single-
+attempt identity and consumption. It must not be serialized, exported, logged,
+uploaded, or reconstructed from a wall-clock TTL. Only that authorization may
+reach a future executor; the bare approval, review acknowledgement, and
+revalidation report may not. Its API and any user-visible wording require a
+separate privacy and security review. Adding these features must not silently
+make Core domain models `Codable`.
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

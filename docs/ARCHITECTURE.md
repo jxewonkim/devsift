@@ -5,8 +5,8 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 ```text
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
-             scan -> rules -> plan -> diff -> approve -> revalidate -> executor
-               now      now    now    Core      Core        Core       later
+        scan -> rules -> plan -> diff -> approve -> revalidate -> authorize -> executor
+          now      now    now    Core      Core        Core       later       later
                                    |
                                    +-> app review now
 ```
@@ -28,8 +28,9 @@ Core layers are:
   each summary inode's scan-time identity and one bounded, conservative
   newest-observed inode modification-time aggregate per summary;
 - **Rules:** versioned, deterministic candidate recognition, evidence findings,
-  and conservative policy classification. Rules receive observations rather
-  than filesystem URLs; the central classifier alone computes dispositions;
+  deferred execution-precondition metadata, and conservative policy
+  classification. Rules receive observations rather than filesystem URLs; the
+  central classifier alone computes dispositions;
 - **Planning:** pure Core transformations from explicit path-and-rule
   selections over a validated classification into policy-provenanced immutable
   drafts, and between compatible drafts into deterministic differences.
@@ -38,15 +39,26 @@ Core layers are:
 - **Approval:** a read-only, Core-only transition from an exact source-bound
   planning request through one opaque review session into an in-memory
   approval. The session owns the exact root and manifest and issues
-  session-bound entry references. It permits no partial subset, performs no
-  filesystem I/O, and creates neither freshness, authenticity, nor execution
-  authority;
+  session-bound entry and pending-precondition references. It permits no
+  partial subset, performs no filesystem I/O, and creates neither activity
+  attestation, freshness, authenticity, nor execution authority;
 - **Revalidation:** a read-only Core diagnostic that accepts only an approval,
   rescans its retained root, and reclassifies it with current built-in policy.
-  It emits canonical point-in-time entry statuses and no execution capability;
+  It emits canonical point-in-time entry statuses, including pending execution
+  preconditions, and no execution capability;
+- **Authorization:** a later process-local transition that must bind one exact
+  approval to a fresh, explicit, attempt-scoped user attestation and single-
+  attempt identity and consumption. `CleanupQuarantineAuthorization` does not
+  exist yet; wall-clock TTL is not its freshness model;
 - **Execution:** descriptor-relative, inline revalidation and recoverable
-  quarantine, introduced only after the earlier layers are stable;
+  quarantine that accepts only that future authorization, introduced only
+  after the earlier layers are stable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
+
+Current Core semantic versions are explainable classification revision 3,
+cleanup manifest version 3, manifest diff version 2, approval version 2, and
+revalidation version 2. The built-in catalog is version 6 and npm is rule
+revision 5. Older manifests and approvals are regenerated rather than migrated.
 
 ### devsift CLI
 
@@ -63,12 +75,18 @@ rather than making Core domain models directly serializable. Report paths are
 root-relative, and exact path-component bytes are retained as Base64.
 
 The CLI target also owns internal review schema
-`devsift.cleanup-manifest-review` version 1, explicitly pinned to Core cleanup
-manifest contract version 2. It is a one-way, lossy `Encodable` projection for
+`devsift.cleanup-manifest-review` version 2, explicitly pinned to Core cleanup
+manifest contract version 3. It is a one-way, lossy `Encodable` projection for
 an already constructed manifest. No command invokes it, and it performs no
 standard-stream, file, filesystem, or network I/O. There is no decoder or
 import path; the envelope sets `canBeApproved` and `canBeExecuted` to `false`,
 and no manifest-diff export, approval, or execution surface accompanies it.
+Both privacy profiles preserve each entry's fixed deferred-precondition
+identifier and policy revision so a pending condition is not hidden.
+
+Scan JSON remains version 2. Classification JSON is version 2 and always
+includes a sorted deferred-precondition array for every decision. Old JSON
+exports have no import migration; rerun the producing flow to regenerate them.
 
 ### DevSift app
 
@@ -100,9 +118,13 @@ exact raw path and revision. It requires the classifier's non-public seal over
 the exact source request and `RulePolicyProvenance`, so one scan's evidence
 cannot be paired with another scan's identities, sizes, or edited policy
 metadata. It accepts only matched `reclaimable` or `review-required` decisions,
-preserves their evidence and expected identities, and fails the whole request
-if any selection is invalid or ambiguous. The result does not include the
-absolute root URL and cannot authorize execution.
+preserves their evidence, deferred execution preconditions, and expected
+identities, and fails the whole request if any selection is invalid or
+ambiguous. The sole supported deferred shape is activity
+`unknown(.notCollected)` paired with its canonical pending precondition on a
+Review-required result. Valid custom rules can opt into that shape; the current
+built-in catalog does so only for npm. The result does not include the absolute
+root URL and cannot authorize execution.
 
 For the current result, the app retains the exact classification request and
 report plus an exact whitelist of presentable `CleanupCandidateSelection`
@@ -117,31 +139,40 @@ The manifest is immediately converted to an app-owned, identity-free review
 presentation and discarded. That presentation retains a raw relative path only
 as an in-memory row identity and renders escaped display text. It does not
 retain root or candidate filesystem identities, the source request or manifest,
-reference time, provenance roster, serialization, approval, or execution state.
-The visible root scope comes separately from the active scan window. The view
-shows all seven stored observation and uncertainty quantities, never guaranteed
-savings. It has no persistence, import, export, diff, approval, execution,
+reference time, provenance roster, serialization, approval, attestation,
+authorization, or execution state. The visible root scope comes separately
+from the active scan window. The view shows all seven stored observation and
+uncertainty quantities, never guaranteed savings. It also shows pending npm
+activity as unobserved policy metadata and provides no approval or attestation
+action. It has no persistence, import, export, diff, approval, execution,
 execution-time filesystem revalidation, or filesystem capability.
 
 The Core differ first rejects manifest-contract, provenance, or expected-root
 identity incompatibility. It then performs an `O(n + m)` merge by exact raw path
-and reports every stored entry-field change plus overflow-safe directional
-differences for observed totals. It does not infer renames from inode identity,
-reopen paths, render output, or create approval state.
+and reports every stored entry-field change, including deferred execution
+preconditions, plus overflow-safe directional differences for observed totals.
+Its contract version is 2. It does not infer renames from inode identity, reopen
+paths, render output, or create approval state.
 
 The Core approver starts from one exact `CleanupManifestRequest` rather than a
 caller-supplied manifest. It runs the concrete planner and returns an opaque
 review session that retains the request's exact local root, the resulting
-manifest, and entry references bound to a process-local session seal. The
-caller can turn only those references into confirmations, and the complete
-canonical confirmation sequence must belong to that same session. A mismatched
-or foreign-session value fails even when its visible raw path and rule revision
-are equal. A subset must first become a new draft and review.
+manifest, entry references, and pending-precondition references bound to a
+process-local session seal. The caller confirms every entry and calls
+`acknowledgePreconditionForReview` for every pending reference; both complete
+canonical sequences must belong to that same session. A
+`CleanupApprovalPreconditionReviewAcknowledgement` binds only that the condition
+and risk were reviewed. It is not a user attestation or satisfaction of the
+condition. A mismatched or foreign-session value fails even when its visible
+path, rule revision, and condition are equal. A subset must first become a new
+draft and review.
 
-The approval output retains the session's exact root and manifest in memory
-without `Codable`, filesystem I/O, clock reads, or mutation capability. The
+Approval contract version 2 retains the session's exact root, manifest, and
+`preconditionReviewAcknowledgements` in memory without `Codable`, filesystem
+I/O, clock reads, or mutation capability. The
 opaque seal correlates values only inside the current process; it is not a
-secret, authenticity proof, proof of human review, or permission to execute.
+secret, authenticity proof, activity attestation, proof of human review, or
+permission to execute.
 Neither frontend invokes this contract. Core revalidation accepts only
 `CleanupApproval` and reopens the root stored within it, rather than accepting a
 separately supplied root, unapproved manifest, diff, or review projection.
@@ -150,11 +181,19 @@ The first Phase 7 `CleanupRevalidator` now accepts only `CleanupApproval`. It
 performs a fresh scan and fresh built-in classification using the approval's
 stored root, validates only current built-in policy provenance, and compares the
 new root identity and each approved entry's path, kind, device, identity, rule,
-findings, and stable policy fields. Its per-entry results are canonical,
-point-in-time diagnostics; incomplete observations fail closed. The report
-omits the absolute root URL, is non-`Codable`, copyable, and never a filesystem
-capability or executor input. A later executor must instead take the approval
-and revalidate inline while holding descriptors immediately before mutation.
+findings, deferred preconditions, and stable policy fields. Its per-entry
+results are canonical, point-in-time diagnostics; incomplete observations fail
+closed. A valid deferred npm entry remains
+`awaitingExecutionPreconditions`, not eligible or inactive. The contract-
+version-2 report omits the absolute root URL, is non-`Codable`, copyable, and
+never a filesystem capability or executor input.
+
+A later phase must bind the exact approval with a fresh, explicit, attempt-
+scoped user attestation and process-local single-attempt identity and
+consumption in `CleanupQuarantineAuthorization`. A wall-clock TTL is not
+freshness. Only that authorization may be accepted by a future executor, which
+must still revalidate inline while holding descriptors immediately before
+mutation.
 
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
@@ -207,17 +246,19 @@ The current planner receives no filesystem capability or descendant URL. It
 copies only validated, bounded values into an in-memory draft: the root identity
 without its absolute URL, exact root-relative raw paths, expected candidate
 identity and kind, classifier-owned policy provenance, rule revision, policy
-evidence, and observed allocation estimates. `CleanupCandidateSelection`
+evidence, deferred execution preconditions, and observed allocation estimates.
+`CleanupCandidateSelection`
 identifies a requested path and rule revision; it is not approval. The differ
 receives only manifest values and likewise has no filesystem capability.
 The app-owned in-memory review projection and CLI-owned JSON projection are not
 serialized Core state and carry no authority. The app review is presentational
 only. A Core approval review session instead owns its exact planning request,
-source root, manifest, and session-bound entry references; it cannot be rebuilt
-from either projection. The approval retains the exact root and manifest but
-does not make either projection approvable. User-facing export, import,
-persistence, diffing, frontend approval, and execution remain separate future
-boundaries. The CLI projection's sorted `JSONEncoder` output targets
+source root, manifest, and session-bound entry and pending-precondition
+references; it cannot be rebuilt from either projection. The approval retains
+the exact root, manifest, and review acknowledgements but does not make either
+projection approvable. User-facing export, import, persistence, diffing,
+frontend approval, attestation, authorization, and execution remain separate
+future boundaries. The CLI projection's sorted `JSONEncoder` output targets
 repeatability only for the same input, privacy profile, implementation build,
 and Swift/Foundation runtime; it is not a cryptographic canonical form, stable
 digest, signature, or authenticity proof.
@@ -248,8 +289,11 @@ owners, and single-link regular files. Stable exceptions are protected; races,
 permission failures, malformed metadata, and reached bounds remain unknown.
 Other rules retain unknown tool-ownership and protected-descendant evidence.
 The observer invokes no npm process, performs no process inspection, reads no
-cache contents, and makes no network request. npm remains Protected while
-activity evidence is unknown.
+cache contents, and makes no network request. npm activity stays literally
+`unknown(.notCollected)`. If every non-deferred fact passes, classifier
+contract revision 3 may produce Review required with
+`requires-user-attestation-that-responsible-tool-is-stopped@1`; this remains a
+pending condition, not observed inactivity.
 
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
 not persistent object identities or deletion authority. Copying them into a
@@ -261,12 +305,14 @@ traversal and identity checks rather than reconstructing descendant `URL`
 values from untrusted names. See the [rules contract](RULES.md) and
 [planning contract](PLANNING.md).
 
-Activity is the remaining npm eligibility fact. The completed
+Activity is the remaining npm execution fact. The completed
 [capability review](ACTIVITY.md) found no supported, unprivileged macOS API that
 can establish the absence of active subtree use and hold that result through a
-later operation. Classification therefore leaves the fact unknown. A positive-
-only conflict probe may add a protective signal in a separately versioned
-increment, but a negative result must not become `inactive`. Any executor must
-use a separately approved activity policy and descriptor-held inline
-revalidation; neither a process snapshot nor a returned diagnostic is durable
-authority.
+later operation. Classification therefore leaves the fact unknown and records
+the selected narrow recoverable-quarantine precondition. A positive-only
+conflict probe may add a protective signal in a separately versioned increment,
+but a negative result must not become `inactive`. A later
+`CleanupQuarantineAuthorization` must bind the exact approval, fresh attempt-
+scoped explicit user attestation, and process-local single-attempt consumption;
+only it may reach an executor. Neither a process snapshot, review
+acknowledgement, returned diagnostic, nor wall-clock TTL is durable authority.

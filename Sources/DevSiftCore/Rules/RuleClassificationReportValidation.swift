@@ -259,6 +259,33 @@ extension RuleClassificationReport {
         evaluation.path
       )
     }
+    guard
+      evaluation.deferredExecutionPreconditions.count
+        <= RuleCatalogLimits.maximumDeferredExecutionPreconditionsPerEvaluation
+    else {
+      throw RuleClassificationReportValidationError.tooManyDeferredExecutionPreconditions(
+        path: evaluation.path,
+        maximum: RuleCatalogLimits.maximumDeferredExecutionPreconditionsPerEvaluation,
+        actual: evaluation.deferredExecutionPreconditions.count
+      )
+    }
+    let normalizedPreconditions = Array(
+      Set(evaluation.deferredExecutionPreconditions)
+    ).sorted()
+    guard normalizedPreconditions == evaluation.deferredExecutionPreconditions else {
+      throw
+        RuleClassificationReportValidationError
+        .deferredExecutionPreconditionsNotSortedAndUnique(evaluation.path)
+    }
+    for precondition in evaluation.deferredExecutionPreconditions {
+      try addReportIdentityBytes(
+        saturatingByteSum(
+          precondition.rawValue.utf8.count,
+          String(precondition.policyRevision).utf8.count
+        ),
+        total: &totalIdentityTextBytes
+      )
+    }
     totalMatchingRuleRevisions = saturatingByteSum(
       totalMatchingRuleRevisions,
       evaluation.matchingRules.count
@@ -332,12 +359,13 @@ extension RuleClassificationReport {
     _ evaluation: RuleEvaluation,
     inputWasDuplicated: Bool
   ) throws {
-    let hasBlockingFinding = evaluation.findings.contains { finding in
-      finding.state != .satisfied
-    }
+    let hasBlockingFinding = !evaluation.nonDeferredBlockingFindings.isEmpty
 
     switch evaluation.matchState {
     case .matched:
+      guard evaluation.deferredExecutionPreconditionsAreWellFormed else {
+        throw semanticError(evaluation, .deferredExecutionPreconditions)
+      }
       guard evaluation.disposition == .reclaimable || evaluation.disposition == .reviewRequired
       else {
         throw semanticError(evaluation, .matchedDisposition)
@@ -377,6 +405,9 @@ extension RuleClassificationReport {
       }
 
     case .possibleMatch:
+      guard evaluation.deferredExecutionPreconditions.isEmpty else {
+        throw semanticError(evaluation, .deferredExecutionPreconditions)
+      }
       try validateProtectedDisposition(evaluation)
       guard let rule = evaluation.rule, evaluation.matchingRules == [rule] else {
         throw semanticError(evaluation, .possibleMatchRuleIdentity)
@@ -386,6 +417,9 @@ extension RuleClassificationReport {
       }
 
     case .unrecognized:
+      guard evaluation.deferredExecutionPreconditions.isEmpty else {
+        throw semanticError(evaluation, .deferredExecutionPreconditions)
+      }
       try validateProtectedDisposition(evaluation)
       guard evaluation.rule == nil, evaluation.matchingRules.isEmpty else {
         throw semanticError(evaluation, .unrecognizedRuleIdentity)
@@ -401,6 +435,9 @@ extension RuleClassificationReport {
       }
 
     case .conflict:
+      guard evaluation.deferredExecutionPreconditions.isEmpty else {
+        throw semanticError(evaluation, .deferredExecutionPreconditions)
+      }
       try validateProtectedDisposition(evaluation)
       guard evaluation.rule == nil,
         evaluation.matchingRules.isEmpty || evaluation.matchingRules.count >= 2
@@ -424,6 +461,9 @@ extension RuleClassificationReport {
       }
 
     case .invalidRule:
+      guard evaluation.deferredExecutionPreconditions.isEmpty else {
+        throw semanticError(evaluation, .deferredExecutionPreconditions)
+      }
       try validateProtectedDisposition(evaluation)
       let identityIsValid: Bool
       if let rule = evaluation.rule {

@@ -54,6 +54,7 @@ public enum CleanupPlanningError: Error, Equatable, Sendable {
   case missingCandidateIdentity(ScanRelativePath)
   case candidateDeviceMismatch(ScanRelativePath)
   case evidenceNotSatisfied(path: ScanRelativePath, finding: CheckIdentifier)
+  case invalidDeferredExecutionPreconditions(ScanRelativePath)
   case identityEvidenceNotSatisfied(ScanRelativePath)
   case invalidSize(ScanRelativePath)
   case totalOverflow(CleanupSizeMetric)
@@ -125,7 +126,30 @@ public struct CleanupManifestEntry: Hashable, Sendable {
   public let responsibleTool: String
   public let classificationExplanation: String
   public let findings: [RuleFinding]
+  public let deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]
   public let size: CleanupManifestSizeObservation
+
+  /// Findings that still block use of this retained planning entry after the
+  /// narrow deferred-precondition policy is applied.
+  public var nonDeferredBlockingFindings: [RuleFinding] {
+    ruleNonDeferredBlockingFindings(
+      matchState: .matched,
+      disposition: disposition,
+      findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions
+    )
+  }
+
+  /// Whether this matched planning entry carries the canonical pending
+  /// execution requirement and corresponding unobserved activity finding.
+  public var deferredExecutionPreconditionsAreWellFormed: Bool {
+    ruleDeferredExecutionPreconditionsAreWellFormed(
+      matchState: .matched,
+      disposition: disposition,
+      findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions
+    )
+  }
 
   init(
     path: ScanRelativePath,
@@ -138,6 +162,7 @@ public struct CleanupManifestEntry: Hashable, Sendable {
     responsibleTool: String,
     classificationExplanation: String,
     findings: [RuleFinding],
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
     size: CleanupManifestSizeObservation
   ) {
     self.path = path
@@ -152,6 +177,7 @@ public struct CleanupManifestEntry: Hashable, Sendable {
     self.findings = findings.sorted { left, right in
       left.identifier < right.identifier
     }
+    self.deferredExecutionPreconditions = deferredExecutionPreconditions.sorted()
     self.size = size
   }
 }
@@ -169,7 +195,7 @@ public struct CleanupManifestTotals: Hashable, Sendable {
 /// An immutable, unapproved dry-run artifact produced from validated scan and
 /// classification values. This value is never authority to mutate a path.
 public struct CleanupManifest: Hashable, Sendable {
-  public static let currentContractVersion: UInt32 = 2
+  public static let currentContractVersion: UInt32 = 3
 
   public let contractVersion: UInt32
   public let policyProvenance: RulePolicyProvenance
