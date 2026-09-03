@@ -13,7 +13,7 @@ struct ExplainableRuleClassifierTests {
       [(name: String, root: String, rule: String, version: UInt32, disposition: RuleDisposition)] =
         [
           ("uv", "Caches", "devsift.cache.uv", 1, .reclaimable),
-          ("_cacache", "Caches", "devsift.cache.npm", 2, .reviewRequired),
+          ("_cacache", "Caches", "devsift.cache.npm", 3, .reviewRequired),
           ("Homebrew", "Caches", "devsift.cache.homebrew", 1, .reviewRequired),
           ("DerivedData", "Xcode", "devsift.xcode.derived-data", 1, .reviewRequired),
           (".build", "Project", "devsift.swiftpm.build", 2, .reviewRequired),
@@ -41,6 +41,60 @@ struct ExplainableRuleClassifierTests {
       #expect(!evaluation.explanation.isEmpty)
       #expect(evaluation.findings.allSatisfy { !$0.explanation.isEmpty })
     }
+  }
+
+  @Test("Only npm replaces tool ownership with account-owned namespace evidence")
+  func accountOwnedNamespaceCheckScope() async throws {
+    let npmRule = try #require(
+      BuiltInRuleCatalog.rules.first {
+        $0.definition.revision.identifier == testRuleIdentifier("devsift.cache.npm")
+      }
+    )
+    let otherRules = BuiltInRuleCatalog.rules.filter {
+      $0.definition.revision.identifier != testRuleIdentifier("devsift.cache.npm")
+    }
+    let npmCheckIDs = Set(npmRule.definition.checks.map(\.identifier))
+
+    #expect(npmCheckIDs.contains(testCheckIdentifier("account-owned-cache-namespace")))
+    #expect(!npmCheckIDs.contains(testCheckIdentifier("tool-ownership")))
+    for rule in otherRules {
+      let checkIDs = Set(rule.definition.checks.map(\.identifier))
+      #expect(checkIDs.contains(testCheckIdentifier("tool-ownership")))
+      #expect(!checkIDs.contains(testCheckIdentifier("account-owned-cache-namespace")))
+    }
+
+    let facts = RuleObservationFacts(
+      trustedLocation: .known(true),
+      toolOwnership: .known(false),
+      accountOwnedCacheNamespace: .known(true),
+      generatedContentMarker: .known(true),
+      newestContentModificationUnixSeconds: .known(0),
+      activity: .known(.inactive),
+      protectedDescendantPresent: .known(false),
+      siblingPackageManifestPresent: .known(true)
+    )
+    let report = try await ExplainableRuleClassifier().classify(
+      observations: [
+        ruleObservation(name: Array("_cacache".utf8), facts: facts),
+        ruleObservation(name: Array("uv".utf8), facts: facts),
+      ],
+      referenceUnixSeconds: 4_000_000
+    )
+    let npm = try evaluation("devsift.cache.npm", in: report)
+    let uv = try evaluation("devsift.cache.uv", in: report)
+
+    #expect(npm.matchState == .matched)
+    #expect(
+      npm.findings.first {
+        $0.identifier == testCheckIdentifier("account-owned-cache-namespace")
+      }?.state == .satisfied
+    )
+    #expect(!npm.findings.contains { $0.identifier == testCheckIdentifier("tool-ownership") })
+    #expect(uv.matchState == .possibleMatch)
+    #expect(
+      uv.findings.first { $0.identifier == testCheckIdentifier("tool-ownership") }?.state
+        == .failed
+    )
   }
 
   @Test("Failed and unknown required evidence remain protected")

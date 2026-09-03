@@ -34,6 +34,7 @@ enum ScanReportRuleAdapter {
         facts: RuleObservationFacts(
           trustedLocation: observed.trustedLocation,
           toolOwnership: .unknown(.notCollected),
+          accountOwnedCacheNamespace: observed.accountOwnedCacheNamespace,
           generatedContentMarker: observed.generatedContentMarker,
           newestContentModificationUnixSeconds: newestModificationObservation(for: item),
           activity: .unknown(.notCollected),

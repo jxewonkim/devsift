@@ -288,6 +288,10 @@ public struct RuleScanIntegrity: Hashable, Sendable {
 public struct RuleObservationFacts: Hashable, Sendable {
   public let trustedLocation: RuleObserved<Bool>
   public let toolOwnership: RuleObserved<Bool>
+  /// Whether the selected root and candidate directories are owned by the
+  /// current non-root POSIX account. This does not establish tool provenance,
+  /// descendant ownership, or writability.
+  public let accountOwnedCacheNamespace: RuleObserved<Bool>
   public let generatedContentMarker: RuleObserved<Bool>
   public let newestContentModificationUnixSeconds: RuleObserved<Int64>
   public let activity: RuleObserved<RuleActivityState>
@@ -297,6 +301,7 @@ public struct RuleObservationFacts: Hashable, Sendable {
   public init(
     trustedLocation: RuleObserved<Bool> = .unknown(.notCollected),
     toolOwnership: RuleObserved<Bool> = .unknown(.notCollected),
+    accountOwnedCacheNamespace: RuleObserved<Bool> = .unknown(.notCollected),
     generatedContentMarker: RuleObserved<Bool> = .unknown(.notCollected),
     newestContentModificationUnixSeconds: RuleObserved<Int64> = .unknown(.notCollected),
     activity: RuleObserved<RuleActivityState> = .unknown(.notCollected),
@@ -305,6 +310,7 @@ public struct RuleObservationFacts: Hashable, Sendable {
   ) {
     self.trustedLocation = trustedLocation
     self.toolOwnership = toolOwnership
+    self.accountOwnedCacheNamespace = accountOwnedCacheNamespace
     self.generatedContentMarker = generatedContentMarker
     self.newestContentModificationUnixSeconds = newestContentModificationUnixSeconds
     self.activity = activity
