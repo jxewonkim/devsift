@@ -30,8 +30,9 @@ still inside its approved root.
 The current Core planner produces only an immutable policy-provenanced draft,
 and the Core differ compares only compatible drafts. An explicit
 `CleanupCandidateSelection` binds an exact root-relative raw path to an exact
-rule revision, but selection and diff output are not approval. Approval,
-execution, quarantine, and deletion APIs do not exist in this phase.
+rule revision, but selection and diff output are not approval. Core can now
+record explicit intent for one fully confirmed reviewed manifest. Execution,
+revalidation, quarantine, and deletion APIs do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -40,6 +41,16 @@ path-and-rule-revision whitelist is only a UI restriction; it cannot weaken or
 replace the planner's complete fail-closed validation. The review has no save,
 load, import, export, diff, approval, execution, live-filesystem revalidation,
 or mutation operation.
+
+The Core approval boundary is not wired to the app or CLI. It prepares an
+opaque review session from the exact source-bound planning request, retaining
+the exact source root and Core-built manifest. Every entry reference and
+confirmation is bound to that process-local session. The complete canonical
+sequence is required, and foreign, mismatched, missing, duplicate, or reordered
+input rejects the request. It never grants a partial subset: changing the set
+requires a new draft and review session. The resulting approval retains the
+exact root and manifest in memory, is non-`Codable`, performs no filesystem I/O,
+and is neither fresh evidence, authentication, nor execution authority.
 
 The CLI target has an internal one-way review JSON encoder over an already
 constructed manifest. No command or file-writing workflow invokes it. It is
@@ -65,6 +76,23 @@ that its document cannot be approved or executed.
 - A draft manifest is not approval or an execution capability. It stores no
   absolute root URL, and copying expected identities into it grants no path
   authority.
+- Approval review must begin from the exact source-bound planning request. Core
+  alone creates the reviewed manifest and binds its exact local root; callers
+  cannot substitute either value at approval time.
+- Every entry reference and confirmation is bound to one opaque process-local
+  review session, canonical ordinal, exact raw path, and rule revision. Missing,
+  extra, duplicate, reordered, changed, or foreign-session confirmations fail
+  atomically even when their visible values are otherwise equal.
+- Partial approval is forbidden. A different entry set requires a new draft
+  and review rather than transferring intent from an old manifest or diff.
+- A Core approval is in-memory, non-`Codable` intent only. It retains the exact
+  source root and reviewed manifest but establishes no freshness, authenticity,
+  signature, proof of human review, single-use semantics, execution capability,
+  filesystem authority, or permission to mutate the filesystem.
+- Approval performs no filesystem or network I/O. Future execution-time
+  revalidation must accept only `CleanupApproval` and reopen the root stored
+  within it, rather than accepting a separately supplied root, standalone draft,
+  diff, app presentation, or CLI review document.
 - App planning reuses the exact retained classification request and report,
   freezes the selected set, and runs without a filesystem capability or active
   security scope. Planning and scan-session tokens must reject any late result
@@ -139,7 +167,10 @@ call cannot be interrupted until it returns. Cancellation observed after that
 call returns no partial document. Native app draft planning and identity-free
 projection run away from the main actor and check cooperative cancellation;
 token validation prevents an ignored or late cancellation from publishing
-stale review state.
+stale review state. Core approval checks cancellation at phase boundaries and
+while validating the complete confirmation sequence. Deep source validation
+and whole-manifest equality can finish before the next checkpoint, but
+cancellation produces no partial approval.
 
 ## Rule requirements
 
@@ -186,6 +217,16 @@ changes with directional `UInt64` magnitudes, and checks cancellation during
 bounded work. It never reads a path or transfers approval between drafts. See
 the [planning contract](PLANNING.md).
 
+The approver creates one opaque review session from an exact source-bound
+planning request, then accepts only that session's complete per-entry
+confirmation sequence. The session binds its source root, full manifest,
+canonical ordinals, raw paths, and rule revisions without deriving intent from
+a diff or lossy projection. Its process-local seal prevents cross-session value
+mixing but is not proof of human review or authenticity. A future revalidator
+must consume only the approval, reopen its stored root and candidates, and
+establish fresh policy and object evidence before any mutation. See the
+[planning contract](PLANNING.md).
+
 The internal review encoder accepts only Core manifest contract version 2 and
 emits CLI schema `devsift.cleanup-manifest-review` version 1. A per-entry
 encoded-size preflight and final post-encoding check enforce a 128 MiB hard
@@ -215,6 +256,13 @@ eligibility, default-zero and exact-whitelist selection, exact source-request
 and report reuse, off-main planning, frozen selection, cancellation, stale
 results, lifecycle invalidation, bounded generic failures, escaped display,
 identity omission, canonical ordering, and all seven observed quantities.
+
+Approval tests use source-bound synthetic planning requests and cover opaque
+session preparation, exact root and manifest retention, complete confirmations,
+missing, extra, duplicate, reordered, changed, and foreign-session input,
+cross-root and cross-manifest substitution, planning bounds, pre-cancel
+rejection, non-UTF-8 raw-path identity, and the absence of filesystem,
+serialization, freshness, authentication, and execution authority.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

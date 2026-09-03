@@ -98,8 +98,10 @@ An inode modification time is not a last-access time and can be changed by a
 user or process. It does not establish inactivity, ownership, generated
 content, or cleanup safety. A scan is not a filesystem snapshot, so a file may
 change after its individual observation. Draft planning must not treat this
-aggregate as current authority; future approval and execution must require
-fresh policy and object revalidation before any mutation.
+aggregate as current authority. A Core approval review session retains the
+exact scan-derived planning root and manifest but does not refresh either;
+future execution must require fresh policy and object revalidation before any
+mutation.
 
 This aggregate is currently a Core-only input to rule findings. Scan JSON v2
 does not emit the raw timestamp; classification JSON v1 exposes the resulting
@@ -211,4 +213,5 @@ logical and allocated sizes come from one POSIX stat result. An opened
 directory's device and inode are revalidated before recursion, but files can
 still change before or after their individual observation. Paths and inode
 identities from a scan must never be reused as authority for later cleanup. A
-future executor will reopen and revalidate every approved item before mutation.
+future executor will consume only the Core approval, reopen its stored root,
+and revalidate every approved item before mutation.

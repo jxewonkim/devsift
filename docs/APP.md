@@ -156,6 +156,13 @@ exported, diffed, approved, executed, checked against the live filesystem, or
 changed on disk. Because the runtime classifier still lacks several required
 facts, an honest real scan can show zero eligible draft candidates.
 
+DevSiftCore now has a separate approval-review session contract prepared from
+an exact source-bound planning request, but this app increment does not invoke
+it. The app continues to discard the Core manifest after making its
+identity-free presentation, exposes no approval button or state, and cannot
+reconstruct the opaque session, its exact root, or its session-bound entry
+references from that lossy presentation.
+
 ## Observation and policy language
 
 The app uses “Reclaimable” only as a rule disposition, never as a measured or

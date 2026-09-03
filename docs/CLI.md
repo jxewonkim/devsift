@@ -329,6 +329,12 @@ approval operation, or an executor. The envelope says `importSupported: false`,
 `canBeApproved: false`, `canBeExecuted: false`, and `executionAuthority: none`.
 There is no manifest-diff review schema in this increment.
 
+Core's current approval boundary instead prepares an opaque review session from
+the exact source-bound planning request. The session owns its exact root and
+Core-built manifest and issues process-local entry references that this lossy
+document cannot reconstruct. The CLI does not expose an approval command or
+retain review-session or approval state in this increment.
+
 Every invocation requires one explicit privacy profile:
 
 - `redacted` omits the root-relative path, classification reference time,

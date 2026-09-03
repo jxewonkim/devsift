@@ -138,9 +138,12 @@ Status: the Core planning increments create policy-provenanced immutable draft
 manifests and deterministic compatible-manifest diffs in memory. A CLI-owned
 increment adds an internal one-way CLI review JSON projection. The native app
 now adds explicit current-session candidate selection and an identity-free,
-read-only in-memory draft review. There is still no CLI planning command,
-manifest persistence, import, user-facing export, frontend diff, approval,
-execution, execution-time filesystem revalidation, or mutation.
+read-only in-memory draft review. A Core-only increment now prepares an opaque
+review session from one exact source-bound planning request, binds its source
+root and manifest, and records intent only after confirming every session-owned
+entry. There is still no CLI planning command, manifest persistence, import,
+user-facing export, frontend diff or approval, execution, execution-time
+filesystem revalidation, or mutation.
 
 Implemented first commit: `feat(planner): create immutable cleanup manifests`.
 
@@ -204,29 +207,59 @@ Implemented next commit: `feat(app): present in-memory cleanup draft review`.
 - Present an honest zero-candidate state. Current real classifications can all
   remain Protected while required runtime facts are unavailable.
 
+Implemented next commit: `feat(approval): bind intent to reviewed manifests`.
+
+- Prepare an opaque review session directly from one exact source-bound
+  `CleanupManifestRequest`, retaining its exact root and the concrete Core
+  planner's manifest rather than accepting a later caller-supplied manifest.
+- Issue session-bound entry references and require one explicit confirmation
+  for every canonical entry. Reject missing, extra, duplicate, reordered,
+  changed, or foreign-session confirmations as one failed request. Partial
+  approval is unsupported; a different subset must be planned and reviewed as
+  a new session.
+- Keep approval in memory and non-`Codable`, with no persistence, importer,
+  export, frontend action, or transfer from a manifest diff or review
+  projection.
+- Perform only bounded, cancellation-aware value validation. Approval performs
+  no filesystem I/O or mutation and establishes neither freshness,
+  authenticity, nor execution authority.
+- Retain the exact source root and manifest in the approval. Require a future
+  execution-time revalidation request to consume only that approval rather
+  than a separately supplied root or unapproved manifest.
+
 The recorded identity is comparison evidence, not mutation authority. A plan
 must not convert an observer's successful identity or marker check into
 permission to clean. Planning performs no filesystem I/O and the current Core
 manifest deliberately has no `Codable`, import, or frontend-owned wire
 contract. The separate CLI review projection is a lossy presentation document,
 not serialized Core state. The app review is a separate ephemeral presentation,
-not a wire format or executor input.
+not a wire format or approval input. The Core approval review session retains
+the exact planning request, root, manifest, and process-local entry bindings.
+The final approval drops the larger source request, retains the root and
+manifest, and is not an executor input until a separate revalidation contract
+exists.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
-produce a partial diff, and a stale or edited candidate must invalidate future
-approval or execution. The review projection must not expose filesystem
-identities or create import, approval, execution, or user-facing export
-authority. App selection must default to zero, remain independent from row
-focus, reuse the exact source request and report, and suppress cancelled or
-superseded planning results without filesystem access.
+produce a partial diff, and a substituted review value must invalidate approval.
+A stale candidate must be rejected by future execution-time revalidation. The
+review projection must not expose filesystem identities or create import,
+approval, execution, or user-facing export authority. App selection must default
+to zero, remain independent from row focus, reuse the exact source request and
+report, and suppress cancelled or superseded planning results without filesystem
+access. Approval must originate from one opaque source-bound review session,
+cover its exact root and complete manifest, reject foreign-session confirmations,
+fail atomically, remain in memory, and add no filesystem or execution capability.
 
 Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 
 ## Phase 7: recoverable cleanup
 
-Commit sequence begins with `feat(cleaner): quarantine revalidated candidates`.
+The next commit sequence begins with a separately reviewed execution-time
+revalidation contract; recoverable cleanup follows only after it is stable.
 
+- Accept only `CleanupApproval` and reopen the root stored within it, never a
+  separately supplied root, draft manifest, diff, or presentation.
 - Revalidate identity, containment, activity, and rule version.
 - Move approved items to a recoverable quarantine.
 - Report completed, failed, changed, and skipped items individually.

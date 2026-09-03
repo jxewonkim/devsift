@@ -33,6 +33,15 @@ DevSift is designed to work locally and reveal as little as possible.
   whitelist, and retains the exact source classification request and report
   only for that in-memory session. Draft preparation performs no filesystem or
   network I/O.
+- Core approval review sessions retain one exact source-bound planning request,
+  including its absolute root URL, complete scan and classification reports,
+  source binding, and selections, together with the Core-built manifest and
+  process-local entry references. A final approval itself retains the exact
+  root and manifest, but not that larger source request. These values are
+  non-`Codable`, perform no filesystem or network I/O, and are not invoked by
+  either frontend. No session or approval is persisted, logged, uploaded,
+  imported, or exported. Non-`Codable` does not prevent in-memory copying or
+  provide confidentiality.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
@@ -77,6 +86,26 @@ sensitive even without an absolute root URL. Core manifests and diffs remain
 non-`Codable`, unpersisted, unlogged, and unuploaded, and no CLI or app command
 imports or exports them. Diffing does not copy the root URL or complete rule
 definitions, and no diff-export projection exists.
+
+An in-memory approval review session contains the exact planning source request,
+including its absolute root URL, complete `ScanReport`, classification report
+and source binding, and selections, plus the reviewed manifest. It can therefore
+retain raw paths, identities, sizes, timestamps, and policy evidence for
+unselected items and is more sensitive than the manifest alone. Its entry
+references and confirmations repeat canonical ordinals, exact raw paths, and
+rule revisions and carry an opaque process-local session binding. They are
+validation input, not a redacted review format, stable identifier, digest,
+signature, secret, or anonymous identifier. Partial approval is unsupported;
+changing the subset requires a new planning request and review session rather
+than copying old intent.
+
+The final approval itself does not retain the larger source request; it retains
+its exact root and manifest. Callers can still copy the session, source request,
+references, confirmations, and approval, and must discard every copy when the
+analysis session ends. These values remain non-`Codable`, unpersisted,
+unlogged, and unuploaded, and neither frontend currently creates one.
+Non-`Codable` supplies no encryption, zeroization, confidentiality, or copy
+prevention.
 
 The native app immediately maps a planned manifest to a separate identity-free
 presentation and does not retain the manifest. The presentation omits root and
@@ -129,9 +158,11 @@ must not silently turn the internal encoder into automatic persistence. Any
 future importer requires its own untrusted-input bounds and authenticity model;
 the current schema is one-way and cannot be imported. Review documents continue
 to omit filesystem identities, and the current app presentation must not be
-treated as a wire format. Any future execution document must decide its
-identity and authority fields in a separate security review. Adding these
-features must not silently make Core domain models `Codable`.
+treated as a wire format or approval input. Future execution-time revalidation
+must receive only the in-memory Core approval and use its retained root without
+turning either into automatic persistence. Any future execution document must
+decide its identity and authority fields in a separate security review. Adding
+these features must not silently make Core domain models `Codable`.
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default
