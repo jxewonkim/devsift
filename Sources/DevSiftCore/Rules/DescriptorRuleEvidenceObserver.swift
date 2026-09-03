@@ -6,17 +6,20 @@ struct CandidateRuleEvidence: Hashable, Sendable {
   let trustedLocation: RuleObserved<Bool>
   let generatedContentMarker: RuleObserved<Bool>
   let accountOwnedCacheNamespace: RuleObserved<Bool>
+  let protectedDescendantPresent: RuleObserved<Bool>
 
   init(
     identityMatchesScan: RuleObserved<Bool>,
     trustedLocation: RuleObserved<Bool>,
     generatedContentMarker: RuleObserved<Bool>,
-    accountOwnedCacheNamespace: RuleObserved<Bool> = .unknown(.notCollected)
+    accountOwnedCacheNamespace: RuleObserved<Bool> = .unknown(.notCollected),
+    protectedDescendantPresent: RuleObserved<Bool> = .unknown(.notCollected)
   ) {
     self.identityMatchesScan = identityMatchesScan
     self.trustedLocation = trustedLocation
     self.generatedContentMarker = generatedContentMarker
     self.accountOwnedCacheNamespace = accountOwnedCacheNamespace
+    self.protectedDescendantPresent = protectedDescendantPresent
   }
 
   static func unavailable(
@@ -30,6 +33,8 @@ struct CandidateRuleEvidence: Hashable, Sendable {
       generatedContentMarker: BuiltInGeneratedMarkerPolicy.policy(for: item.path) == nil
         ? .unknown(.notCollected) : .unknown(reason),
       accountOwnedCacheNamespace: BuiltInAccountOwnedCacheNamespacePolicy.applies(to: item.path)
+        ? .unknown(reason) : .unknown(.notCollected),
+      protectedDescendantPresent: BuiltInProtectedDescendantPolicy.applies(to: item.path)
         ? .unknown(reason) : .unknown(.notCollected)
     )
   }
@@ -41,7 +46,8 @@ struct CandidateRuleEvidence: Hashable, Sendable {
       identityMatchesScan: identityMatchesScan,
       trustedLocation: observation,
       generatedContentMarker: generatedContentMarker,
-      accountOwnedCacheNamespace: accountOwnedCacheNamespace
+      accountOwnedCacheNamespace: accountOwnedCacheNamespace,
+      protectedDescendantPresent: protectedDescendantPresent
     )
   }
 
@@ -52,7 +58,8 @@ struct CandidateRuleEvidence: Hashable, Sendable {
       identityMatchesScan: identityMatchesScan,
       trustedLocation: trustedLocation,
       generatedContentMarker: generatedContentMarker,
-      accountOwnedCacheNamespace: observation
+      accountOwnedCacheNamespace: observation,
+      protectedDescendantPresent: protectedDescendantPresent
     )
   }
 }
@@ -62,6 +69,40 @@ private enum BuiltInAccountOwnedCacheNamespacePolicy {
 
   static func applies(to path: ScanRelativePath) -> Bool {
     path.rawComponents == [npmContentCacheName]
+  }
+}
+
+private enum BuiltInProtectedDescendantPolicy {
+  private static let npmContentCacheName = Array("_cacache".utf8)
+
+  static func applies(to path: ScanRelativePath) -> Bool {
+    path.rawComponents == [npmContentCacheName]
+  }
+}
+
+struct ProtectedDescendantLimits: Hashable, Sendable {
+  static let defaults = ProtectedDescendantLimits(
+    maximumEntries: 1_000_000,
+    maximumDepth: 32,
+    maximumRawNameBytes: 64 * 1_024 * 1_024
+  )
+
+  let maximumEntries: Int
+  let maximumDepth: Int
+  let maximumRawNameBytes: Int
+
+  init(
+    maximumEntries: Int = 1_000_000,
+    maximumDepth: Int = 32,
+    maximumRawNameBytes: Int = 64 * 1_024 * 1_024
+  ) {
+    self.maximumEntries = maximumEntries
+    self.maximumDepth = maximumDepth
+    self.maximumRawNameBytes = maximumRawNameBytes
+  }
+
+  var isValid: Bool {
+    maximumEntries >= 0 && maximumDepth >= 0 && maximumRawNameBytes >= 0
   }
 }
 
@@ -142,6 +183,123 @@ private struct GeneratedMarkerRequirement {
   let expectedKind: FileSystemEntryKind
 }
 
+private enum NPMCacheDirectoryFormat {
+  case cacheRoot
+  case contentAlgorithms
+  case contentFirstShard
+  case contentSecondShard
+  case contentLeaves
+  case indexFirstShard
+  case indexSecondShard
+  case indexLeaves
+  case emptyTemporaryDirectory
+
+  private static let contentDirectoryName = Array("content-v2".utf8)
+  private static let indexDirectoryName = Array("index-v5".utf8)
+  private static let temporaryDirectoryName = Array("tmp".utf8)
+  private static let lastVerifiedName = Array("_lastverified".utf8)
+  private static let cacheDirectoryTagName = Array("CACHEDIR.TAG".utf8)
+
+  func expectation(for rawName: [UInt8]) -> NPMCacheEntryExpectation? {
+    switch self {
+    case .cacheRoot:
+      switch rawName {
+      case Self.contentDirectoryName:
+        return NPMCacheEntryExpectation(
+          expectedKind: .directory,
+          childDirectoryFormat: .contentAlgorithms
+        )
+      case Self.indexDirectoryName:
+        return NPMCacheEntryExpectation(
+          expectedKind: .directory,
+          childDirectoryFormat: .indexFirstShard
+        )
+      case Self.temporaryDirectoryName:
+        return NPMCacheEntryExpectation(
+          expectedKind: .directory,
+          childDirectoryFormat: .emptyTemporaryDirectory
+        )
+      case Self.lastVerifiedName, Self.cacheDirectoryTagName:
+        return NPMCacheEntryExpectation(
+          expectedKind: .regularFile,
+          childDirectoryFormat: nil
+        )
+      default:
+        return nil
+      }
+    case .contentAlgorithms:
+      guard isNPMCacheAlgorithmName(rawName) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .directory,
+        childDirectoryFormat: .contentFirstShard
+      )
+    case .contentFirstShard:
+      guard isLowercaseHex(rawName, exactCount: 2) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .directory,
+        childDirectoryFormat: .contentSecondShard
+      )
+    case .contentSecondShard:
+      guard isLowercaseHex(rawName, exactCount: 2) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .directory,
+        childDirectoryFormat: .contentLeaves
+      )
+    case .contentLeaves:
+      guard isNonemptyLowercaseHex(rawName) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .regularFile,
+        childDirectoryFormat: nil
+      )
+    case .indexFirstShard:
+      guard isLowercaseHex(rawName, exactCount: 2) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .directory,
+        childDirectoryFormat: .indexSecondShard
+      )
+    case .indexSecondShard:
+      guard isLowercaseHex(rawName, exactCount: 2) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .directory,
+        childDirectoryFormat: .indexLeaves
+      )
+    case .indexLeaves:
+      guard isLowercaseHex(rawName, exactCount: 60) else { return nil }
+      return NPMCacheEntryExpectation(
+        expectedKind: .regularFile,
+        childDirectoryFormat: nil
+      )
+    case .emptyTemporaryDirectory:
+      return nil
+    }
+  }
+}
+
+private struct NPMCacheEntryExpectation {
+  let expectedKind: FileSystemEntryKind
+  let childDirectoryFormat: NPMCacheDirectoryFormat?
+}
+
+private func isNPMCacheAlgorithmName(_ rawName: [UInt8]) -> Bool {
+  !rawName.isEmpty
+    && rawName.allSatisfy { byte in
+      (0x61...0x7A).contains(byte)
+        || (0x30...0x39).contains(byte)
+        || byte == 0x2D
+    }
+}
+
+private func isLowercaseHex(_ rawName: [UInt8], exactCount: Int) -> Bool {
+  rawName.count == exactCount && isNonemptyLowercaseHex(rawName)
+}
+
+private func isNonemptyLowercaseHex(_ rawName: [UInt8]) -> Bool {
+  !rawName.isEmpty
+    && rawName.allSatisfy { byte in
+      (0x30...0x39).contains(byte) || (0x61...0x66).contains(byte)
+    }
+}
+
 /// Candidate evidence has the same count and index ordering as the source
 /// `ScanReport.topLevelItems`. It deliberately is not keyed by a display path.
 struct RuleEvidenceObservation: Hashable, Sendable {
@@ -168,10 +326,14 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   private let checkpoint: Checkpoint
   private let rawHomeProvider: RawHomeProvider
   private let accountUIDProvider: AccountUIDProvider
+  private let protectedDescendantLimits: ProtectedDescendantLimits
   private let afterRootValidation: RootHook
   private let beforeOpeningCandidate: CandidateHook
   private let beforeMarkerObservation: CandidateHook
   private let beforeMarkerMetadataValidation: CandidateHook
+  private let beforeProtectedDescendantObservation: CandidateHook
+  private let beforeOpeningProtectedDescendantDirectory: CandidateHook
+  private let beforeFinalProtectedDescendantDirectoryValidation: CandidateHook
   private let beforeFinalCandidateValidation: CandidateHook
   private let beforeFinalLocationValidation: RootHook
   private let beforeFinalRootValidation: RootHook
@@ -180,10 +342,14 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     checkpoint = { try Task.checkCancellation() }
     rawHomeProvider = { currentUIDRawHome() }
     accountUIDProvider = { currentNonRootAccountUID() }
+    protectedDescendantLimits = .defaults
     afterRootValidation = {}
     beforeOpeningCandidate = { _ in }
     beforeMarkerObservation = { _ in }
     beforeMarkerMetadataValidation = { _ in }
+    beforeProtectedDescendantObservation = { _ in }
+    beforeOpeningProtectedDescendantDirectory = { _ in }
+    beforeFinalProtectedDescendantDirectoryValidation = { _ in }
     beforeFinalCandidateValidation = { _ in }
     beforeFinalLocationValidation = {}
     beforeFinalRootValidation = {}
@@ -193,10 +359,14 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     checkpoint: @escaping Checkpoint = { try Task.checkCancellation() },
     rawHomeProvider: @escaping RawHomeProvider = { currentUIDRawHome() },
     accountUIDProvider: @escaping AccountUIDProvider = { currentNonRootAccountUID() },
+    protectedDescendantLimits: ProtectedDescendantLimits = .defaults,
     afterRootValidation: @escaping RootHook = {},
     beforeOpeningCandidate: @escaping CandidateHook = { _ in },
     beforeMarkerObservation: @escaping CandidateHook = { _ in },
     beforeMarkerMetadataValidation: @escaping CandidateHook = { _ in },
+    beforeProtectedDescendantObservation: @escaping CandidateHook = { _ in },
+    beforeOpeningProtectedDescendantDirectory: @escaping CandidateHook = { _ in },
+    beforeFinalProtectedDescendantDirectoryValidation: @escaping CandidateHook = { _ in },
     beforeFinalCandidateValidation: @escaping CandidateHook = { _ in },
     beforeFinalLocationValidation: @escaping RootHook = {},
     beforeFinalRootValidation: @escaping RootHook = {}
@@ -204,10 +374,16 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     self.checkpoint = checkpoint
     self.rawHomeProvider = rawHomeProvider
     self.accountUIDProvider = accountUIDProvider
+    self.protectedDescendantLimits = protectedDescendantLimits
     self.afterRootValidation = afterRootValidation
     self.beforeOpeningCandidate = beforeOpeningCandidate
     self.beforeMarkerObservation = beforeMarkerObservation
     self.beforeMarkerMetadataValidation = beforeMarkerMetadataValidation
+    self.beforeProtectedDescendantObservation = beforeProtectedDescendantObservation
+    self.beforeOpeningProtectedDescendantDirectory =
+      beforeOpeningProtectedDescendantDirectory
+    self.beforeFinalProtectedDescendantDirectoryValidation =
+      beforeFinalProtectedDescendantDirectoryValidation
     self.beforeFinalCandidateValidation = beforeFinalCandidateValidation
     self.beforeFinalLocationValidation = beforeFinalLocationValidation
     self.beforeFinalRootValidation = beforeFinalRootValidation
@@ -500,7 +676,9 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
           accountUID: accountUID,
           root: rootSnapshot,
           candidate: initiallyNamed
-        )
+        ),
+        protectedDescendantPresent: BuiltInProtectedDescendantPolicy.applies(to: item.path)
+          ? .known(false) : .unknown(.notCollected)
       )
     }
 
@@ -534,6 +712,14 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
         )
       } ?? .unknown(.notCollected)
 
+    let protectedDescendant = try observeProtectedDescendants(
+      for: item,
+      in: candidateDescriptor,
+      candidateSnapshot: openedCandidate,
+      rootIdentity: rootIdentity,
+      accountUID: accountUID
+    )
+
     try beforeFinalCandidateValidation(item.path)
     try cancellationCheckpoint()
     let finalOpened = try DescriptorStatSnapshot.read(from: candidateDescriptor)
@@ -565,7 +751,8 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
         root: rootSnapshot,
         candidate: openedCandidate,
         candidateOwnerRemainedStable: candidateOwnerRemainedStable
-      )
+      ),
+      protectedDescendantPresent: protectedDescendant
     )
   }
 
@@ -587,6 +774,264 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
       candidateOwnerUID: candidate.ownerUID,
       candidateOwnerRemainedStable: candidateOwnerRemainedStable
     )
+  }
+
+  private func observeProtectedDescendants(
+    for item: ScanItemSummary,
+    in candidateDescriptor: Int32,
+    candidateSnapshot: DescriptorStatSnapshot,
+    rootIdentity: FileIdentity,
+    accountUID: RuleObserved<uid_t>
+  ) throws -> RuleObserved<Bool> {
+    guard BuiltInProtectedDescendantPolicy.applies(to: item.path) else {
+      return .unknown(.notCollected)
+    }
+    guard protectedDescendantLimits.isValid else {
+      return .unknown(.resourceLimit)
+    }
+    guard
+      let expectedDescendantCount = exactStrictDescendantCount(for: item),
+      item.counts.directories > 0
+    else {
+      return .unknown(.invalidMetadata)
+    }
+
+    do {
+      try beforeProtectedDescendantObservation(item.path)
+      try cancellationCheckpoint()
+
+      var state = ProtectedDescendantTraversalState(
+        limits: protectedDescendantLimits,
+        accountUID: accountUID,
+        rootDevice: rootIdentity.device,
+        seenDirectoryIdentities: [rootIdentity, candidateSnapshot.identity]
+      )
+      try traverseProtectedDescendants(
+        in: candidateDescriptor,
+        expectedDirectory: candidateSnapshot,
+        directoryPath: item.path,
+        format: .cacheRoot,
+        childDepth: 1,
+        state: &state
+      )
+      return state.result(expectedDescendantCount: expectedDescendantCount)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return .unknown(descriptorUnknownReason(for: error))
+    }
+  }
+
+  private func traverseProtectedDescendants(
+    in directoryDescriptor: Int32,
+    expectedDirectory: DescriptorStatSnapshot,
+    directoryPath: ScanRelativePath,
+    format: NPMCacheDirectoryFormat,
+    childDepth: Int,
+    state: inout ProtectedDescendantTraversalState
+  ) throws {
+    try cancellationCheckpoint()
+    guard !state.protectedDescendantWasObserved else {
+      return
+    }
+
+    do {
+      let currentDirectory = try DescriptorStatSnapshot.read(from: directoryDescriptor)
+      guard currentDirectory.sameProtectedDescendantState(as: expectedDirectory) else {
+        throw DescriptorObservationError.bindingChanged
+      }
+
+      let enumerationDescriptor = try descriptorOpenCurrentDirectory(directoryDescriptor)
+      guard let stream = Darwin.fdopendir(enumerationDescriptor) else {
+        let code = errno
+        descriptorCloseIgnoringErrors(enumerationDescriptor)
+        throw DescriptorObservationError.posix(code)
+      }
+      defer { _ = Darwin.closedir(stream) }
+
+      var interruptedAttempts = 0
+      while !state.protectedDescendantWasObserved {
+        try cancellationCheckpoint()
+        errno = 0
+        guard let entry = Darwin.readdir(stream) else {
+          let code = errno
+          if code == EINTR, interruptedAttempts + 1 < 3 {
+            interruptedAttempts += 1
+            continue
+          }
+          guard code == 0 else {
+            throw DescriptorObservationError.posix(code)
+          }
+          break
+        }
+        interruptedAttempts = 0
+
+        let rawName = descriptorRawName(from: entry)
+        if rawName == [0x2E] || rawName == [0x2E, 0x2E] {
+          continue
+        }
+        try state.recordEntry(rawName: rawName, depth: childDepth)
+        guard let component = DescriptorPathComponent(rawName) else {
+          state.recordFailure(.invalidMetadata)
+          continue
+        }
+
+        let descendantPath = directoryPath.appending(rawComponent: rawName)
+        do {
+          try observeProtectedDescendantEntry(
+            at: directoryDescriptor,
+            component: component,
+            path: descendantPath,
+            formatExpectation: format.expectation(for: rawName),
+            childDepth: childDepth,
+            state: &state
+          )
+        } catch is CancellationError {
+          throw CancellationError()
+        } catch {
+          state.recordFailure(descriptorUnknownReason(for: error))
+        }
+      }
+
+      let finalDirectory = try DescriptorStatSnapshot.read(from: directoryDescriptor)
+      guard finalDirectory.sameProtectedDescendantState(as: expectedDirectory) else {
+        throw DescriptorObservationError.bindingChanged
+      }
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch DescriptorObservationError.protectedDescendantLimitExceeded {
+      throw DescriptorObservationError.protectedDescendantLimitExceeded
+    } catch {
+      state.recordFailure(descriptorUnknownReason(for: error))
+    }
+  }
+
+  private func observeProtectedDescendantEntry(
+    at parentDescriptor: Int32,
+    component: DescriptorPathComponent,
+    path: ScanRelativePath,
+    formatExpectation: NPMCacheEntryExpectation?,
+    childDepth: Int,
+    state: inout ProtectedDescendantTraversalState
+  ) throws {
+    try cancellationCheckpoint()
+    let initiallyNamed = try DescriptorStatSnapshot.read(
+      at: parentDescriptor,
+      component: component
+    )
+
+    let repeatedDirectoryIdentity =
+      initiallyNamed.kind == .directory
+      && state.seenDirectoryIdentities.contains(initiallyNamed.identity)
+    let isStructurallyProtected = state.isStructurallyProtected(
+      initiallyNamed,
+      expectation: formatExpectation,
+      repeatedDirectoryIdentity: repeatedDirectoryIdentity
+    )
+
+    guard
+      !isStructurallyProtected,
+      initiallyNamed.kind == .directory,
+      let childFormat = formatExpectation?.childDirectoryFormat
+    else {
+      let finallyNamed = try DescriptorStatSnapshot.read(
+        at: parentDescriptor,
+        component: component
+      )
+      guard finallyNamed.sameProtectedDescendantState(as: initiallyNamed) else {
+        throw DescriptorObservationError.bindingChanged
+      }
+      if isStructurallyProtected {
+        state.recordProtectedDescendant()
+      }
+      return
+    }
+
+    try beforeOpeningProtectedDescendantDirectory(path)
+    try cancellationCheckpoint()
+    let childDescriptor = try descriptorOpenTrustedDirectory(
+      at: parentDescriptor,
+      component: component
+    )
+    defer { descriptorCloseIgnoringErrors(childDescriptor) }
+
+    let openedChild = try DescriptorStatSnapshot.read(from: childDescriptor)
+    guard openedChild.sameProtectedDescendantState(as: initiallyNamed) else {
+      throw DescriptorObservationError.bindingChanged
+    }
+
+    let openedIdentityWasRepeated = state.seenDirectoryIdentities.contains(
+      openedChild.identity
+    )
+    if state.isStructurallyProtected(
+      openedChild,
+      expectation: formatExpectation,
+      repeatedDirectoryIdentity: openedIdentityWasRepeated
+    ) {
+      try validateProtectedDescendantDirectory(
+        descriptor: childDescriptor,
+        namedAt: parentDescriptor,
+        component: component,
+        path: path,
+        expected: openedChild
+      )
+      state.recordProtectedDescendant()
+      return
+    }
+
+    guard state.seenDirectoryIdentities.insert(openedChild.identity).inserted else {
+      try validateProtectedDescendantDirectory(
+        descriptor: childDescriptor,
+        namedAt: parentDescriptor,
+        component: component,
+        path: path,
+        expected: openedChild
+      )
+      state.recordProtectedDescendant()
+      return
+    }
+
+    let (nextChildDepth, depthOverflow) = childDepth.addingReportingOverflow(1)
+    guard !depthOverflow else {
+      throw DescriptorObservationError.protectedDescendantLimitExceeded
+    }
+    try traverseProtectedDescendants(
+      in: childDescriptor,
+      expectedDirectory: openedChild,
+      directoryPath: path,
+      format: childFormat,
+      childDepth: nextChildDepth,
+      state: &state
+    )
+    try validateProtectedDescendantDirectory(
+      descriptor: childDescriptor,
+      namedAt: parentDescriptor,
+      component: component,
+      path: path,
+      expected: openedChild
+    )
+  }
+
+  private func validateProtectedDescendantDirectory(
+    descriptor: Int32,
+    namedAt parentDescriptor: Int32,
+    component: DescriptorPathComponent,
+    path: ScanRelativePath,
+    expected: DescriptorStatSnapshot
+  ) throws {
+    try beforeFinalProtectedDescendantDirectoryValidation(path)
+    try cancellationCheckpoint()
+    let finalOpened = try DescriptorStatSnapshot.read(from: descriptor)
+    let finalNamed = try DescriptorStatSnapshot.read(
+      at: parentDescriptor,
+      component: component
+    )
+    guard
+      finalOpened.sameProtectedDescendantState(as: expected),
+      finalNamed.sameProtectedDescendantState(as: finalOpened)
+    else {
+      throw DescriptorObservationError.bindingChanged
+    }
   }
 
   private func observeInitialTrustedLocations(
@@ -901,6 +1346,97 @@ private struct TrustedLocationBinding {
   let candidateIndices: [Int]
 }
 
+private struct ProtectedDescendantTraversalState {
+  let limits: ProtectedDescendantLimits
+  let accountUID: RuleObserved<uid_t>
+  let rootDevice: UInt64
+  var seenDirectoryIdentities: Set<FileIdentity>
+
+  private(set) var observedEntryCount = 0
+  private(set) var observedRawNameBytes = 0
+  private(set) var protectedDescendantWasObserved = false
+  private var failureReason: RuleUnknownReason?
+
+  init(
+    limits: ProtectedDescendantLimits,
+    accountUID: RuleObserved<uid_t>,
+    rootDevice: UInt64,
+    seenDirectoryIdentities: Set<FileIdentity>
+  ) {
+    self.limits = limits
+    self.accountUID = accountUID
+    self.rootDevice = rootDevice
+    self.seenDirectoryIdentities = seenDirectoryIdentities
+  }
+
+  mutating func recordEntry(rawName: [UInt8], depth: Int) throws {
+    let (newEntryCount, entryCountOverflow) = observedEntryCount.addingReportingOverflow(1)
+    let (newRawNameBytes, rawNameBytesOverflow) =
+      observedRawNameBytes.addingReportingOverflow(rawName.count)
+    guard
+      !entryCountOverflow,
+      !rawNameBytesOverflow,
+      depth <= limits.maximumDepth,
+      newEntryCount <= limits.maximumEntries,
+      newRawNameBytes <= limits.maximumRawNameBytes
+    else {
+      throw DescriptorObservationError.protectedDescendantLimitExceeded
+    }
+    observedEntryCount = newEntryCount
+    observedRawNameBytes = newRawNameBytes
+  }
+
+  mutating func recordFailure(_ reason: RuleUnknownReason) {
+    if failureReason == nil {
+      failureReason = reason
+    }
+  }
+
+  mutating func recordProtectedDescendant() {
+    protectedDescendantWasObserved = true
+  }
+
+  func isStructurallyProtected(
+    _ snapshot: DescriptorStatSnapshot,
+    expectation: NPMCacheEntryExpectation?,
+    repeatedDirectoryIdentity: Bool
+  ) -> Bool {
+    guard let expectation, snapshot.kind == expectation.expectedKind else {
+      return true
+    }
+    guard
+      snapshot.kind == .regularFile || snapshot.kind == .directory,
+      snapshot.identity.device == rootDevice,
+      snapshot.kind != .regularFile || snapshot.linkCount == 1,
+      !repeatedDirectoryIdentity
+    else {
+      return true
+    }
+    if case .known(let uid) = accountUID, uid != 0, snapshot.ownerUID != uid {
+      return true
+    }
+    return false
+  }
+
+  func result(expectedDescendantCount: UInt64) -> RuleObserved<Bool> {
+    if protectedDescendantWasObserved {
+      return .known(true)
+    }
+    if let failureReason {
+      return .unknown(failureReason)
+    }
+    guard UInt64(observedEntryCount) == expectedDescendantCount else {
+      return .unknown(.changedDuringObservation)
+    }
+    switch accountUID {
+    case .known(let uid):
+      return uid == 0 ? .unknown(.invalidMetadata) : .known(false)
+    case .unknown(let reason):
+      return .unknown(reason)
+    }
+  }
+}
+
 private struct DescriptorAbsolutePath {
   let components: [DescriptorPathComponent]
 
@@ -934,6 +1470,7 @@ private enum DescriptorObservationError: Error {
   case bindingChanged
   case crossedVolume
   case markerEntryLimitExceeded
+  case protectedDescendantLimitExceeded
   case posix(Int32)
 }
 
@@ -941,6 +1478,7 @@ private struct DescriptorStatSnapshot: Sendable {
   let identity: FileIdentity
   let kind: FileSystemEntryKind
   let ownerUID: uid_t
+  let linkCount: UInt64
   let generation: UInt32
   let birthSeconds: Int
   let birthNanoseconds: Int
@@ -988,6 +1526,7 @@ private struct DescriptorStatSnapshot: Sendable {
     )
     kind = descriptorEntryKind(for: information.st_mode)
     ownerUID = information.st_uid
+    linkCount = UInt64(information.st_nlink)
     generation = information.st_gen
     birthSeconds = information.st_birthtimespec.tv_sec
     birthNanoseconds = information.st_birthtimespec.tv_nsec
@@ -1010,6 +1549,13 @@ private struct DescriptorStatSnapshot: Sendable {
       && changeNanoseconds == other.changeNanoseconds
       && modificationSeconds == other.modificationSeconds
       && modificationNanoseconds == other.modificationNanoseconds
+  }
+
+  func sameProtectedDescendantState(as other: DescriptorStatSnapshot) -> Bool {
+    sameBinding(as: other)
+      && sameMutationState(as: other)
+      && ownerUID == other.ownerUID
+      && linkCount == other.linkCount
   }
 }
 
@@ -1036,6 +1582,30 @@ func evaluateAccountOwnedCacheNamespace(
   case .unknown(let reason):
     return .unknown(reason)
   }
+}
+
+private func exactStrictDescendantCount(for item: ScanItemSummary) -> UInt64? {
+  guard
+    item.kind == .directory,
+    item.counts.directories > 0,
+    item.counts.duplicateHardLinks <= item.counts.regularFiles
+  else {
+    return nil
+  }
+
+  var total: UInt64 = 0
+  for count in [
+    item.counts.regularFiles,
+    item.counts.directories,
+    item.counts.symbolicLinks,
+    item.counts.other,
+  ] {
+    let (newTotal, overflow) = total.addingReportingOverflow(count)
+    guard !overflow else { return nil }
+    total = newTotal
+  }
+  guard total > 0 else { return nil }
+  return total - 1
 }
 
 func accountOwnedCacheNamespaceAfterRootOwnerValidation(
@@ -1411,6 +1981,8 @@ private func descriptorUnknownReason(for error: Error) -> RuleUnknownReason {
     case .crossedVolume:
       return .changedDuringObservation
     case .markerEntryLimitExceeded:
+      return .resourceLimit
+    case .protectedDescendantLimitExceeded:
       return .resourceLimit
     case .posix(let code):
       return descriptorUnknownReason(forPOSIXCode: code)

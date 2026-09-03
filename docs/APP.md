@@ -180,13 +180,15 @@ as Satisfied after descriptor-bound root reobservation. The exact npm candidate
 may additionally show `account-owned-cache-namespace` as Satisfied only when
 the held root and `_cacache` directory both carry the current account's exact
 POSIX UID. That fact replaces generic tool ownership only for the npm rule; it
-does not establish historical creation, descendant ownership, write ACLs,
-content, inactivity, or mutation authority. The app does not display the raw
-candidate timestamp, scan-time identity, current account home path, or UID, and
-none of these satisfied findings makes a candidate eligible by itself. npm
-activity and protected-descendant evidence remain unavailable, while the other
-rules retain unknown tool ownership and other required facts, so candidates
-remain Protected. Scan-time identity is not cleanup or deletion authority.
+does not establish historical creation, write ACLs, content, inactivity, or
+mutation authority. The npm row may also satisfy `no-protected-descendants`
+after a bounded stable traversal matches the pinned cacache grammar and earlier
+scan count. The app does not display descendant paths, the raw candidate
+timestamp, scan-time identity, current account home path, or UID, and none of
+these satisfied findings makes a candidate eligible by itself. npm activity
+remains unavailable, while the other rules retain unknown tool ownership,
+protected-descendant evidence, and other required facts, so candidates remain
+Protected. Scan-time identity is not cleanup or deletion authority.
 
 “Complete observation” describes traversal within the configured limits. A
 partial observation can result from skipped entries, output bounds, incomplete

@@ -40,13 +40,16 @@ For that exact npm candidate, it can also establish the distinct
 `account-owned-cache-namespace` fact only when both the held selected root and
 held `_cacache` directory have the current account's exact POSIX UID. This is
 not generic npm or tool ownership: it proves neither who created the cache nor
-ownership of descendants, write ACLs, content, inactivity, or mutation
-authority. Other rules retain unknown tool-ownership evidence. npm activity and
-protected descendants also remain unknown, so runtime npm candidates—and all
-other real candidates with unavailable required facts—stay protected. Large AI
-models, virtual machines, user documents, and active application data are never
-treated as disposable merely
-because they are large.
+write ACLs, content, inactivity, or mutation authority. A separate bounded,
+descriptor-relative traversal can now reject descendants outside the pinned
+cacache path-and-kind grammar, non-empty `tmp`, links, special nodes,
+different-device entries, different-account owners, and repeated directory
+identities. A clean result requires exhaustive stable traversal and agreement
+with the earlier scan. Other rules retain unknown tool-ownership and protected-
+descendant evidence. npm activity remains unknown, so runtime npm
+candidates—and all other real candidates with unavailable required facts—stay
+protected. Large AI models, virtual machines, user documents, and active
+application data are never treated as disposable merely because they are large.
 
 ## Current interfaces
 
@@ -87,11 +90,10 @@ input. Root, path, kind, device, identity, rule, findings, and policy are
 reobserved; incomplete or unknown observations fail closed. Current runtime
 evidence still leaves real candidates Protected. Exact default uv, npm, and
 Homebrew containers can now have trusted location reobserved, and npm may also
-satisfy its supported cacache-layout marker and current-account cache-namespace
-check. The npm-specific check replaces that rule's unprovable generic tool-
-ownership requirement but does not authorize mutation. npm activity and
-protected descendants remain uncollected, as do tool ownership and other
-required evidence for the other rules. See the
+satisfy its supported cacache-layout marker, current-account cache-namespace
+check, and bounded protected-descendant exclusion. These npm-specific checks do
+not authorize mutation. npm activity remains uncollected, as do tool ownership,
+protected descendants, and other required evidence for the other rules. See the
 [revalidation contract](docs/REVALIDATION.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
@@ -104,9 +106,9 @@ approval, execution, or filesystem mutation.
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
 
-The next npm eligibility increment is bounded protected-descendant evidence.
-Activity remains last and will be coordinated with the future executor's
-descriptor-held revalidation immediately before any recoverable operation.
+The final npm eligibility fact is activity. Its observation will be
+coordinated with the future executor's descriptor-held revalidation immediately
+before any recoverable operation.
 
 ## Safety first
 

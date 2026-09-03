@@ -122,8 +122,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   absolute descriptor walks.
 - Structured false or unknown location outcomes for non-default, unavailable,
   malformed, cross-device, or changed observations. Xcode, SwiftPM, custom cache
-  roots, ownership, activity, protected descendants, and most generated markers
-  remain uncollected, so real candidates remain Protected.
+  roots, ownership, activity, protected descendants outside the npm profile,
+  and most generated markers remain uncollected, so real candidates remain
+  Protected.
 - Bounded generated-marker evidence for an exact npm `_cacache` containing
   exact raw `content-v2` and `index-v5` direct-child directories. Observation
   permits at most 256 non-dot direct entries, reads no cache contents, follows
@@ -138,6 +139,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   It does not invoke npm, inspect processes or contents, make network calls, or
   infer historical creation, descendant ownership, write ACLs, inactivity, or
   mutation authority.
+- Bounded protected-descendant evidence for an exact top-level npm `_cacache`.
+  A descriptor-relative, no-follow traversal accepts only the pinned cacache
+  raw path-and-kind grammar, an absent or empty `tmp`, same-device current-
+  account ownership, and single-link regular files. Stable exceptions are
+  protected; permission failures, races, malformed metadata, count drift, and
+  entry, depth, or raw-name-byte limits remain structured unknowns. The pass
+  reads no file contents and adds no mutation authority.
 
 ### Changed
 
@@ -145,13 +153,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   Raw candidate timestamps and scan-time identities remain Core-only;
   classification reflects the timestamp only through the existing age finding
   state and generic explanation.
-- The CLI built-in catalog is now version 4. `devsift.cache.npm` advances to
-  rule revision 3 for its account-owned cache-namespace requirement;
+- The CLI built-in catalog is now version 5. `devsift.cache.npm` advances to
+  rule revision 4 for its account-owned cache-namespace and bounded protected-
+  descendant requirements;
   `devsift.swiftpm.build` remains at revision 2 and every other rule remains at
   revision 1. The catalog
   identifier and version come from the Core-owned catalog revision rather than
   duplicate CLI constants; the classification JSON wire shape is unchanged.
 - The explainable-classification contract is now revision 2 for trusted-location
-  evidence interpretation. The npm-specific namespace fact advances only its
-  rule and the built-in catalog; scan JSON v2, classification JSON v1, cleanup
-  manifest contract v2, and manifest-review JSON v1 remain unchanged.
+  evidence interpretation. The npm-specific namespace and descendant facts
+  advance only that rule and the built-in catalog; scan JSON v2,
+  classification JSON v1, cleanup manifest contract v2, and manifest-review
+  JSON v1 remain unchanged.

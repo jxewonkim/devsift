@@ -68,8 +68,10 @@ default cache containers, the supported npm cacache-layout marker, and the
 npm-specific `account-owned-cache-namespace` fact. The last fact proves only
 that the held selected root and held `_cacache` directory have the current
 account's exact POSIX UID; it is not generic tool ownership or mutation
-authority. npm activity and protected descendants remain unknown, and other
-rules retain unknown tool ownership and other required facts. Recognized
+authority. npm can also establish its protected-descendant exclusion after a
+bounded stable traversal matches the pinned cacache grammar and the earlier
+scan. npm activity remains unknown, and other rules retain unknown tool
+ownership, protected descendants, and other required facts. Recognized
 candidates therefore remain `Protected` and cannot enter a nonempty draft.
 Synthetic complete evidence exercises eligible planning without weakening the
 runtime classification boundary.
@@ -83,7 +85,7 @@ roster is limited to 128 rules and rejects duplicate identifiers rather than
 silently deduplicating them.
 
 The default classifier seals `devsift.classification.explainable@2`, the
-Core-owned `devsift.builtin-rules@4` catalog revision, and the exact built-in
+Core-owned `devsift.builtin-rules@5` catalog revision, and the exact built-in
 roster into every report. `ExplainableRuleClassifier(rules:)` remains a
 presentation-only extension point: its reports are source-bound but
 deliberately unprovenanced and therefore cannot be planned. A trusted custom
@@ -350,9 +352,8 @@ unavailable candidates must be skipped. A caller-selected root, standalone
 manifest, diff, presentation, or revalidation report must never be an executor
 input.
 
-Before executor work, the next npm policy increment is bounded protected-
-descendant evidence. Activity remains the final eligibility fact so its
-observation can be coordinated with that executor's immediate, descriptor-held
+Before executor work, npm activity remains the final eligibility fact. Its
+observation must be coordinated with that executor's immediate, descriptor-held
 revalidation instead of being mistaken for durable authority.
 
 ## Test boundary

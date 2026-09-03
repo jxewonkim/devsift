@@ -70,10 +70,12 @@ trusted location, and npm may satisfy its supported cacache-layout marker.
 An exact top-level npm `_cacache` may also satisfy
 `account-owned-cache-namespace` when the held selected root and held candidate
 both have the current account's exact POSIX UID. That narrow fact replaces
-generic tool ownership only for npm; it is not mutation authority. npm activity
-and protected descendants remain
-uncollected, while other rules retain unknown tool ownership and other required
-facts.
+generic tool ownership only for npm; it is not mutation authority. A separate
+bounded traversal may satisfy npm's protected-descendant exclusion only for a
+stable same-device, current-account-owned tree whose names and kinds match the
+pinned cacache grammar and whose count matches the earlier scan. npm activity
+remains uncollected, while other rules retain unknown tool ownership,
+protected-descendant evidence, and other required facts.
 
 ## Hard invariants
 
@@ -194,15 +196,23 @@ facts.
   metadata matched the supported `content-v2` and `index-v5` cacache layout. It
   does not prove npm ownership, inspect cached content, or grant mutation
   authority.
+- A satisfied npm `no-protected-descendants` finding proves only that a bounded
+  descriptor-relative traversal reached stable EOF, matched the complete
+  scan's descendant count, and found only the pinned `content-v2`/`index-v5`
+  path grammar, optional metadata files, and an absent or empty `tmp`. A
+  symlink, special node, regular-file hard link, different-device entry,
+  different-account owner, repeated directory identity, unexpected raw name,
+  or wrong kind is protected. Permission failures, races, and traversal limits
+  remain unknown. The observer reads no file content and does not inspect ACLs,
+  extended attributes, flags, effective access, cache provenance, or activity.
 - A candidate remains `Protected` when a required activity check reports active
-  use or is unavailable. npm also remains `Protected` while its required
-  protected-descendant finding is unavailable.
+  use or is unavailable. npm therefore remains `Protected` even when all of its
+  currently collected structural facts pass.
 - A changed candidate is skipped during revalidation.
 - Partial failures are reported item by item.
 - Permanent deletion is not part of the initial milestones.
 
-The next npm policy increment will add bounded protected-descendant evidence.
-Activity observation remains the last eligibility fact and must be coordinated
+Activity observation is the last npm eligibility fact and must be coordinated
 with the future executor's descriptor-held revalidation immediately before a
 recoverable operation; a prior inactivity observation is not execution
 authority.

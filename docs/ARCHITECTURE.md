@@ -240,11 +240,16 @@ current account's exact POSIX UID. Raw path shape only gates a descriptor walk;
 the final root identity must match before and after observation.
 
 That npm-specific namespace fact is not responsible-tool ownership. It proves
-neither historical creation, descendant ownership, write ACLs, cache content,
-inactivity, nor mutation authority. Other rules retain unknown tool-ownership
-evidence. The observer invokes no npm process, performs no process inspection,
-reads no cache contents, and makes no network request. npm remains Protected
-while activity and protected-descendant evidence are unknown.
+neither historical creation, write ACLs, cache content, inactivity, nor
+mutation authority. For the same exact candidate, the held descriptor also
+anchors a bounded raw-name traversal that recognizes only the pinned cacache
+path-and-kind grammar, an absent or empty `tmp`, same-device current-account
+owners, and single-link regular files. Stable exceptions are protected; races,
+permission failures, malformed metadata, and reached bounds remain unknown.
+Other rules retain unknown tool-ownership and protected-descendant evidence.
+The observer invokes no npm process, performs no process inspection, reads no
+cache contents, and makes no network request. npm remains Protected while
+activity evidence is unknown.
 
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
 not persistent object identities or deletion authority. Copying them into a
@@ -256,7 +261,6 @@ traversal and identity checks rather than reconstructing descendant `URL`
 values from untrusted names. See the [rules contract](RULES.md) and
 [planning contract](PLANNING.md).
 
-The next npm observer is bounded protected-descendant evidence. Activity is the
-last eligibility fact and must be designed with the executor's descriptor-held
-revalidation immediately before mutation rather than treated as durable
-classification evidence.
+Activity is the last npm eligibility fact and must be designed with the
+executor's descriptor-held revalidation immediately before mutation rather
+than treated as durable classification evidence.

@@ -96,20 +96,23 @@ advances that rule to revision 2. The observer also establishes trusted location
 for exact uv, npm, and Homebrew default containers, advancing the classification
 contract to revision 2, and recognizes the supported npm cacache layout from
 exact `content-v2` and `index-v5` directory children. That npm rule is now
-revision 3 and the built-in catalog is version 4 after adding its distinct
+revision 4 and the built-in catalog is version 5 after adding its distinct
 `account-owned-cache-namespace` fact: both the held selected root and held
-`_cacache` directory must carry the current account's exact POSIX UID. The
-classifier contract stays at revision 2 because common evidence interpretation
-is unchanged.
+`_cacache` directory must carry the current account's exact POSIX UID. A
+bounded descriptor-relative traversal now also collects npm protected-
+descendant evidence against the pinned cacache grammar and prior scan count.
+The classifier contract stays at revision 2 because common evidence
+interpretation is unchanged.
 
 The scan-time identity only binds this read-only reobservation; it is not cleanup
 or deletion authority. The npm-specific namespace check is not generic tool
-ownership and does not prove historical creation, descendant ownership, write
-ACLs, content, inactivity, or mutation authority. Other rules retain unknown
-tool ownership. npm activity and protected descendants, generated markers
-outside SwiftPM and npm, and location for other rules remain uncollected, so
-real candidates stay `Protected`. Observers for those remaining facts are later
-increments.
+ownership and does not prove historical creation, write ACLs, content,
+inactivity, or mutation authority. The npm descendant check reads no content
+and treats any unexpected path or kind, non-empty `tmp`, link, special node,
+different-device entry, different-account owner, or unstable observation as
+blocking or unknown. Other rules retain unknown tool ownership and descendant
+evidence. npm activity, generated markers outside SwiftPM and npm, and location
+for other rules remain uncollected, so real candidates stay `Protected`.
 
 Implemented commit sequence:
 
@@ -135,7 +138,9 @@ Implemented commit sequence:
 - `feat(rules): bind npm cache marker evidence`;
 - `docs(rules): define npm layout evidence`;
 - `feat(rules): bind npm account-owned namespace`;
-- `docs(rules): define npm account namespace evidence`.
+- `docs(rules): define npm account namespace evidence`;
+- `feat(rules): bind npm protected descendants`;
+- `docs(rules): define npm descendant evidence`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.
@@ -331,15 +336,34 @@ Implemented fourth increment: `feat(rules): bind npm account-owned namespace`.
   classification JSON v1, cleanup manifest contract v2, and manifest-review
   JSON v1 remain unchanged.
 
-Next: add bounded npm protected-descendant evidence as a separately reviewed
-increment. Activity is intentionally last among the npm eligibility facts so
-its observation can be designed together with the future executor's immediate
-pre-operation revalidation. Only after those facts are stable should
-recoverable quarantine be designed. The future executor must accept the
-approval, not the diagnostic report, and revalidate inline while holding
-descriptors immediately before an operation.
+Implemented fifth increment: `feat(rules): bind npm protected descendants`.
 
-Later Phase 7 work, after that evidence and executor design:
+- Collect `protectedDescendantPresent` only for an exact top-level `_cacache`
+  directory by walking its held descriptor without following symbolic links.
+- Pin the accepted raw path-and-kind grammar to cacache 21.0.1: content and
+  index shards, optional metadata files, and absent or empty `tmp`. Treat an
+  unexpected path or kind, link, special node, hard-linked regular file,
+  different-device entry, different-account owner, or repeated directory
+  identity as protected.
+- Bound the pass to 1,000,000 strict descendants, depth 32, and 64 MiB of raw
+  filename bytes. Require stable traversal to EOF and agreement with the
+  complete scanner count before reporting that no protected descendant exists.
+- Read no file contents and treat permission, resource, malformed, incomplete,
+  or changed observations as structured unknowns. Keep other evidence slots
+  isolated and every non-npm protected-descendant fact uncollected.
+- Advance npm to rule revision 4 and the built-in catalog to revision 5. Keep
+  SwiftPM and the classifier contract at revision 2; scan JSON v2,
+  classification JSON v1, cleanup manifest contract v2, and manifest-review
+  JSON v1 remain unchanged.
+
+Next: design npm activity observation together with the future executor's
+immediate descriptor-held pre-operation revalidation. A classification-time
+inactivity result alone cannot close the race. Only after that contract is
+stable should recoverable quarantine be implemented. The future executor must
+accept the approval, not the diagnostic report, and revalidate inline while
+holding descriptors immediately before an operation.
+
+Later Phase 7 work, after activity evidence and executor design:
 
 - Accept only `CleanupApproval` and reopen the root stored within it, never a
   separately supplied root, draft manifest, diff, or presentation.

@@ -4,7 +4,7 @@ public enum BuiltInRuleCatalog {
   /// revision changes.
   public static let revision = RuleRevision(
     identifier: makeRuleIdentifier("devsift.builtin-rules"),
-    version: makeRuleVersion(4)
+    version: makeRuleVersion(5)
   )
 
   public static let rules: [any ExplainableRule] = [
@@ -25,10 +25,12 @@ public enum BuiltInRuleCatalog {
         tool: "npm",
         recognition: "The candidate raw name must be exactly `_cacache`.",
         disposition: .reviewRequired,
-        version: 3,
+        version: 4,
         usesAccountOwnedCacheNamespaceCheck: true,
         generatedMarkerExplanation:
-          "Exact raw `content-v2` and `index-v5` directory children form the supported cacache layout signature."
+          "Exact raw `content-v2` and `index-v5` directory children form the supported cacache layout signature.",
+        protectedDescendantExplanation:
+          "Every strict descendant stably matches the pinned cacache raw path-and-kind grammar, stays on the selected root device, and is owned by the current non-root POSIX account; `tmp` is empty and regular files have one link. This does not inspect contents, ACLs, extended attributes, flags, creator, or tool provenance."
       ),
       recognition: .exactName(Array("_cacache".utf8))
     ),
@@ -89,7 +91,9 @@ public enum BuiltInRuleCatalog {
     includesPackageManifestCheck: Bool = false,
     usesAccountOwnedCacheNamespaceCheck: Bool = false,
     generatedMarkerExplanation: String =
-      "A generated-content marker identifies reproducible output."
+      "A generated-content marker identifies reproducible output.",
+    protectedDescendantExplanation: String =
+      "No protected descendant is present in the candidate scope."
   ) -> RuleDefinition {
     var checks = [
       RuleCheckDefinition(
@@ -137,7 +141,7 @@ public enum BuiltInRuleCatalog {
       RuleCheckDefinition(
         identifier: BuiltInCheckIdentifier.noProtectedDescendants,
         kind: .exclusion,
-        explanation: "No protected descendant is present in the candidate scope."
+        explanation: protectedDescendantExplanation
       )
     )
 

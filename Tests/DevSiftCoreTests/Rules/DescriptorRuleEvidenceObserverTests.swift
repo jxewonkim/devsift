@@ -253,6 +253,7 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(evidence.trustedLocation == .unknown(.changedDuringObservation))
     #expect(evidence.generatedContentMarker == .unknown(.changedDuringObservation))
     #expect(evidence.accountOwnedCacheNamespace == .unknown(.changedDuringObservation))
+    #expect(evidence.protectedDescendantPresent == .unknown(.changedDuringObservation))
     #expect(try Data(contentsOf: outsideSentinel) == Data([0x5A]))
     #expect(try treeSnapshot(at: fixture.outside) == outsideBefore)
   }
@@ -477,6 +478,10 @@ struct DescriptorRuleEvidenceObserverTests {
 
     #expect(unsupported.candidates.first?.accountOwnedCacheNamespace == .unknown(.unsupported))
     #expect(malformed.candidates.first?.accountOwnedCacheNamespace == .unknown(.invalidMetadata))
+    #expect(unsupported.candidates.first?.protectedDescendantPresent == .unknown(.unsupported))
+    #expect(
+      malformed.candidates.first?.protectedDescendantPresent == .unknown(.invalidMetadata)
+    )
     for observation in [unsupported, malformed] {
       #expect(observation.candidates.first?.identityMatchesScan == .known(true))
       #expect(observation.candidates.first?.trustedLocation == .known(true))
@@ -603,6 +608,462 @@ struct DescriptorRuleEvidenceObserverTests {
           == .unknown(.notCollected)
       )
     }
+  }
+
+  @Test("A clean pinned npm cache layout has no protected descendants")
+  func npmProtectedDescendantCleanTree() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    _ = try fixture.write(
+      "content-v2/sha512/aa/bb/ccdd",
+      bytes: [1, 2, 3],
+      under: npm.cache
+    )
+    _ = try fixture.write(
+      "index-v5/aa/bb/\(String(repeating: "c", count: 60))",
+      bytes: [4],
+      under: npm.cache
+    )
+    _ = try fixture.makeDirectory("content-v2/sha256", under: npm.cache)
+    _ = try fixture.makeDirectory("index-v5/cc", under: npm.cache)
+    _ = try fixture.makeDirectory("tmp", under: npm.cache)
+    _ = try fixture.write("_lastverified", bytes: [5], under: npm.cache)
+    _ = try fixture.write("CACHEDIR.TAG", bytes: [7], under: npm.cache)
+
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+    let before = try treeSnapshot(at: npm.root)
+    let observation = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(npm.home)) },
+      accountUIDProvider: { .known(Darwin.getuid()) }
+    ).observe(request(root: npm.root, report: scan))
+    let evidence = try #require(observation.candidates.first)
+
+    #expect(evidence.generatedContentMarker == .known(true))
+    #expect(evidence.accountOwnedCacheNamespace == .known(true))
+    #expect(evidence.protectedDescendantPresent == .known(false))
+    #expect(try treeSnapshot(at: npm.root) == before)
+  }
+
+  @Test("Unexpected npm names kinds casing and nonempty tmp content are protected")
+  func npmProtectedDescendantPinnedLayoutBoundary() async throws {
+    for violation in NPMProtectedDescendantLayoutViolation.allCases {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+
+      let npm = try makeNPMCache(in: fixture)
+      switch violation {
+      case .caseVariantTopLevel:
+        _ = try fixture.makeDirectory("CONTENT-V2", under: npm.cache)
+        _ = try fixture.makeDirectory("index-v5", under: npm.cache)
+      default:
+        _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+      }
+      switch violation {
+      case .unexpectedTopLevel:
+        _ = try fixture.write(".opaque", bytes: [1], under: npm.cache)
+      case .caseVariantTopLevel:
+        break
+      case .wrongTopLevelKind:
+        _ = try fixture.makeDirectory("_lastverified", under: npm.cache)
+      case .nonemptyTemporaryDirectory:
+        _ = try fixture.write("tmp/session/partial", bytes: [1], under: npm.cache)
+      case .uppercaseContentAlgorithm:
+        _ = try fixture.makeDirectory("content-v2/SHA512", under: npm.cache)
+      case .shortContentShard:
+        _ = try fixture.makeDirectory("content-v2/sha512/a", under: npm.cache)
+      case .nonhexContentLeaf:
+        _ = try fixture.write(
+          "content-v2/sha512/aa/bb/payload",
+          bytes: [1],
+          under: npm.cache
+        )
+      case .wrongLengthIndexLeaf:
+        _ = try fixture.write(
+          "index-v5/aa/bb/\(String(repeating: "c", count: 59))",
+          bytes: [1],
+          under: npm.cache
+        )
+      }
+
+      let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+      let observation = try await DescriptorRuleEvidenceObserver(
+        accountUIDProvider: { .known(Darwin.getuid()) }
+      ).observe(request(root: npm.root, report: scan))
+
+      #expect(
+        observation.candidates.first?.protectedDescendantPresent == .known(true),
+        "Unexpected pinned-layout result for \(violation)"
+      )
+    }
+  }
+
+  @Test("Protected-descendant evidence is exact-name scoped and a non-directory has none")
+  func npmProtectedDescendantApplicabilityAndNonDirectory() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    _ = try fixture.write("_cacache", bytes: [1])
+    _ = try fixture.makeDirectory("uv")
+    _ = try fixture.makeDirectory("_cacache-copy")
+    let scan = try await AllocatedSizeScanner().scan(root: fixture.root)
+    let observation = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { .known(Darwin.getuid()) }
+    ).observe(request(root: fixture.root, report: scan))
+    let evidence = try evidenceByPath(report: scan, observation: observation)
+
+    #expect(evidence[path("_cacache")]?.protectedDescendantPresent == .known(false))
+    for nearMiss in ["uv", "_cacache-copy"] {
+      #expect(
+        evidence[path(nearMiss)]?.protectedDescendantPresent
+          == .unknown(.notCollected)
+      )
+    }
+
+    let unavailableReason = RuleUnknownReason.permissionDenied
+    #expect(
+      CandidateRuleEvidence.unavailable(
+        unavailableReason,
+        for: ruleSummary(rawComponents: [Array("_cacache".utf8)])
+      ).protectedDescendantPresent == .unknown(unavailableReason)
+    )
+    #expect(
+      CandidateRuleEvidence.unavailable(
+        unavailableReason,
+        for: ruleSummary(rawComponents: [Array("_CACACHE".utf8)])
+      ).protectedDescendantPresent == .unknown(.notCollected)
+    )
+    #expect(
+      CandidateRuleEvidence.unavailable(
+        unavailableReason,
+        for: ruleSummary(rawComponents: [Array("nested".utf8), Array("_cacache".utf8)])
+      ).protectedDescendantPresent == .unknown(.notCollected)
+    )
+  }
+
+  @Test("npm descendant symlinks and special nodes are protected without following targets")
+  func npmProtectedDescendantKinds() async throws {
+    for fixtureKind in NPMProtectedDescendantFixtureKind.allCases {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+
+      let npm = try makeNPMCache(in: fixture)
+      _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+      let sentinel = try fixture.write("sentinel", bytes: [0xA5], under: fixture.outside)
+      switch fixtureKind {
+      case .symbolicLink:
+        _ = try fixture.makeSymbolicLink(
+          "content-v2/outside-link",
+          destination: sentinel,
+          under: npm.cache
+        )
+      case .fifo:
+        let fifo = fixture.url(for: "content-v2/named-pipe", under: npm.cache)
+        let status = fifo.withUnsafeFileSystemRepresentation { path in
+          path.map { Darwin.mkfifo($0, 0o600) } ?? -1
+        }
+        try #require(status == 0)
+      }
+
+      let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+      let observation = try await DescriptorRuleEvidenceObserver(
+        rawHomeProvider: { .known(rawPathBytes(npm.home)) },
+        accountUIDProvider: { .known(Darwin.getuid()) }
+      ).observe(request(root: npm.root, report: scan))
+
+      #expect(
+        observation.candidates.first?.protectedDescendantPresent == .known(true),
+        "Unexpected protected-descendant result for \(fixtureKind)"
+      )
+      #expect(try Data(contentsOf: sentinel) == Data([0xA5]))
+    }
+  }
+
+  @Test("A multiply linked regular cache leaf is protected")
+  func npmProtectedDescendantProtectsHardLinks() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    _ = try fixture.makeDirectory("content-v2/sha512/aa/bb", under: npm.cache)
+    let outside = try fixture.write("shared-payload", bytes: [4, 2], under: fixture.outside)
+    _ = try fixture.makeHardLink(
+      "content-v2/sha512/aa/bb/ccdd",
+      source: outside,
+      under: npm.cache
+    )
+
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+    let observation = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(npm.home)) },
+      accountUIDProvider: { .known(Darwin.getuid()) }
+    ).observe(request(root: npm.root, report: scan))
+
+    #expect(observation.candidates.first?.protectedDescendantPresent == .known(true))
+    #expect(try Data(contentsOf: outside) == Data([4, 2]))
+  }
+
+  @Test("A protected structure outranks unavailable or mismatching UID evidence")
+  func npmProtectedDescendantUIDPrecedence() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    let sentinel = try fixture.write("sentinel", bytes: [9], under: fixture.outside)
+    _ = try fixture.makeSymbolicLink(
+      "content-v2/outside-link",
+      destination: sentinel,
+      under: npm.cache
+    )
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+    let accountUID = Darwin.getuid()
+    try #require(accountUID > 0)
+    let alternateUID = accountUID == uid_t.max ? accountUID - 1 : accountUID + 1
+
+    let mismatching = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(npm.home)) },
+      accountUIDProvider: { .known(alternateUID) }
+    ).observe(request(root: npm.root, report: scan))
+    let unsupported = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(npm.home)) },
+      accountUIDProvider: { .unknown(.unsupported) }
+    ).observe(request(root: npm.root, report: scan))
+
+    #expect(mismatching.candidates.first?.accountOwnedCacheNamespace == .known(false))
+    #expect(mismatching.candidates.first?.protectedDescendantPresent == .known(true))
+    #expect(
+      unsupported.candidates.first?.accountOwnedCacheNamespace == .unknown(.unsupported)
+    )
+    #expect(unsupported.candidates.first?.protectedDescendantPresent == .known(true))
+    #expect(try Data(contentsOf: sentinel) == Data([9]))
+  }
+
+  @Test("A clean npm tree requires known matching descendant ownership")
+  func npmProtectedDescendantCleanTreeUIDBoundary() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+    let accountUID = Darwin.getuid()
+    try #require(accountUID > 0)
+    let alternateUID = accountUID == uid_t.max ? accountUID - 1 : accountUID + 1
+
+    let mismatching = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { .known(alternateUID) }
+    ).observe(request(root: npm.root, report: scan))
+    let unavailable = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { .unknown(.unsupported) }
+    ).observe(request(root: npm.root, report: scan))
+
+    #expect(mismatching.candidates.first?.accountOwnedCacheNamespace == .known(false))
+    #expect(mismatching.candidates.first?.protectedDescendantPresent == .known(true))
+    #expect(
+      unavailable.candidates.first?.accountOwnedCacheNamespace == .unknown(.unsupported)
+    )
+    #expect(
+      unavailable.candidates.first?.protectedDescendantPresent == .unknown(.unsupported)
+    )
+  }
+
+  @Test("Protected-descendant traversal enforces entry depth and raw-name limits")
+  func npmProtectedDescendantLimits() async throws {
+    do {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+      let npm = try makeNPMCache(in: fixture)
+      _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+      let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+
+      for (maximumEntries, expected): (Int, RuleObserved<Bool>) in [
+        (2, .known(false)),
+        (1, .unknown(.resourceLimit)),
+      ] {
+        let observation = try await DescriptorRuleEvidenceObserver(
+          accountUIDProvider: { .known(Darwin.getuid()) },
+          protectedDescendantLimits: ProtectedDescendantLimits(
+            maximumEntries: maximumEntries,
+            maximumDepth: 8,
+            maximumRawNameBytes: 1_024
+          )
+        ).observe(request(root: npm.root, report: scan))
+        #expect(observation.candidates.first?.protectedDescendantPresent == expected)
+      }
+    }
+
+    do {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+      let npm = try makeNPMCache(in: fixture)
+      _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+      _ = try fixture.makeDirectory("content-v2/nested", under: npm.cache)
+      let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+
+      for (maximumDepth, expected): (Int, RuleObserved<Bool>) in [
+        (2, .known(false)),
+        (1, .unknown(.resourceLimit)),
+      ] {
+        let observation = try await DescriptorRuleEvidenceObserver(
+          accountUIDProvider: { .known(Darwin.getuid()) },
+          protectedDescendantLimits: ProtectedDescendantLimits(
+            maximumEntries: 8,
+            maximumDepth: maximumDepth,
+            maximumRawNameBytes: 1_024
+          )
+        ).observe(request(root: npm.root, report: scan))
+        #expect(observation.candidates.first?.protectedDescendantPresent == expected)
+      }
+    }
+
+    do {
+      let fixture = try ScannerFixture()
+      defer { fixture.remove() }
+      let npm = try makeNPMCache(in: fixture)
+      _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+      let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+
+      for (maximumRawNameBytes, expected): (Int, RuleObserved<Bool>) in [
+        (18, .known(false)),
+        (17, .unknown(.resourceLimit)),
+      ] {
+        let observation = try await DescriptorRuleEvidenceObserver(
+          accountUIDProvider: { .known(Darwin.getuid()) },
+          protectedDescendantLimits: ProtectedDescendantLimits(
+            maximumEntries: 8,
+            maximumDepth: 8,
+            maximumRawNameBytes: maximumRawNameBytes
+          )
+        ).observe(request(root: npm.root, report: scan))
+        #expect(observation.candidates.first?.protectedDescendantPresent == expected)
+      }
+    }
+  }
+
+  @Test("A descendant count change after scanning cannot produce a clean result")
+  func npmProtectedDescendantScanCountMismatch() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+    _ = try fixture.makeDirectory("content-v2/sha512", under: npm.cache)
+
+    let observation = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { .known(Darwin.getuid()) }
+    ).observe(request(root: npm.root, report: scan))
+
+    #expect(
+      observation.candidates.first?.protectedDescendantPresent
+        == .unknown(.changedDuringObservation)
+    )
+  }
+
+  @Test("A descendant directory swap cannot be followed or reported clean")
+  func npmProtectedDescendantDirectoryRace() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    let nested = try fixture.makeDirectory("content-v2/sha512/aa", under: npm.cache)
+    let sentinel = try fixture.write("sentinel", bytes: [0xA5], under: fixture.outside)
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+
+    let observer = DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { .known(Darwin.getuid()) },
+      beforeOpeningProtectedDescendantDirectory: { descendantPath in
+        guard
+          descendantPath.rawComponents
+            == [
+              Array("_cacache".utf8),
+              Array("content-v2".utf8),
+              Array("sha512".utf8),
+              Array("aa".utf8),
+            ]
+        else { return }
+        try FileManager.default.moveItem(
+          at: nested,
+          to: fixture.container.appendingPathComponent("original-nested")
+        )
+        try FileManager.default.createSymbolicLink(
+          at: nested,
+          withDestinationURL: fixture.outside
+        )
+      }
+    )
+    let observation = try await observer.observe(request(root: npm.root, report: scan))
+
+    #expect(
+      observation.candidates.first?.protectedDescendantPresent
+        == .unknown(.changedDuringObservation)
+    )
+    #expect(try Data(contentsOf: sentinel) == Data([0xA5]))
+  }
+
+  @Test("A mutation before final descendant validation cannot preserve a clean result")
+  func npmProtectedDescendantFinalDirectoryRace() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    let shard = try fixture.makeDirectory("content-v2/sha512/aa", under: npm.cache)
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+
+    let observer = DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { .known(Darwin.getuid()) },
+      beforeFinalProtectedDescendantDirectoryValidation: { descendantPath in
+        guard
+          descendantPath.rawComponents
+            == [
+              Array("_cacache".utf8),
+              Array("content-v2".utf8),
+              Array("sha512".utf8),
+              Array("aa".utf8),
+            ]
+        else { return }
+        _ = try fixture.makeDirectory("bb", under: shard)
+      }
+    )
+    let observation = try await observer.observe(request(root: npm.root, report: scan))
+
+    #expect(
+      observation.candidates.first?.protectedDescendantPresent
+        == .unknown(.changedDuringObservation)
+    )
+  }
+
+  @Test("Protected traversal errors stay isolated from stable npm evidence")
+  func npmProtectedDescendantErrorIsolation() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npm = try makeNPMCache(in: fixture)
+    _ = try makeNPMMarkerPair(in: npm.cache, fixture: fixture)
+    let scan = try await AllocatedSizeScanner().scan(root: npm.root)
+    let observer = DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(npm.home)) },
+      accountUIDProvider: { .known(Darwin.getuid()) },
+      beforeProtectedDescendantObservation: { candidatePath in
+        guard candidatePath.rawComponents == [Array("_cacache".utf8)] else { return }
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))
+      }
+    )
+
+    let observation = try await observer.observe(request(root: npm.root, report: scan))
+    let evidence = try #require(observation.candidates.first)
+
+    #expect(evidence.identityMatchesScan == .known(true))
+    #expect(evidence.trustedLocation == .known(true))
+    #expect(evidence.generatedContentMarker == .known(true))
+    #expect(evidence.accountOwnedCacheNamespace == .known(true))
+    #expect(evidence.protectedDescendantPresent == .unknown(.permissionDenied))
   }
 
   @Test("Trusted cache locations require an exact home-relative root and candidate pair")
@@ -817,6 +1278,7 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(evidence.trustedLocation == .unknown(.changedDuringObservation))
     #expect(evidence.generatedContentMarker == .unknown(.changedDuringObservation))
     #expect(evidence.accountOwnedCacheNamespace == .unknown(.changedDuringObservation))
+    #expect(evidence.protectedDescendantPresent == .unknown(.changedDuringObservation))
     #expect(try Data(contentsOf: outsideSentinel) == Data([3]))
   }
 
@@ -896,12 +1358,12 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(states["account-owned-cache-namespace"] == .satisfied)
     #expect(states["tool-ownership"] == nil)
     #expect(states["generated-content-marker"] == .satisfied)
-    #expect(states["no-protected-descendants"] == .unknown(.notCollected))
+    #expect(states["no-protected-descendants"] == .satisfied)
     #expect(states["activity-requirement"] == .unknown(.notCollected))
     #expect(states["age-requirement"] == .satisfied)
     #expect(evaluation.matchState == .possibleMatch)
     #expect(evaluation.disposition == .protected)
-    #expect(evaluation.rule?.version == testRuleVersion(3))
+    #expect(evaluation.rule?.version == testRuleVersion(4))
     let visibleText =
       ([
         evaluation.displayName,
@@ -1182,6 +1644,10 @@ struct DescriptorRuleEvidenceObserverTests {
       incomplete.candidates.first?.accountOwnedCacheNamespace
         == .unknown(.incompleteScan)
     )
+    #expect(
+      incomplete.candidates.first?.protectedDescendantPresent
+        == .unknown(.incompleteScan)
+    )
 
     let cache = ruleSummary(
       rawComponents: [Array("_cacache".utf8)],
@@ -1200,6 +1666,7 @@ struct DescriptorRuleEvidenceObserverTests {
         $0.trustedLocation == .unknown(.invalidMetadata)
           && $0.generatedContentMarker == .unknown(.invalidMetadata)
           && $0.accountOwnedCacheNamespace == .unknown(.invalidMetadata)
+          && $0.protectedDescendantPresent == .unknown(.invalidMetadata)
       }
     )
   }
@@ -1244,6 +1711,22 @@ private enum NPMMarkerFixtureKind: CaseIterable, Equatable {
   case nestedPair
 }
 
+private enum NPMProtectedDescendantFixtureKind: CaseIterable {
+  case symbolicLink
+  case fifo
+}
+
+private enum NPMProtectedDescendantLayoutViolation: CaseIterable {
+  case unexpectedTopLevel
+  case caseVariantTopLevel
+  case wrongTopLevelKind
+  case nonemptyTemporaryDirectory
+  case uppercaseContentAlgorithm
+  case shortContentShard
+  case nonhexContentLeaf
+  case wrongLengthIndexLeaf
+}
+
 private enum TrustedCacheFixtureRoot: CaseIterable {
   case npm
   case homebrew
@@ -1282,6 +1765,17 @@ private func makeNPMMarkerPair(
     content: try fixture.makeDirectory("content-v2", under: cache),
     index: try fixture.makeDirectory("index-v5", under: cache)
   )
+}
+
+private func makeNPMCache(
+  in fixture: ScannerFixture
+) throws -> (home: URL, root: URL, cache: URL) {
+  let home = try resolvedFixtureURL(
+    fixture.makeDirectory("synthetic-home", under: fixture.container)
+  )
+  let root = try fixture.makeDirectory(".npm", under: home)
+  let cache = try fixture.makeDirectory("_cacache", under: root)
+  return (home: home, root: root, cache: cache)
 }
 
 private final class AccountUIDProviderProbe: @unchecked Sendable {

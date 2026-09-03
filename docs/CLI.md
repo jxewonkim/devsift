@@ -54,10 +54,13 @@ candidate, the held selected root and held `_cacache` directory may additionally
 satisfy `account-owned-cache-namespace` when both have the current account's
 exact POSIX UID. This is not generic npm ownership and does not inspect cache
 contents, processes, or network state. It also proves neither historical
-creation, descendant ownership, write ACLs, inactivity, nor mutation authority.
-npm activity and protected descendants remain uncollected, while the other
-rules retain unknown tool ownership and other required facts, so real
-recognized candidates stay protected; see the [rules contract](RULES.md).
+creation, write ACLs, inactivity, nor mutation authority. The same exact npm
+candidate can additionally satisfy a bounded protected-descendant exclusion
+only after a stable descriptor-relative traversal matches the pinned cacache
+path-and-kind grammar and the earlier scan. npm activity remains uncollected,
+while the other rules retain unknown tool ownership, protected descendants,
+and other required facts, so real recognized candidates stay protected; see
+the [rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits
@@ -230,8 +233,9 @@ a schema example, not a promised scan result for an empty directory.
 change the existing scan schema.
 
 The classification JSON schema remains version 1. Its built-in catalog is
-version 4. `devsift.cache.npm` is rule revision 3 for its exact cacache-layout,
-trusted-location, and account-owned cache-namespace evidence;
+version 5. `devsift.cache.npm` is rule revision 4 for its exact cacache-layout,
+trusted-location, account-owned cache-namespace, and protected-descendant
+evidence;
 `devsift.swiftpm.build` remains revision 2 for the exact
 `workspace-state.json` marker, and every other built-in rule remains revision
 1. Catalog and rule revisions can change without changing the JSON key shape.
@@ -296,7 +300,7 @@ A shortened synthetic decision has this shape:
   "pathStyle": "root-relative",
   "catalog": {
     "identifier": "devsift.builtin-rules",
-    "version": "4",
+    "version": "5",
     "ruleCount": "6"
   },
   "referenceUnixSeconds": "1700000000",

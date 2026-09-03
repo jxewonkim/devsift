@@ -13,7 +13,7 @@ struct ExplainableRuleClassifierTests {
       [(name: String, root: String, rule: String, version: UInt32, disposition: RuleDisposition)] =
         [
           ("uv", "Caches", "devsift.cache.uv", 1, .reclaimable),
-          ("_cacache", "Caches", "devsift.cache.npm", 3, .reviewRequired),
+          ("_cacache", "Caches", "devsift.cache.npm", 4, .reviewRequired),
           ("Homebrew", "Caches", "devsift.cache.homebrew", 1, .reviewRequired),
           ("DerivedData", "Xcode", "devsift.xcode.derived-data", 1, .reviewRequired),
           (".build", "Project", "devsift.swiftpm.build", 2, .reviewRequired),

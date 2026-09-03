@@ -140,13 +140,15 @@ struct ScanReportRuleAdapterTests {
     #expect(buildObservation.facts.trustedLocation == .unknown(.notCollected))
     #expect(buildObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
     #expect(buildObservation.facts.accountOwnedCacheNamespace == .unknown(.notCollected))
+    #expect(buildObservation.facts.protectedDescendantPresent == .unknown(.notCollected))
     #expect(cacheObservation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
     #expect(cacheObservation.facts.trustedLocation == .unknown(.invalidMetadata))
     #expect(cacheObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
     #expect(cacheObservation.facts.accountOwnedCacheNamespace == .unknown(.invalidMetadata))
+    #expect(cacheObservation.facts.protectedDescendantPresent == .unknown(.invalidMetadata))
   }
 
-  @Test("Adapter projects account namespace evidence without inventing tool ownership")
+  @Test("Adapter projects npm namespace evidence without inventing tool ownership")
   func accountNamespaceProjection() throws {
     let rootIdentity = FileIdentity(device: 1, inode: 1)
     let cache = ruleSummary(
@@ -175,7 +177,8 @@ struct ScanReportRuleAdapterTests {
             identityMatchesScan: .known(true),
             trustedLocation: .known(true),
             generatedContentMarker: .known(true),
-            accountOwnedCacheNamespace: .known(true)
+            accountOwnedCacheNamespace: .known(true),
+            protectedDescendantPresent: .known(false)
           )
         ]
       )
@@ -183,6 +186,7 @@ struct ScanReportRuleAdapterTests {
     let facts = try #require(observations.first?.facts)
 
     #expect(facts.accountOwnedCacheNamespace == .known(true))
+    #expect(facts.protectedDescendantPresent == .known(false))
     #expect(facts.toolOwnership == .unknown(.notCollected))
   }
 
@@ -219,7 +223,8 @@ struct ScanReportRuleAdapterTests {
             identityMatchesScan: .known(true),
             trustedLocation: .known(true),
             generatedContentMarker: .known(true),
-            accountOwnedCacheNamespace: .known(true)
+            accountOwnedCacheNamespace: .known(true),
+            protectedDescendantPresent: .known(false)
           )
         ]
       )
@@ -230,6 +235,7 @@ struct ScanReportRuleAdapterTests {
     #expect(observation.facts.trustedLocation == .unknown(.incompleteScan))
     #expect(observation.facts.generatedContentMarker == .unknown(.incompleteScan))
     #expect(observation.facts.accountOwnedCacheNamespace == .unknown(.incompleteScan))
+    #expect(observation.facts.protectedDescendantPresent == .unknown(.incompleteScan))
     #expect(observation.facts.toolOwnership == .unknown(.notCollected))
   }
 
