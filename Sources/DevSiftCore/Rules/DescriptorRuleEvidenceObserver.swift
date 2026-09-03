@@ -5,6 +5,19 @@ struct CandidateRuleEvidence: Hashable, Sendable {
   let identityMatchesScan: RuleObserved<Bool>
   let trustedLocation: RuleObserved<Bool>
   let generatedContentMarker: RuleObserved<Bool>
+  let accountOwnedCacheNamespace: RuleObserved<Bool>
+
+  init(
+    identityMatchesScan: RuleObserved<Bool>,
+    trustedLocation: RuleObserved<Bool>,
+    generatedContentMarker: RuleObserved<Bool>,
+    accountOwnedCacheNamespace: RuleObserved<Bool> = .unknown(.notCollected)
+  ) {
+    self.identityMatchesScan = identityMatchesScan
+    self.trustedLocation = trustedLocation
+    self.generatedContentMarker = generatedContentMarker
+    self.accountOwnedCacheNamespace = accountOwnedCacheNamespace
+  }
 
   static func unavailable(
     _ reason: RuleUnknownReason,
@@ -15,7 +28,9 @@ struct CandidateRuleEvidence: Hashable, Sendable {
       trustedLocation: BuiltInTrustedLocationPolicy.containerSuffix(for: item.path) == nil
         ? .unknown(.notCollected) : .unknown(reason),
       generatedContentMarker: BuiltInGeneratedMarkerPolicy.policy(for: item.path) == nil
-        ? .unknown(.notCollected) : .unknown(reason)
+        ? .unknown(.notCollected) : .unknown(reason),
+      accountOwnedCacheNamespace: BuiltInAccountOwnedCacheNamespacePolicy.applies(to: item.path)
+        ? .unknown(reason) : .unknown(.notCollected)
     )
   }
 
@@ -25,8 +40,28 @@ struct CandidateRuleEvidence: Hashable, Sendable {
     CandidateRuleEvidence(
       identityMatchesScan: identityMatchesScan,
       trustedLocation: observation,
-      generatedContentMarker: generatedContentMarker
+      generatedContentMarker: generatedContentMarker,
+      accountOwnedCacheNamespace: accountOwnedCacheNamespace
     )
+  }
+
+  func replacingAccountOwnedCacheNamespace(
+    _ observation: RuleObserved<Bool>
+  ) -> CandidateRuleEvidence {
+    CandidateRuleEvidence(
+      identityMatchesScan: identityMatchesScan,
+      trustedLocation: trustedLocation,
+      generatedContentMarker: generatedContentMarker,
+      accountOwnedCacheNamespace: observation
+    )
+  }
+}
+
+private enum BuiltInAccountOwnedCacheNamespacePolicy {
+  private static let npmContentCacheName = Array("_cacache".utf8)
+
+  static func applies(to path: ScanRelativePath) -> Bool {
+    path.rawComponents == [npmContentCacheName]
   }
 }
 
@@ -126,11 +161,13 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   typealias RootHook = @Sendable () throws -> Void
   typealias CandidateHook = @Sendable (ScanRelativePath) throws -> Void
   typealias RawHomeProvider = @Sendable () -> RuleObserved<[UInt8]>
+  typealias AccountUIDProvider = @Sendable () -> RuleObserved<uid_t>
 
   private static let maximumGeneratedMarkerEntries = 256
 
   private let checkpoint: Checkpoint
   private let rawHomeProvider: RawHomeProvider
+  private let accountUIDProvider: AccountUIDProvider
   private let afterRootValidation: RootHook
   private let beforeOpeningCandidate: CandidateHook
   private let beforeMarkerObservation: CandidateHook
@@ -142,6 +179,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   init() {
     checkpoint = { try Task.checkCancellation() }
     rawHomeProvider = { currentUIDRawHome() }
+    accountUIDProvider = { currentNonRootAccountUID() }
     afterRootValidation = {}
     beforeOpeningCandidate = { _ in }
     beforeMarkerObservation = { _ in }
@@ -154,6 +192,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   init(
     checkpoint: @escaping Checkpoint = { try Task.checkCancellation() },
     rawHomeProvider: @escaping RawHomeProvider = { currentUIDRawHome() },
+    accountUIDProvider: @escaping AccountUIDProvider = { currentNonRootAccountUID() },
     afterRootValidation: @escaping RootHook = {},
     beforeOpeningCandidate: @escaping CandidateHook = { _ in },
     beforeMarkerObservation: @escaping CandidateHook = { _ in },
@@ -164,6 +203,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   ) {
     self.checkpoint = checkpoint
     self.rawHomeProvider = rawHomeProvider
+    self.accountUIDProvider = accountUIDProvider
     self.afterRootValidation = afterRootValidation
     self.beforeOpeningCandidate = beforeOpeningCandidate
     self.beforeMarkerObservation = beforeMarkerObservation
@@ -314,6 +354,11 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     try afterRootValidation()
     try cancellationCheckpoint()
 
+    let accountUID = try observeAccountUID(
+      for: indices,
+      items: request.report.topLevelItems
+    )
+
     let locationContext = try observeInitialTrustedLocations(
       at: indices,
       request: request,
@@ -343,6 +388,8 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
           component: component,
           rootDescriptor: rootDescriptor,
           rootIdentity: rootIdentity,
+          rootSnapshot: openedRoot,
+          accountUID: accountUID,
           markerPolicy: markerPolicy,
           trustedLocation: locationContext.observations[index]
         )
@@ -364,11 +411,48 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
 
     try beforeFinalRootValidation()
     try cancellationCheckpoint()
-    try validateFinalRootBinding(
+    let rootOwnerRemainedStable = try validateFinalRootBinding(
       request.root,
       heldDescriptor: rootDescriptor,
-      expectedIdentity: rootIdentity
+      expectedSnapshot: openedRoot
     )
+    if !rootOwnerRemainedStable {
+      for index in indices {
+        let item = request.report.topLevelItems[index]
+        let revalidated = accountOwnedCacheNamespaceAfterRootOwnerValidation(
+          result[index].accountOwnedCacheNamespace,
+          applies: BuiltInAccountOwnedCacheNamespacePolicy.applies(to: item.path),
+          candidateKind: item.kind,
+          rootOwnerRemainedStable: false
+        )
+        if revalidated != result[index].accountOwnedCacheNamespace {
+          result[index] = result[index].replacingAccountOwnedCacheNamespace(
+            revalidated
+          )
+        }
+      }
+    }
+  }
+
+  private func observeAccountUID(
+    for indices: [Int],
+    items: [ScanItemSummary]
+  ) throws -> RuleObserved<uid_t> {
+    guard
+      indices.contains(where: { index in
+        BuiltInAccountOwnedCacheNamespacePolicy.applies(to: items[index].path)
+      })
+    else {
+      return .unknown(.notCollected)
+    }
+
+    try cancellationCheckpoint()
+    let observation = accountUIDProvider()
+    try cancellationCheckpoint()
+    if case .known(0) = observation {
+      return .unknown(.invalidMetadata)
+    }
+    return observation
   }
 
   private func observeCandidate(
@@ -377,6 +461,8 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     component: DescriptorPathComponent,
     rootDescriptor: Int32,
     rootIdentity: FileIdentity,
+    rootSnapshot: DescriptorStatSnapshot,
+    accountUID: RuleObserved<uid_t>,
     markerPolicy: BuiltInGeneratedMarkerPolicy?,
     trustedLocation: RuleObserved<Bool>
   ) throws -> CandidateRuleEvidence {
@@ -408,7 +494,13 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
       return CandidateRuleEvidence(
         identityMatchesScan: .known(true),
         trustedLocation: trustedLocation,
-        generatedContentMarker: markerPolicy == nil ? .unknown(.notCollected) : .known(false)
+        generatedContentMarker: markerPolicy == nil ? .unknown(.notCollected) : .known(false),
+        accountOwnedCacheNamespace: observeAccountOwnedCacheNamespace(
+          for: item.path,
+          accountUID: accountUID,
+          root: rootSnapshot,
+          candidate: initiallyNamed
+        )
       )
     }
 
@@ -421,6 +513,8 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     defer { descriptorCloseIgnoringErrors(candidateDescriptor) }
 
     let openedCandidate = try DescriptorStatSnapshot.read(from: candidateDescriptor)
+    var candidateOwnerRemainedStable =
+      openedCandidate.ownerUID == initiallyNamed.ownerUID
     guard
       openedCandidate.sameBinding(as: initiallyNamed),
       openedCandidate.sameMutationState(as: initiallyNamed),
@@ -447,6 +541,10 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
       at: rootDescriptor,
       component: component
     )
+    candidateOwnerRemainedStable =
+      candidateOwnerRemainedStable
+      && finalOpened.ownerUID == openedCandidate.ownerUID
+      && finalNamed.ownerUID == finalOpened.ownerUID
     guard
       finalOpened.sameBinding(as: openedCandidate),
       finalOpened.sameMutationState(as: openedCandidate),
@@ -460,7 +558,34 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
     return CandidateRuleEvidence(
       identityMatchesScan: .known(true),
       trustedLocation: trustedLocation,
-      generatedContentMarker: marker
+      generatedContentMarker: marker,
+      accountOwnedCacheNamespace: observeAccountOwnedCacheNamespace(
+        for: item.path,
+        accountUID: accountUID,
+        root: rootSnapshot,
+        candidate: openedCandidate,
+        candidateOwnerRemainedStable: candidateOwnerRemainedStable
+      )
+    )
+  }
+
+  private func observeAccountOwnedCacheNamespace(
+    for path: ScanRelativePath,
+    accountUID: RuleObserved<uid_t>,
+    root: DescriptorStatSnapshot,
+    candidate: DescriptorStatSnapshot,
+    candidateOwnerRemainedStable: Bool = true
+  ) -> RuleObserved<Bool> {
+    guard BuiltInAccountOwnedCacheNamespacePolicy.applies(to: path) else {
+      return .unknown(.notCollected)
+    }
+    return evaluateAccountOwnedCacheNamespace(
+      accountUID: accountUID,
+      rootKind: root.kind,
+      rootOwnerUID: root.ownerUID,
+      candidateKind: candidate.kind,
+      candidateOwnerUID: candidate.ownerUID,
+      candidateOwnerRemainedStable: candidateOwnerRemainedStable
     )
   }
 
@@ -706,19 +831,21 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
   private func validateFinalRootBinding(
     _ root: URL,
     heldDescriptor: Int32,
-    expectedIdentity: FileIdentity
-  ) throws {
+    expectedSnapshot: DescriptorStatSnapshot
+  ) throws -> Bool {
     let heldRoot = try DescriptorStatSnapshot.read(from: heldDescriptor)
-    guard heldRoot.kind == .directory, heldRoot.identity == expectedIdentity else {
+    guard heldRoot.kind == .directory, heldRoot.identity == expectedSnapshot.identity else {
       throw DescriptorObservationError.bindingChanged
     }
 
     let reboundDescriptor = try descriptorOpenRoot(root)
     defer { descriptorCloseIgnoringErrors(reboundDescriptor) }
     let reboundRoot = try DescriptorStatSnapshot.read(from: reboundDescriptor)
-    guard reboundRoot.kind == .directory, reboundRoot.identity == expectedIdentity else {
+    guard reboundRoot.kind == .directory, reboundRoot.identity == expectedSnapshot.identity else {
       throw DescriptorObservationError.bindingChanged
     }
+    return heldRoot.ownerUID == expectedSnapshot.ownerUID
+      && reboundRoot.ownerUID == expectedSnapshot.ownerUID
   }
 
   private func cancellationCheckpoint() throws {
@@ -813,6 +940,7 @@ private enum DescriptorObservationError: Error {
 private struct DescriptorStatSnapshot: Sendable {
   let identity: FileIdentity
   let kind: FileSystemEntryKind
+  let ownerUID: uid_t
   let generation: UInt32
   let birthSeconds: Int
   let birthNanoseconds: Int
@@ -859,6 +987,7 @@ private struct DescriptorStatSnapshot: Sendable {
       inode: UInt64(information.st_ino)
     )
     kind = descriptorEntryKind(for: information.st_mode)
+    ownerUID = information.st_uid
     generation = information.st_gen
     birthSeconds = information.st_birthtimespec.tv_sec
     birthNanoseconds = information.st_birthtimespec.tv_nsec
@@ -882,6 +1011,48 @@ private struct DescriptorStatSnapshot: Sendable {
       && modificationSeconds == other.modificationSeconds
       && modificationNanoseconds == other.modificationNanoseconds
   }
+}
+
+func evaluateAccountOwnedCacheNamespace(
+  accountUID: RuleObserved<uid_t>,
+  rootKind: FileSystemEntryKind,
+  rootOwnerUID: uid_t,
+  candidateKind: FileSystemEntryKind,
+  candidateOwnerUID: uid_t,
+  candidateOwnerRemainedStable: Bool = true
+) -> RuleObserved<Bool> {
+  guard rootKind == .directory, candidateKind == .directory else {
+    return .known(false)
+  }
+  switch accountUID {
+  case .known(let uid):
+    guard uid != 0 else {
+      return .unknown(.invalidMetadata)
+    }
+    guard candidateOwnerRemainedStable else {
+      return .unknown(.changedDuringObservation)
+    }
+    return .known(rootOwnerUID == uid && candidateOwnerUID == uid)
+  case .unknown(let reason):
+    return .unknown(reason)
+  }
+}
+
+func accountOwnedCacheNamespaceAfterRootOwnerValidation(
+  _ observation: RuleObserved<Bool>,
+  applies: Bool,
+  candidateKind: FileSystemEntryKind,
+  rootOwnerRemainedStable: Bool
+) -> RuleObserved<Bool> {
+  guard
+    !rootOwnerRemainedStable,
+    applies,
+    candidateKind == .directory,
+    case .known = observation
+  else {
+    return observation
+  }
+  return .unknown(.changedDuringObservation)
 }
 
 private func descriptorOpenRoot(_ url: URL) throws -> Int32 {
@@ -1063,6 +1234,17 @@ private func descriptorAbsolutePath(for url: URL) -> DescriptorRawAbsolutePath? 
     }
     return nil
   }
+}
+
+/// Returns one bounded identity for the current non-root POSIX account. A
+/// set-user-ID or root process is intentionally outside this policy.
+private func currentNonRootAccountUID() -> RuleObserved<uid_t> {
+  let realUser = Darwin.getuid()
+  let effectiveUser = Darwin.geteuid()
+  guard realUser != 0, realUser == effectiveUser else {
+    return .unknown(.unsupported)
+  }
+  return .known(realUser)
 }
 
 private struct DescriptorRawAbsolutePath {

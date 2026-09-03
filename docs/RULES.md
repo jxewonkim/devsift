@@ -42,7 +42,9 @@ Each valid single-rule recognition receives structured findings for:
 
 - exact raw-byte lexical recognition;
 - trusted container location;
-- responsible-tool ownership;
+- responsible-tool ownership when the rule requires that fact;
+- rule-specific namespace evidence such as npm's
+  `account-owned-cache-namespace` check;
 - a generated-content marker;
 - protected descendants;
 - rule-specific evidence such as a sibling `Package.swift`;
@@ -63,15 +65,17 @@ are reserved so rule findings cannot collide with common guards. If malformed
 findings and a multi-rule conflict occur together, invalid-rule reporting takes
 precedence; both outcomes remain protected.
 
-## Built-in catalog version 3
+## Built-in catalog version 4
 
 The initial catalog intentionally starts small. The eligible disposition shown
 below is a ceiling reached only after every required fact is known and passes.
-Catalog version 3 keeps `devsift.swiftpm.build` at rule revision 2 and advances
-`devsift.cache.npm` to rule revision 2. SwiftPM requires an exact regular-file
+Catalog version 4 keeps `devsift.swiftpm.build` at rule revision 2 and advances
+`devsift.cache.npm` to rule revision 3. SwiftPM requires an exact regular-file
 `workspace-state.json` inside `.build`; npm requires exact direct-child
-directories named `content-v2` and `index-v5` inside `_cacache`. Every other
-built-in rule remains at revision 1.
+directories named `content-v2` and `index-v5` inside `_cacache` and replaces
+the generic tool-ownership requirement with its narrower
+`account-owned-cache-namespace` check. Every other built-in rule remains at
+revision 1.
 The identity-rebinding finding is a classifier-owned integrity invariant, not
 a rule-specific definition change; classifier-wide semantics are now tracked
 separately by the explainable-classification contract revision.
@@ -79,7 +83,7 @@ separately by the explainable-classification contract revision.
 | Rule ID | Raw-byte recognition | Reproducibility | Eligible disposition | Minimum age | Additional policy |
 | --- | --- | --- | --- | ---: | --- |
 | `devsift.cache.uv` | direct child named exactly `uv` | Reproducible | Reclaimable | 7 days | Generated, tool-owned cache in a trusted uv cache container; uv inactive |
-| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, tool ownership, and npm inactivity |
+| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, current-account-owned root and candidate namespace, no protected descendants, and npm inactivity |
 | `devsift.cache.homebrew` | direct child named exactly `Homebrew` | Conditional | Review required | 7 days | Trusted Homebrew cache container; Homebrew inactive |
 | `devsift.xcode.derived-data` | direct child named exactly `DerivedData` | Conditional | Review required | 7 days | Trusted Xcode container and generated-content evidence; Xcode inactive |
 | `devsift.swiftpm.build` | direct child named exactly `.build` | Conditional | Review required | 7 days | Exact regular-file `Package.swift` sibling and `.build/workspace-state.json` marker; build tooling inactive |
@@ -101,7 +105,11 @@ The catalog policy is informed by the tools' own documentation:
   cacache source defines content paths beneath `content-v2` and index paths
   beneath `index-v5`:
   [content path](https://github.com/npm/cacache/blob/6e8eb4d7e82694149c34fbb0fbe5441628fc1703/lib/content/path.js) and
-  [index path](https://github.com/npm/cacache/blob/6e8eb4d7e82694149c34fbb0fbe5441628fc1703/lib/entry-index.js).
+  [index path](https://github.com/npm/cacache/blob/6e8eb4d7e82694149c34fbb0fbe5441628fc1703/lib/entry-index.js). The same pinned
+  [cacache README](https://github.com/npm/cacache/blob/6e8eb4d7e82694149c34fbb0fbe5441628fc1703/README.md)
+  describes cacache as a standalone library with lockless cache operations.
+  Those properties are additional reasons that layout and location cannot
+  prove npm was the historical creator or sole writer.
 - Homebrew documents `~/Library/Caches/Homebrew` as its default macOS cache and
   provides `brew --cache` and age-based `brew cleanup` behavior:
   [Homebrew manual](https://docs.brew.sh/Manpage).
@@ -177,12 +185,30 @@ Trusted location proves only that location fact. It does not imply that a tool
 created the contents, that the tool is inactive, that descendants are safe, or
 that a later operation may mutate the path.
 
+The npm rule has one further, deliberately distinct evidence slot:
+`RuleObservationFacts.accountOwnedCacheNamespace` is projected through
+`CandidateRuleEvidence.accountOwnedCacheNamespace` as the finding
+`account-owned-cache-namespace`. It is collected only for an exact top-level
+`_cacache` candidate. The finding is satisfied only
+when the held selected-root directory and held candidate directory both report
+the exact UID of the current non-root POSIX account. A UID mismatch is known
+false; unavailable or unsupported account metadata stays structured unknown.
+The root and candidate bindings must remain stable across observation.
+
+This is an account-owned cache-namespace fact, not generic responsible-tool
+ownership. It does not establish which process or tool historically created
+the directories, whether every descendant has the same owner, effective write
+access or ACLs, cache content, npm inactivity, or permission to mutate. It
+invokes no npm command, inspects no process or cache content, and makes no
+network request. Every other rule continues to receive unknown tool-ownership
+evidence from the runtime observer.
+
 The default classifier seals its returned Core report to the exact in-memory
 `RuleClassificationRequest` and `RulePolicyProvenance`. Validation rejects that
 report if it is later paired with a different root URL, scan report, reference
 time, or edited provenance. The provenance contains
 `devsift.classification.explainable@2`, the Core-owned
-`devsift.builtin-rules@3` revision, and the complete sorted built-in rule roster.
+`devsift.builtin-rules@4` revision, and the complete sorted built-in rule roster.
 Neither the private binding nor provenance is part of CLI JSON. A report created
 with the public unbound initializer can still support a trusted custom
 presentation flow, but the cleanup planner will not accept it.
@@ -199,18 +225,23 @@ scanned. It is not proof of trusted location or ownership, is not durable
 filesystem identity, and grants no planning, cleanup, or deletion authority.
 Inodes can be reused, so any future execution must reopen and revalidate
 containment, kind, identity, and policy evidence immediately before mutation.
-Ownership, reliable-activity, and protected-descendant facts remain uncollected.
-Generated-marker evidence also remains uncollected outside the SwiftPM and npm
-rules, and trusted location remains uncollected outside the three default cache
-profiles above.
+Generic responsible-tool ownership remains uncollected for every rule that
+requires it. npm instead consumes only the narrower current-account cache-
+namespace fact described above. Reliable activity and protected-descendant
+facts remain uncollected for npm, so it stays Protected at runtime. Generated-
+marker evidence also remains uncollected outside the SwiftPM and npm rules, and
+trusted location remains uncollected outside the three default cache profiles
+above.
 
 Consequently, a real scan can recognize a possible built-in candidate and may
-satisfy one trusted-location finding, but the remaining unavailable facts keep
-its disposition `Protected`. Tests may construct synthetic complete evidence to
+satisfy trusted-location, npm layout, or npm account-owned namespace findings,
+but the remaining unavailable facts keep its disposition `Protected`. Tests
+may construct synthetic complete evidence to
 verify the catalog's eligible outcomes; that does not weaken the runtime
 boundary. The location interpretation advances the classifier-wide contract to
-revision 2. The built-in catalog is version 3, SwiftPM and npm are at rule
-revision 2, and all other rule revisions remain at version 1. The classifier
+revision 2. The built-in catalog is version 4, SwiftPM is at rule revision 2,
+npm is at rule revision 3, and all other rule revisions remain at version 1.
+The classifier
 contract remains at revision 2 because this increment adds rule-specific
 evidence without changing common evidence interpretation.
 
@@ -220,6 +251,11 @@ descriptor-relative safety model. It must use operations such as `openat`,
 work, and report changed or unavailable facts as unknown. Rebuilding absolute
 descendant paths with string or `URL` concatenation is not acceptable authority
 for classification or cleanup.
+
+The next npm eligibility increment is bounded protected-descendant evidence.
+Activity observation remains last and must be designed together with the
+future executor's descriptor-held, immediately-before-operation revalidation;
+a classification-time inactivity result alone cannot close that race.
 
 ## Determinism and versioning
 

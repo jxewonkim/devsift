@@ -37,10 +37,15 @@ an unobserved value is safe.
 The current built-in runtime evidence deliberately remains conservative. Exact
 default uv, npm, and Homebrew containers may satisfy trusted location after a
 descriptor-bound root check. An npm `_cacache` may also satisfy its supported
-cacache-layout marker. Ownership, reliable activity, protected descendants,
-generated markers for the other rules, and location for the other rules remain
-uncollected, so real entries still receive no eligible result. This is a policy
-outcome, not a promise that no future observer can make those facts available.
+cacache-layout marker and the distinct `account-owned-cache-namespace` check
+when both the held selected root and held candidate have the current account's
+exact POSIX UID. That check replaces generic tool ownership only for npm and
+does not prove historical creation, descendant ownership, write ACLs, content,
+inactivity, or mutation authority. npm activity and protected descendants
+remain uncollected, while other rules retain unknown tool ownership and other
+required facts, so real entries still receive no eligible result. This is a
+policy outcome, not a promise that no future observer can make those facts
+available.
 
 ## Output and failures
 
@@ -68,3 +73,8 @@ inline while holding verified descriptors immediately before a recoverable
 operation. That executor must independently establish containment, kind,
 identity, device, activity, and current policy evidence; it must not treat this
 report as a capability or proof that a later path lookup is safe.
+
+The next npm eligibility increment is bounded protected-descendant evidence.
+Activity remains last so its observer and the future executor's immediate,
+descriptor-held revalidation can be designed as one coordinated safety
+boundary.

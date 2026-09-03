@@ -79,6 +79,7 @@ func satisfiedRuleFacts(
   RuleObservationFacts(
     trustedLocation: .known(true),
     toolOwnership: .known(true),
+    accountOwnedCacheNamespace: .known(true),
     generatedContentMarker: .known(true),
     newestContentModificationUnixSeconds: .known(modificationUnixSeconds),
     activity: activity,

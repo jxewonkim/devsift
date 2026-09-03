@@ -4,7 +4,7 @@ public enum BuiltInRuleCatalog {
   /// revision changes.
   public static let revision = RuleRevision(
     identifier: makeRuleIdentifier("devsift.builtin-rules"),
-    version: makeRuleVersion(3)
+    version: makeRuleVersion(4)
   )
 
   public static let rules: [any ExplainableRule] = [
@@ -25,7 +25,8 @@ public enum BuiltInRuleCatalog {
         tool: "npm",
         recognition: "The candidate raw name must be exactly `_cacache`.",
         disposition: .reviewRequired,
-        version: 2,
+        version: 3,
+        usesAccountOwnedCacheNamespaceCheck: true,
         generatedMarkerExplanation:
           "Exact raw `content-v2` and `index-v5` directory children form the supported cacache layout signature."
       ),
@@ -86,6 +87,7 @@ public enum BuiltInRuleCatalog {
     version: UInt32 = 1,
     minimumAgeSeconds: UInt64 = 7 * 24 * 60 * 60,
     includesPackageManifestCheck: Bool = false,
+    usesAccountOwnedCacheNamespaceCheck: Bool = false,
     generatedMarkerExplanation: String =
       "A generated-content marker identifies reproducible output."
   ) -> RuleDefinition {
@@ -100,17 +102,28 @@ public enum BuiltInRuleCatalog {
         kind: .positiveEvidence,
         explanation: "The location is a trusted container for this tool."
       ),
-      RuleCheckDefinition(
-        identifier: BuiltInCheckIdentifier.toolOwnership,
-        kind: .positiveEvidence,
-        explanation: "The observed item is owned by the responsible tool workflow."
-      ),
+    ]
+    checks.append(
+      usesAccountOwnedCacheNamespaceCheck
+        ? RuleCheckDefinition(
+          identifier: BuiltInCheckIdentifier.accountOwnedCacheNamespace,
+          kind: .positiveEvidence,
+          explanation:
+            "The selected root and candidate directories are owned by the current non-root POSIX account; this does not establish creator or tool provenance, descendant ownership, or writability."
+        )
+        : RuleCheckDefinition(
+          identifier: BuiltInCheckIdentifier.toolOwnership,
+          kind: .positiveEvidence,
+          explanation: "The observed item is owned by the responsible tool workflow."
+        )
+    )
+    checks.append(
       RuleCheckDefinition(
         identifier: BuiltInCheckIdentifier.generatedMarker,
         kind: .positiveEvidence,
         explanation: generatedMarkerExplanation
-      ),
-    ]
+      )
+    )
     if includesPackageManifestCheck {
       checks.append(
         RuleCheckDefinition(
@@ -164,6 +177,11 @@ private struct BuiltInRule: ExplainableRule {
         positiveFinding(check, observation: observation.facts.trustedLocation)
       case BuiltInCheckIdentifier.toolOwnership:
         positiveFinding(check, observation: observation.facts.toolOwnership)
+      case BuiltInCheckIdentifier.accountOwnedCacheNamespace:
+        positiveFinding(
+          check,
+          observation: observation.facts.accountOwnedCacheNamespace
+        )
       case BuiltInCheckIdentifier.generatedMarker:
         positiveFinding(check, observation: observation.facts.generatedContentMarker)
       case BuiltInCheckIdentifier.packageManifestSibling:
@@ -324,6 +342,9 @@ private enum BuiltInCheckIdentifier {
   static let candidateDirectory = makeCheckIdentifier("candidate-directory")
   static let trustedLocation = makeCheckIdentifier("trusted-location")
   static let toolOwnership = makeCheckIdentifier("tool-ownership")
+  static let accountOwnedCacheNamespace = makeCheckIdentifier(
+    "account-owned-cache-namespace"
+  )
   static let generatedMarker = makeCheckIdentifier("generated-content-marker")
   static let packageManifestSibling = makeCheckIdentifier("package-manifest-sibling")
   static let noProtectedDescendants = makeCheckIdentifier("no-protected-descendants")

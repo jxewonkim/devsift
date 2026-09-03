@@ -36,10 +36,16 @@ cacache layout marker without reading their contents. The observer can
 additionally establish trusted-location evidence for exact uv, npm, and
 Homebrew default cache containers by rebinding the selected root descriptor to
 the current account's raw home-relative path without following symbolic links.
-These facts and age are not permission to clean: ownership, activity,
-protected-descendant, and other generated-marker evidence remain unknown, so
-real candidates stay protected. Large AI models, virtual machines, user
-documents, and active application data are never treated as disposable merely
+For that exact npm candidate, it can also establish the distinct
+`account-owned-cache-namespace` fact only when both the held selected root and
+held `_cacache` directory have the current account's exact POSIX UID. This is
+not generic npm or tool ownership: it proves neither who created the cache nor
+ownership of descendants, write ACLs, content, inactivity, or mutation
+authority. Other rules retain unknown tool-ownership evidence. npm activity and
+protected descendants also remain unknown, so runtime npm candidates—and all
+other real candidates with unavailable required facts—stay protected. Large AI
+models, virtual machines, user documents, and active application data are never
+treated as disposable merely
 because they are large.
 
 ## Current interfaces
@@ -81,9 +87,12 @@ input. Root, path, kind, device, identity, rule, findings, and policy are
 reobserved; incomplete or unknown observations fail closed. Current runtime
 evidence still leaves real candidates Protected. Exact default uv, npm, and
 Homebrew containers can now have trusted location reobserved, and npm may also
-satisfy its supported cacache-layout marker. Ownership, reliable activity,
-protected descendants, and generated markers for the other rules remain
-uncollected. See the [revalidation contract](docs/REVALIDATION.md).
+satisfy its supported cacache-layout marker and current-account cache-namespace
+check. The npm-specific check replaces that rule's unprovable generic tool-
+ownership requirement but does not authorize mutation. npm activity and
+protected descendants remain uncollected, as do tool ownership and other
+required evidence for the other rules. See the
+[revalidation contract](docs/REVALIDATION.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v1 encoder pinned to Core manifest contract
@@ -94,6 +103,10 @@ approval, execution, or filesystem mutation.
 
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
+
+The next npm eligibility increment is bounded protected-descendant evidence.
+Activity remains last and will be coordinated with the future executor's
+descriptor-held revalidation immediately before any recoverable operation.
 
 ## Safety first
 

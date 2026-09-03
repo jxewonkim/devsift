@@ -139,9 +139,51 @@ struct ScanReportRuleAdapterTests {
     #expect(buildObservation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
     #expect(buildObservation.facts.trustedLocation == .unknown(.notCollected))
     #expect(buildObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
+    #expect(buildObservation.facts.accountOwnedCacheNamespace == .unknown(.notCollected))
     #expect(cacheObservation.integrity.identityMatchesScan == .unknown(.invalidMetadata))
     #expect(cacheObservation.facts.trustedLocation == .unknown(.invalidMetadata))
     #expect(cacheObservation.facts.generatedContentMarker == .unknown(.invalidMetadata))
+    #expect(cacheObservation.facts.accountOwnedCacheNamespace == .unknown(.invalidMetadata))
+  }
+
+  @Test("Adapter projects account namespace evidence without inventing tool ownership")
+  func accountNamespaceProjection() throws {
+    let rootIdentity = FileIdentity(device: 1, inode: 1)
+    let cache = ruleSummary(
+      rawComponents: [Array("_cacache".utf8)],
+      scanTimeIdentity: FileIdentity(device: 1, inode: 2)
+    )
+    let report = ScanReport(
+      root: ruleSummary(rawComponents: [], scanTimeIdentity: rootIdentity),
+      topLevelItems: [cache],
+      topLevelItemCount: 1,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let observations = ScanReportRuleAdapter.observations(
+      for: RuleClassificationRequest(
+        root: URL(fileURLWithPath: "/synthetic/.npm", isDirectory: true),
+        report: report,
+        referenceUnixSeconds: 100
+      ),
+      evidence: RuleEvidenceObservation(
+        candidates: [
+          CandidateRuleEvidence(
+            identityMatchesScan: .known(true),
+            trustedLocation: .known(true),
+            generatedContentMarker: .known(true),
+            accountOwnedCacheNamespace: .known(true)
+          )
+        ]
+      )
+    )
+    let facts = try #require(observations.first?.facts)
+
+    #expect(facts.accountOwnedCacheNamespace == .known(true))
+    #expect(facts.toolOwnership == .unknown(.notCollected))
   }
 
   @Test("Incomplete input overrides injected cache evidence")
@@ -176,7 +218,8 @@ struct ScanReportRuleAdapterTests {
           CandidateRuleEvidence(
             identityMatchesScan: .known(true),
             trustedLocation: .known(true),
-            generatedContentMarker: .known(true)
+            generatedContentMarker: .known(true),
+            accountOwnedCacheNamespace: .known(true)
           )
         ]
       )
@@ -186,6 +229,7 @@ struct ScanReportRuleAdapterTests {
     #expect(observation.integrity.identityMatchesScan == .unknown(.incompleteScan))
     #expect(observation.facts.trustedLocation == .unknown(.incompleteScan))
     #expect(observation.facts.generatedContentMarker == .unknown(.incompleteScan))
+    #expect(observation.facts.accountOwnedCacheNamespace == .unknown(.incompleteScan))
     #expect(observation.facts.toolOwnership == .unknown(.notCollected))
   }
 

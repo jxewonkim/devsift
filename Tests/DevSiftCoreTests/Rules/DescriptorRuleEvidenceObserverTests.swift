@@ -252,6 +252,7 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(evidence.identityMatchesScan == .unknown(.changedDuringObservation))
     #expect(evidence.trustedLocation == .unknown(.changedDuringObservation))
     #expect(evidence.generatedContentMarker == .unknown(.changedDuringObservation))
+    #expect(evidence.accountOwnedCacheNamespace == .unknown(.changedDuringObservation))
     #expect(try Data(contentsOf: outsideSentinel) == Data([0x5A]))
     #expect(try treeSnapshot(at: fixture.outside) == outsideBefore)
   }
@@ -313,6 +314,295 @@ struct DescriptorRuleEvidenceObserverTests {
       _ = try await observer.observe(request(root: npmRoot, report: scan))
     }
     #expect(gate.armedCheckpointCount == 8)
+  }
+
+  @Test("npm namespace evidence requires the selected root and candidate to use the account UID")
+  func npmAccountOwnedNamespaceUIDBoundary() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let home = try resolvedFixtureURL(
+      fixture.makeDirectory("synthetic-home", under: fixture.container)
+    )
+    let npmRoot = try fixture.makeDirectory(".npm", under: home)
+    let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+    _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
+    let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+    let accountUID = Darwin.getuid()
+    try #require(accountUID > 0)
+    let alternateUID = accountUID == uid_t.max ? accountUID - 1 : accountUID + 1
+
+    let matching = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      accountUIDProvider: { .known(accountUID) }
+    ).observe(request(root: npmRoot, report: scan))
+    let mismatching = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      accountUIDProvider: { .known(alternateUID) }
+    ).observe(request(root: npmRoot, report: scan))
+
+    #expect(matching.candidates.first?.accountOwnedCacheNamespace == .known(true))
+    #expect(mismatching.candidates.first?.accountOwnedCacheNamespace == .known(false))
+    #expect(matching.candidates.first?.identityMatchesScan == .known(true))
+    #expect(mismatching.candidates.first?.identityMatchesScan == .known(true))
+    #expect(matching.candidates.first?.trustedLocation == .known(true))
+    #expect(mismatching.candidates.first?.trustedLocation == .known(true))
+    #expect(matching.candidates.first?.generatedContentMarker == .known(true))
+    #expect(mismatching.candidates.first?.generatedContentMarker == .known(true))
+  }
+
+  @Test("npm namespace ownership evaluates root and candidate UID boundaries independently")
+  func npmAccountOwnedNamespaceIndependentUIDBoundaries() {
+    let accountUID: uid_t = 501
+    let alternateUID: uid_t = 502
+
+    #expect(
+      evaluateAccountOwnedCacheNamespace(
+        accountUID: .known(accountUID),
+        rootKind: .directory,
+        rootOwnerUID: accountUID,
+        candidateKind: .directory,
+        candidateOwnerUID: accountUID
+      ) == .known(true)
+    )
+    #expect(
+      evaluateAccountOwnedCacheNamespace(
+        accountUID: .known(accountUID),
+        rootKind: .directory,
+        rootOwnerUID: alternateUID,
+        candidateKind: .directory,
+        candidateOwnerUID: accountUID
+      ) == .known(false)
+    )
+    #expect(
+      evaluateAccountOwnedCacheNamespace(
+        accountUID: .known(accountUID),
+        rootKind: .directory,
+        rootOwnerUID: accountUID,
+        candidateKind: .directory,
+        candidateOwnerUID: alternateUID
+      ) == .known(false)
+    )
+    #expect(
+      evaluateAccountOwnedCacheNamespace(
+        accountUID: .known(accountUID),
+        rootKind: .directory,
+        rootOwnerUID: accountUID,
+        candidateKind: .directory,
+        candidateOwnerUID: accountUID,
+        candidateOwnerRemainedStable: false
+      ) == .unknown(.changedDuringObservation)
+    )
+    #expect(
+      evaluateAccountOwnedCacheNamespace(
+        accountUID: .unknown(.unsupported),
+        rootKind: .directory,
+        rootOwnerUID: accountUID,
+        candidateKind: .directory,
+        candidateOwnerUID: accountUID,
+        candidateOwnerRemainedStable: false
+      ) == .unknown(.unsupported)
+    )
+  }
+
+  @Test("npm root owner revalidation invalidates only applicable known directory facts")
+  func npmAccountOwnedNamespaceRootOwnerRevalidation() {
+    for observation in [RuleObserved<Bool>.known(true), .known(false)] {
+      #expect(
+        accountOwnedCacheNamespaceAfterRootOwnerValidation(
+          observation,
+          applies: true,
+          candidateKind: .directory,
+          rootOwnerRemainedStable: false
+        ) == .unknown(.changedDuringObservation)
+      )
+    }
+
+    let unsupported = RuleObserved<Bool>.unknown(.unsupported)
+    #expect(
+      accountOwnedCacheNamespaceAfterRootOwnerValidation(
+        unsupported,
+        applies: true,
+        candidateKind: .directory,
+        rootOwnerRemainedStable: false
+      ) == unsupported
+    )
+    #expect(
+      accountOwnedCacheNamespaceAfterRootOwnerValidation(
+        .known(true),
+        applies: false,
+        candidateKind: .directory,
+        rootOwnerRemainedStable: false
+      ) == .known(true)
+    )
+    #expect(
+      accountOwnedCacheNamespaceAfterRootOwnerValidation(
+        .known(false),
+        applies: true,
+        candidateKind: .regularFile,
+        rootOwnerRemainedStable: false
+      ) == .known(false)
+    )
+    #expect(
+      accountOwnedCacheNamespaceAfterRootOwnerValidation(
+        .known(true),
+        applies: true,
+        candidateKind: .directory,
+        rootOwnerRemainedStable: true
+      ) == .known(true)
+    )
+  }
+
+  @Test("Unavailable and invalid account UIDs remain structured unknown")
+  func npmAccountUIDProviderFailures() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let home = try resolvedFixtureURL(
+      fixture.makeDirectory("synthetic-home", under: fixture.container)
+    )
+    let npmRoot = try fixture.makeDirectory(".npm", under: home)
+    let cache = try fixture.makeDirectory("_cacache", under: npmRoot)
+    _ = try makeNPMMarkerPair(in: cache, fixture: fixture)
+    let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
+
+    let unsupported = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      accountUIDProvider: { .unknown(.unsupported) }
+    ).observe(request(root: npmRoot, report: scan))
+    let malformed = try await DescriptorRuleEvidenceObserver(
+      rawHomeProvider: { .known(rawPathBytes(home)) },
+      accountUIDProvider: { .known(0) }
+    ).observe(request(root: npmRoot, report: scan))
+
+    #expect(unsupported.candidates.first?.accountOwnedCacheNamespace == .unknown(.unsupported))
+    #expect(malformed.candidates.first?.accountOwnedCacheNamespace == .unknown(.invalidMetadata))
+    for observation in [unsupported, malformed] {
+      #expect(observation.candidates.first?.identityMatchesScan == .known(true))
+      #expect(observation.candidates.first?.trustedLocation == .known(true))
+      #expect(observation.candidates.first?.generatedContentMarker == .known(true))
+    }
+  }
+
+  @Test("Account UID collection is bounded to one call after eligible npm preflight")
+  func accountUIDProviderInvocationScope() async throws {
+    let fixture = try ScannerFixture()
+    defer { fixture.remove() }
+
+    let npmRoot = try fixture.makeDirectory(".npm")
+    _ = try fixture.makeDirectory("_cacache", under: npmRoot)
+    let npmScan = try await AllocatedSizeScanner().scan(root: npmRoot)
+    let accountUID = Darwin.getuid()
+    try #require(accountUID > 0)
+    let exactProbe = AccountUIDProviderProbe(observation: .known(accountUID))
+
+    let exact = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { exactProbe.provide() }
+    ).observe(request(root: npmRoot, report: npmScan))
+
+    #expect(exactProbe.callCount == 1)
+    #expect(exact.candidates.first?.accountOwnedCacheNamespace == .known(true))
+
+    let actualRootIdentity = try #require(npmScan.root.scanTimeIdentity)
+    let staleRootIdentity = FileIdentity(
+      device: actualRootIdentity.device,
+      inode: actualRootIdentity.inode == UInt64.max
+        ? actualRootIdentity.inode - 1 : actualRootIdentity.inode + 1
+    )
+    let staleRootProbe = AccountUIDProviderProbe(observation: .known(accountUID))
+    let staleRoot = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { staleRootProbe.provide() }
+    ).observe(
+      request(
+        root: npmRoot,
+        report: identifiedReport(
+          rootIdentity: staleRootIdentity,
+          items: npmScan.topLevelItems
+        )
+      )
+    )
+
+    #expect(staleRootProbe.callCount == 0)
+    #expect(
+      staleRoot.candidates.first?.accountOwnedCacheNamespace
+        == .unknown(.changedDuringObservation)
+    )
+
+    let otherRoot = try fixture.makeDirectory("other-root")
+    _ = try fixture.makeDirectory("uv", under: otherRoot)
+    let otherScan = try await AllocatedSizeScanner().scan(root: otherRoot)
+    let otherProbe = AccountUIDProviderProbe(observation: .known(accountUID))
+    let other = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { otherProbe.provide() }
+    ).observe(request(root: otherRoot, report: otherScan))
+
+    #expect(otherProbe.callCount == 0)
+    #expect(other.candidates.first?.accountOwnedCacheNamespace == .unknown(.notCollected))
+
+    let cache = try #require(npmScan.topLevelItems.first)
+    let duplicateReport = ScanReport(
+      root: npmScan.root,
+      topLevelItems: [cache, cache],
+      topLevelItemCount: 2,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let duplicateProbe = AccountUIDProviderProbe(observation: .known(accountUID))
+    _ = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { duplicateProbe.provide() }
+    ).observe(request(root: npmRoot, report: duplicateReport))
+    #expect(duplicateProbe.callCount == 0)
+
+    let incompleteCache = ruleSummary(
+      rawComponents: [Array("_cacache".utf8)],
+      scanTimeIdentity: cache.scanTimeIdentity,
+      isComplete: false
+    )
+    let incompleteReport = ScanReport(
+      root: ruleSummary(
+        rawComponents: [],
+        scanTimeIdentity: npmScan.root.scanTimeIdentity,
+        isComplete: false
+      ),
+      topLevelItems: [incompleteCache],
+      topLevelItemCount: 1,
+      topLevelItemsWereSuppressed: false,
+      hardLinkAccountingIsComplete: true,
+      traversalDetailsWereDiscarded: false,
+      issues: [],
+      suppressedIssueCount: 0
+    )
+    let incompleteProbe = AccountUIDProviderProbe(observation: .known(accountUID))
+    _ = try await DescriptorRuleEvidenceObserver(
+      accountUIDProvider: { incompleteProbe.provide() }
+    ).observe(request(root: npmRoot, report: incompleteReport))
+    #expect(incompleteProbe.callCount == 0)
+  }
+
+  @Test("Account-owned namespace applies only to an exact top-level npm cache name")
+  func npmAccountOwnedNamespaceApplicability() {
+    let reason = RuleUnknownReason.permissionDenied
+    let exact = CandidateRuleEvidence.unavailable(
+      reason,
+      for: ruleSummary(rawComponents: [Array("_cacache".utf8)])
+    )
+    let nearMisses = [
+      ruleSummary(rawComponents: [Array("_CACACHE".utf8)]),
+      ruleSummary(rawComponents: [Array("_cacache-copy".utf8)]),
+      ruleSummary(rawComponents: [Array("nested".utf8), Array("_cacache".utf8)]),
+      ruleSummary(rawComponents: [Array("uv".utf8)]),
+    ]
+
+    #expect(exact.accountOwnedCacheNamespace == .unknown(reason))
+    for item in nearMisses {
+      #expect(
+        CandidateRuleEvidence.unavailable(reason, for: item).accountOwnedCacheNamespace
+          == .unknown(.notCollected)
+      )
+    }
   }
 
   @Test("Trusted cache locations require an exact home-relative root and candidate pair")
@@ -484,6 +774,10 @@ struct DescriptorRuleEvidenceObserverTests {
       observation.candidates.first?.trustedLocation
         == .unknown(.changedDuringObservation)
     )
+    #expect(
+      observation.candidates.first?.accountOwnedCacheNamespace
+        == .unknown(.changedDuringObservation)
+    )
   }
 
   @Test("Replacing an exact trusted cache candidate invalidates its location evidence")
@@ -522,6 +816,7 @@ struct DescriptorRuleEvidenceObserverTests {
     #expect(evidence.identityMatchesScan == .unknown(.changedDuringObservation))
     #expect(evidence.trustedLocation == .unknown(.changedDuringObservation))
     #expect(evidence.generatedContentMarker == .unknown(.changedDuringObservation))
+    #expect(evidence.accountOwnedCacheNamespace == .unknown(.changedDuringObservation))
     #expect(try Data(contentsOf: outsideSentinel) == Data([3]))
   }
 
@@ -556,7 +851,7 @@ struct DescriptorRuleEvidenceObserverTests {
     }
   }
 
-  @Test("Trusted location and an npm marker cannot make runtime cleanup eligible")
+  @Test("Satisfied npm namespace facts cannot bypass remaining runtime safety checks")
   func trustedLocationAndNPMMarkerStayProtected() async throws {
     let fixture = try ScannerFixture()
     defer { fixture.remove() }
@@ -572,10 +867,13 @@ struct DescriptorRuleEvidenceObserverTests {
     try fixture.setModificationTime(100, for: cache)
     let scan = try await AllocatedSizeScanner().scan(root: npmRoot)
     let treeBefore = try treeSnapshot(at: npmRoot)
+    let accountUID = Darwin.getuid()
+    try #require(accountUID > 0)
     let classifier = try ExplainableRuleClassifier(
       rules: BuiltInRuleCatalog.rules,
       evidenceObserver: DescriptorRuleEvidenceObserver(
-        rawHomeProvider: { .known(rawPathBytes(home)) }
+        rawHomeProvider: { .known(rawPathBytes(home)) },
+        accountUIDProvider: { .known(accountUID) }
       )
     )
     let report = try await classifier.classify(
@@ -595,14 +893,15 @@ struct DescriptorRuleEvidenceObserverTests {
     )
 
     #expect(states["trusted-location"] == .satisfied)
-    #expect(states["tool-ownership"] == .unknown(.notCollected))
+    #expect(states["account-owned-cache-namespace"] == .satisfied)
+    #expect(states["tool-ownership"] == nil)
     #expect(states["generated-content-marker"] == .satisfied)
     #expect(states["no-protected-descendants"] == .unknown(.notCollected))
     #expect(states["activity-requirement"] == .unknown(.notCollected))
     #expect(states["age-requirement"] == .satisfied)
     #expect(evaluation.matchState == .possibleMatch)
     #expect(evaluation.disposition == .protected)
-    #expect(evaluation.rule?.version == testRuleVersion(2))
+    #expect(evaluation.rule?.version == testRuleVersion(3))
     let visibleText =
       ([
         evaluation.displayName,
@@ -611,6 +910,7 @@ struct DescriptorRuleEvidenceObserverTests {
         evaluation.path.description,
       ] + evaluation.findings.map(\.explanation)).joined(separator: "\n")
     #expect(!visibleText.contains(home.path))
+    #expect(!visibleText.contains(String(accountUID)))
     #expect(try treeSnapshot(at: npmRoot) == treeBefore)
   }
 
@@ -878,6 +1178,10 @@ struct DescriptorRuleEvidenceObserverTests {
       incomplete.candidates.first?.generatedContentMarker
         == .unknown(.incompleteScan)
     )
+    #expect(
+      incomplete.candidates.first?.accountOwnedCacheNamespace
+        == .unknown(.incompleteScan)
+    )
 
     let cache = ruleSummary(
       rawComponents: [Array("_cacache".utf8)],
@@ -895,6 +1199,7 @@ struct DescriptorRuleEvidenceObserverTests {
       duplicate.candidates.allSatisfy {
         $0.trustedLocation == .unknown(.invalidMetadata)
           && $0.generatedContentMarker == .unknown(.invalidMetadata)
+          && $0.accountOwnedCacheNamespace == .unknown(.invalidMetadata)
       }
     )
   }
@@ -977,6 +1282,29 @@ private func makeNPMMarkerPair(
     content: try fixture.makeDirectory("content-v2", under: cache),
     index: try fixture.makeDirectory("index-v5", under: cache)
   )
+}
+
+private final class AccountUIDProviderProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private let observation: RuleObserved<uid_t>
+  private var calls = 0
+
+  init(observation: RuleObserved<uid_t>) {
+    self.observation = observation
+  }
+
+  var callCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return calls
+  }
+
+  func provide() -> RuleObserved<uid_t> {
+    lock.lock()
+    calls += 1
+    lock.unlock()
+    return observation
+  }
 }
 
 private final class MarkerCancellationGate: @unchecked Sendable {

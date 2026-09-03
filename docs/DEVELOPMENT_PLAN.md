@@ -96,14 +96,20 @@ advances that rule to revision 2. The observer also establishes trusted location
 for exact uv, npm, and Homebrew default containers, advancing the classification
 contract to revision 2, and recognizes the supported npm cacache layout from
 exact `content-v2` and `index-v5` directory children. That npm rule is now
-revision 2 and the built-in catalog is version 3; the classifier contract stays
-at revision 2 because common evidence interpretation is unchanged.
+revision 3 and the built-in catalog is version 4 after adding its distinct
+`account-owned-cache-namespace` fact: both the held selected root and held
+`_cacache` directory must carry the current account's exact POSIX UID. The
+classifier contract stays at revision 2 because common evidence interpretation
+is unchanged.
 
 The scan-time identity only binds this read-only reobservation; it is not cleanup
-or deletion authority. Ownership, reliable activity, protected descendants,
-generated markers outside SwiftPM and npm, and location for other rules remain
-uncollected, so real candidates stay `Protected`. Observers for those remaining
-facts are later increments.
+or deletion authority. The npm-specific namespace check is not generic tool
+ownership and does not prove historical creation, descendant ownership, write
+ACLs, content, inactivity, or mutation authority. Other rules retain unknown
+tool ownership. npm activity and protected descendants, generated markers
+outside SwiftPM and npm, and location for other rules remain uncollected, so
+real candidates stay `Protected`. Observers for those remaining facts are later
+increments.
 
 Implemented commit sequence:
 
@@ -127,7 +133,9 @@ Implemented commit sequence:
 - `feat(rules): bind trusted cache locations`;
 - `docs(rules): define trusted location evidence`;
 - `feat(rules): bind npm cache marker evidence`;
-- `docs(rules): define npm layout evidence`.
+- `docs(rules): define npm layout evidence`;
+- `feat(rules): bind npm account-owned namespace`;
+- `docs(rules): define npm account namespace evidence`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.
@@ -306,10 +314,30 @@ Implemented third increment: `feat(rules): bind npm cache marker evidence`.
   SwiftPM and the classifier contract at revision 2, with frontend schemas
   unchanged.
 
-Next: add separately reviewed rule-specific evidence needed for real
-eligibility; only then design recoverable quarantine. The future executor must
-accept the approval, not the diagnostic report, and revalidate inline while
-holding descriptors immediately before an operation.
+Implemented fourth increment: `feat(rules): bind npm account-owned namespace`.
+
+- Replace the npm rule's unprovable generic tool-ownership requirement with the
+  distinct `account-owned-cache-namespace` fact.
+- Satisfy it only when both the held selected root and held `_cacache`
+  descriptor report the current account's exact POSIX UID.
+- Treat this as a narrow namespace fact, not proof of historical creation,
+  descendant ownership, write ACLs, cache content, inactivity, or mutation
+  authority. Invoke no npm command, inspect no process or file content, and
+  make no network request.
+- Keep other rules' tool-ownership evidence unknown. npm activity and protected
+  descendants remain unknown, so runtime npm candidates stay `Protected`.
+- Advance npm to rule revision 3 and the built-in catalog to revision 4. Keep
+  SwiftPM and the classifier contract at revision 2; scan JSON v2,
+  classification JSON v1, cleanup manifest contract v2, and manifest-review
+  JSON v1 remain unchanged.
+
+Next: add bounded npm protected-descendant evidence as a separately reviewed
+increment. Activity is intentionally last among the npm eligibility facts so
+its observation can be designed together with the future executor's immediate
+pre-operation revalidation. Only after those facts are stable should
+recoverable quarantine be designed. The future executor must accept the
+approval, not the diagnostic report, and revalidate inline while holding
+descriptors immediately before an operation.
 
 Later Phase 7 work, after that evidence and executor design:
 

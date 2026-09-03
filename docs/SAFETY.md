@@ -67,8 +67,13 @@ Its root-URL-free, non-`Codable` report is point-in-time and copyable; it is not
 freshness proof, mutation authority, or executor input. Current real entries
 remain Protected. Exact default uv, npm, and Homebrew containers can satisfy
 trusted location, and npm may satisfy its supported cacache-layout marker.
-Ownership, reliable activity, protected descendants, generated markers for
-other rules, and location for other rules remain uncollected.
+An exact top-level npm `_cacache` may also satisfy
+`account-owned-cache-namespace` when the held selected root and held candidate
+both have the current account's exact POSIX UID. That narrow fact replaces
+generic tool ownership only for npm; it is not mutation authority. npm activity
+and protected descendants remain
+uncollected, while other rules retain unknown tool ownership and other required
+facts.
 
 ## Hard invariants
 
@@ -175,6 +180,13 @@ other rules, and location for other rules remain uncollected.
   current-account default container path and a stable descriptor identity match.
   It proves no tool ownership, inactivity, descendant safety, or mutation
   authority. Environment and configuration overrides are not trusted inputs.
+- A satisfied npm `account-owned-cache-namespace` finding proves only that the
+  held selected-root and `_cacache` directory metadata carry the exact current
+  non-root POSIX account UID. It does not prove historical creator or npm
+  provenance, ownership of every descendant, write ACLs or effective access,
+  cache content, inactivity, or mutation authority. A UID mismatch fails the
+  finding; unavailable account metadata stays unknown. No npm invocation,
+  process inspection, content read, or network request contributes to it.
 - A satisfied SwiftPM `workspace-state.json` marker proves only that the exact
   metadata check passed. It does not override an unavailable required fact, so
   the candidate remains `Protected`.
@@ -183,10 +195,17 @@ other rules, and location for other rules remain uncollected.
   does not prove npm ownership, inspect cached content, or grant mutation
   authority.
 - A candidate remains `Protected` when a required activity check reports active
-  use or is unavailable.
+  use or is unavailable. npm also remains `Protected` while its required
+  protected-descendant finding is unavailable.
 - A changed candidate is skipped during revalidation.
 - Partial failures are reported item by item.
 - Permanent deletion is not part of the initial milestones.
+
+The next npm policy increment will add bounded protected-descendant evidence.
+Activity observation remains the last eligibility fact and must be coordinated
+with the future executor's descriptor-held revalidation immediately before a
+recoverable operation; a prior inactivity observation is not execution
+authority.
 
 Cancellation is safe but may not be instantaneous. A blocking filesystem call
 can finish before the next cancellation checkpoint is reached. The scanner

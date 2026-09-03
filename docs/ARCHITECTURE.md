@@ -233,8 +233,18 @@ exact npm `_cacache`, it recognizes the supported cacache layout only when
 bounded descriptor-backed enumeration finds exact raw `content-v2` and
 `index-v5` directory entries. For exact uv, npm, and Homebrew names, it can also
 prove the selected root is the matching documented default container beneath
-the current account home. Raw path shape only gates a descriptor walk; the
-final root identity must match before and after observation.
+the current account home. For an exact top-level npm `_cacache` candidate, the
+held selected root and held candidate descriptors can additionally establish the distinct
+`account-owned-cache-namespace` fact when both metadata records carry the
+current account's exact POSIX UID. Raw path shape only gates a descriptor walk;
+the final root identity must match before and after observation.
+
+That npm-specific namespace fact is not responsible-tool ownership. It proves
+neither historical creation, descendant ownership, write ACLs, cache content,
+inactivity, nor mutation authority. Other rules retain unknown tool-ownership
+evidence. The observer invokes no npm process, performs no process inspection,
+reads no cache contents, and makes no network request. npm remains Protected
+while activity and protected-descendant evidence are unknown.
 
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
 not persistent object identities or deletion authority. Copying them into a
@@ -245,3 +255,8 @@ Any observer added for the remaining facts must preserve descriptor-relative
 traversal and identity checks rather than reconstructing descendant `URL`
 values from untrusted names. See the [rules contract](RULES.md) and
 [planning contract](PLANNING.md).
+
+The next npm observer is bounded protected-descendant evidence. Activity is the
+last eligibility fact and must be designed with the executor's descriptor-held
+revalidation immediately before mutation rather than treated as durable
+classification evidence.
