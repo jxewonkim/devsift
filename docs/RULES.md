@@ -16,7 +16,10 @@ enough on its own to call an item reclaimable.
 
 Each recognized candidate has both a match state and a disposition:
 
-- **Matched:** the raw path matched and every required check was satisfied.
+- **Matched:** the raw path matched and every non-deferred required check was
+  satisfied. One exact activity `unknown(.notCollected)` may remain visible
+  only for the deferred activity policy with its canonical execution
+  precondition.
 - **Possible match:** the raw path matched, but at least one required fact was
   false or unavailable.
 - **Conflict:** more than one rule recognized the same raw path, or the input
@@ -24,12 +27,18 @@ Each recognized candidate has both a match state and a disposition:
 - **Invalid rule:** a rule or its findings violated the catalog contract.
 - **Reclaimable:** a matched rule has strong evidence for generated,
   reproducible, inactive, sufficiently old data.
-- **Review required:** all required checks passed, but policy still requires an
-  explicit human decision.
+- **Review required:** all non-deferred checks passed, but policy still requires
+  explicit review or records a pending execution precondition.
 - **Protected:** evidence failed, was unknown, conflicted, or was incomplete.
 
 `Possible match`, `conflict`, and `invalid rule` always produce `Protected`.
-Unknown is protected rather than silently converted into review-required.
+Unknown is protected rather than silently converted into review-required,
+except for the versioned deferred activity mapping from exactly one
+`unknown(.notCollected)` finding to
+`requires-user-attestation-that-responsible-tool-is-stopped@1`. The finding
+stays unknown; the precondition is not evidence or authorization. This shape
+is available to valid custom Review-required rules, while the current built-in
+catalog opts in only the npm rule.
 
 ## Evidence model
 
@@ -52,7 +61,9 @@ Each valid single-rule recognition receives structured findings for:
 - complete scanning, retained output and issues, known allocation, arithmetic
   overflow, hard-link-accounting integrity, and scan-identity rebinding.
 
-A failed or unknown required finding blocks eligibility. A partial report,
+A failed or unknown required finding blocks eligibility unless the classifier's
+versioned contract explicitly recognizes that exact finding as the sole
+deferred execution precondition. A partial report,
 partial item, suppressed top-level output, discarded traversal detail,
 suppressed issue, unknown allocation, size overflow, or incomplete hard-link
 accounting therefore remains protected.
@@ -60,22 +71,30 @@ accounting therefore remains protected.
 Catalog validation also enforces a structural safety floor. Every rule needs
 both positive evidence and an exclusion. A rule whose eligible disposition is
 Reclaimable additionally needs declared reproducibility, a positive minimum
-age, and a must-be-inactive activity check. Classifier-owned finding identifiers
-are reserved so rule findings cannot collide with common guards. If malformed
+age, and a must-be-inactive activity check. Only a Review-required rule may use
+`.mustBeInactiveOrDeferToAttestationWhenUnobserved`, and the current classifier
+defers only activity `unknown(.notCollected)` to the sole sorted, unique
+precondition above. The current built-in catalog enables that policy only for
+npm. Known active use, any other unknown reason, duplicates, or a second
+blocker remains Protected. Classifier-owned finding identifiers are reserved
+so rule findings cannot collide with common guards. If malformed
 findings and a multi-rule conflict occur together, invalid-rule reporting takes
 precedence; both outcomes remain protected.
 
-## Built-in catalog version 5
+## Built-in catalog version 6
 
 The initial catalog intentionally starts small. The eligible disposition shown
-below is a ceiling reached only after every required fact is known and passes.
-Catalog version 5 keeps `devsift.swiftpm.build` at rule revision 2 and advances
-`devsift.cache.npm` to rule revision 4. SwiftPM requires an exact regular-file
+below is a ceiling reached only after every non-deferred fact is known and
+passes. Catalog version 6 keeps `devsift.swiftpm.build` at rule revision 2 and
+advances `devsift.cache.npm` to rule revision 5 for its narrow deferred activity
+policy. SwiftPM requires an exact regular-file
 `workspace-state.json` inside `.build`; npm requires exact direct-child
 directories named `content-v2` and `index-v5` inside `_cacache` and replaces
 the generic tool-ownership requirement with its narrower
 `account-owned-cache-namespace` check. npm now also collects a bounded
-protected-descendant exclusion against the pinned cacache grammar. Every other
+protected-descendant exclusion against the pinned cacache grammar. npm activity
+remains literally unknown; the new revision records a future attempt-scoped
+user-attestation precondition rather than claiming inactivity. Every other
 built-in rule remains at revision 1.
 The identity-rebinding finding is a classifier-owned integrity invariant, not
 a rule-specific definition change; classifier-wide semantics are now tracked
@@ -84,7 +103,7 @@ separately by the explainable-classification contract revision.
 | Rule ID | Raw-byte recognition | Reproducibility | Eligible disposition | Minimum age | Additional policy |
 | --- | --- | --- | --- | ---: | --- |
 | `devsift.cache.uv` | direct child named exactly `uv` | Reproducible | Reclaimable | 7 days | Generated, tool-owned cache in a trusted uv cache container; uv inactive |
-| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, current-account-owned root and candidate namespace, no protected descendants, and npm inactivity |
+| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, current-account-owned root and candidate namespace, no protected descendants, and either observed npm inactivity or the pending `requires-user-attestation-that-responsible-tool-is-stopped@1` condition for a future recoverable quarantine attempt |
 | `devsift.cache.homebrew` | direct child named exactly `Homebrew` | Conditional | Review required | 7 days | Trusted Homebrew cache container; Homebrew inactive |
 | `devsift.xcode.derived-data` | direct child named exactly `DerivedData` | Conditional | Review required | 7 days | Trusted Xcode container and generated-content evidence; Xcode inactive |
 | `devsift.swiftpm.build` | direct child named exactly `.build` | Conditional | Review required | 7 days | Exact regular-file `Package.swift` sibling and `.build/workspace-state.json` marker; build tooling inactive |
@@ -250,8 +269,8 @@ The default classifier seals its returned Core report to the exact in-memory
 `RuleClassificationRequest` and `RulePolicyProvenance`. Validation rejects that
 report if it is later paired with a different root URL, scan report, reference
 time, or edited provenance. The provenance contains
-`devsift.classification.explainable@2`, the Core-owned
-`devsift.builtin-rules@5` revision, and the complete sorted built-in rule roster.
+`devsift.classification.explainable@3`, the Core-owned
+`devsift.builtin-rules@6` revision, and the complete sorted built-in rule roster.
 Neither the private binding nor provenance is part of CLI JSON. A report created
 with the public unbound initializer can still support a trusted custom
 presentation flow, but the cleanup planner will not accept it.
@@ -271,23 +290,25 @@ containment, kind, identity, and policy evidence immediately before mutation.
 Generic responsible-tool ownership remains uncollected for every rule that
 requires it. npm instead consumes only the narrower current-account cache-
 namespace fact described above and collects its bounded protected-descendant
-fact. Reliable activity remains uncollected for npm, so it stays Protected at
-runtime. Generated-marker evidence also remains uncollected outside the SwiftPM
-and npm rules; trusted location and protected-descendant evidence remain
-uncollected outside their supported profiles.
+fact. Reliable activity remains exactly `unknown(.notCollected)` for npm. When
+all other npm findings pass, classifier contract revision 3 preserves that
+finding and emits
+`requires-user-attestation-that-responsible-tool-is-stopped@1`, producing a
+matched Review-required result. The precondition is not evidence that npm is
+inactive and not permission to operate. Generated-marker evidence also remains
+uncollected outside the SwiftPM and npm rules; trusted location and protected-
+descendant evidence remain uncollected outside their supported profiles.
 
 Consequently, a real scan can recognize a possible built-in candidate and may
 satisfy trusted-location, npm layout, npm account-owned namespace, or npm
-protected-descendant findings, but the remaining unavailable facts keep its
-disposition `Protected`. Tests
-may construct synthetic complete evidence to
-verify the catalog's eligible outcomes; that does not weaken the runtime
-boundary. The location interpretation advances the classifier-wide contract to
-revision 2. The built-in catalog is version 5, SwiftPM is at rule revision 2,
-npm is at rule revision 4, and all other rule revisions remain at version 1.
-The classifier
-contract remains at revision 2 because this increment adds rule-specific
-evidence without changing common evidence interpretation.
+protected-descendant findings. An exact npm candidate with every non-deferred
+fact satisfied may now reach Review required with the pending condition; other
+unavailable facts keep a candidate `Protected`. Tests may construct synthetic
+complete evidence to verify the catalog's eligible outcomes; that does not
+weaken the runtime boundary. The explainable-classification contract is
+revision 3. The built-in
+catalog is version 6, SwiftPM is at rule revision 2, npm is at rule revision 5,
+and all other rule revisions remain at version 1.
 
 Any future observer for the remaining facts must preserve this
 descriptor-relative safety model. It must use operations such as `openat`,
@@ -296,15 +317,18 @@ work, and report changed or unavailable facts as unknown. Rebuilding absolute
 descendant paths with string or `URL` concatenation is not acceptable authority
 for classification or cleanup.
 
-Activity is the remaining npm eligibility fact. The completed
+Activity is the remaining npm execution fact. The completed
 [capability review](ACTIVITY.md) found no supported, unprivileged macOS API that
 can prove the absence of active use throughout the cache subtree or prevent a
 new access between a check and an operation. The classifier must not map a
 quiet interval, empty process result, advisory-lock success, kqueue result, or
-FSEvents result to `known(.inactive)`. npm therefore stays Protected. A future
+FSEvents result to `known(.inactive)`. The narrow recoverable-quarantine policy
+defers only `unknown(.notCollected)`; it does not satisfy the finding. A future
 positive-only conflict observer may return `active` when it has concrete
 evidence, but every negative, incomplete, raced, denied, or bounded result must
-remain unknown and cannot close an execution race.
+remain unknown and cannot close an execution race. The later explicit user
+attestation belongs to an attempt-scoped `CleanupQuarantineAuthorization`, not
+classification.
 
 ## Determinism and versioning
 

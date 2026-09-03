@@ -104,7 +104,7 @@ future execution must require fresh policy and object revalidation before any
 mutation.
 
 This aggregate is currently a Core-only input to rule findings. Scan JSON v2
-does not emit the raw timestamp; classification JSON v1 exposes the resulting
+does not emit the raw timestamp; classification JSON v2 exposes the resulting
 finding state and explanation, not the candidate timestamp itself.
 
 ## Scan-time identity
@@ -122,7 +122,7 @@ not a durable identifier, trusted-location or ownership evidence, a cleanup
 capability, or deletion authority. Inodes can be reused; a draft plan carries
 these values only as comparison evidence, and future execution must reopen and
 revalidate containment, kind, identity, and policy evidence immediately before
-mutation. Scan JSON v2 and classification JSON v1 do not emit raw scan-time
+mutation. Scan JSON v2 and classification JSON v2 do not emit raw scan-time
 identities.
 
 ## App presentation contract
@@ -213,5 +213,7 @@ logical and allocated sizes come from one POSIX stat result. An opened
 directory's device and inode are revalidated before recursion, but files can
 still change before or after their individual observation. Paths and inode
 identities from a scan must never be reused as authority for later cleanup. A
-future executor will consume only the Core approval, reopen its stored root,
-and revalidate every approved item before mutation.
+future executor will consume only `CleanupQuarantineAuthorization`, reopen the
+approval-bound root carried through that process-local single-attempt value,
+and revalidate every authorized item before mutation. A bare approval or
+revalidation report is not executor input.

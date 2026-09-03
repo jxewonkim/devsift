@@ -5,8 +5,8 @@ the user choose exactly one folder, observes filesystem metadata, applies the
 same versioned rule classifier as the CLI, and presents observation and policy
 results separately. It can also create and display an unapproved in-memory
 draft from explicitly selected eligible results. It has no persistence,
-import, export, diff, approval, execution, cleanup, move, quarantine, or
-deletion action.
+import, export, diff, approval, activity-attestation, authorization, execution,
+cleanup, move, quarantine, restore, purge, or deletion action.
 
 Run the development executable on macOS 14 or newer:
 
@@ -127,6 +127,10 @@ revision. The view model accepts only values from the current scan's exact
 whitelist. The filter is a UI convenience, not a policy decision; the Core
 `CleanupPlanner` remains the fail-closed authority and repeats complete report,
 source binding, provenance, identity, allocation, and evaluation validation.
+The filter accepts the sole canonical deferred activity shape but rejects
+active use, another unknown reason, another blocking finding, or malformed
+precondition metadata. Valid custom rules can use that shape; the current
+built-in catalog produces it only for npm.
 
 The view model retains the exact `RuleClassificationRequest` sent to the
 classifier and its exact returned report for the current result. It never
@@ -135,33 +139,45 @@ values and a frozen, canonically ordered selection to Core, then immediately
 projects the resulting manifest into an app-owned identity-free value. The
 review presentation retains no root or candidate filesystem identities,
 manifest, source request, provenance roster, reference time, serialized raw
-path, approval state, or execution state. An exact raw relative path remains
-only as an in-memory row identifier; escaped display text is rendered instead.
+path, approval state, attestation state, authorization state, or execution
+state. An exact raw relative path remains only as an in-memory row identifier;
+escaped display text is rendered instead.
 The selected root is shown separately from the current window state so the user
 can verify scope.
 
 The review displays the disposition, rule revision, responsible tool,
-reproducibility, classification explanation, and every satisfied finding. It
+reproducibility, classification explanation, and every finding. It
 also displays all seven stored observations: logical bytes, apparent allocated
 bytes, hard-link-exclusive allocated bytes, possible shared-content file count,
 shared-content metadata-unavailable count, unobserved hard-link file count, and
 non-exclusive hard-link file count. These are observations and uncertainty
 indicators, never a guaranteed savings forecast.
 
+If a manifest entry carries
+`requires-user-attestation-that-responsible-tool-is-stopped@1`, the review
+displays “Activity remains unobserved” at both review and entry level. It says
+that the pending condition is policy metadata, not evidence that npm is
+inactive; any future recoverable operation requires fresh revalidation and a
+separate attempt-scoped authorization. The draft is not that authorization and
+cannot be executed. There is no approval, acknowledgement, or attestation CTA.
+
 The view is explicitly labeled an unapproved, non-executable in-memory draft.
 Returning to selection discards only the presentation and preserves the user's
 included set for editing. Rescanning, choosing another folder, or closing the
 window discards both selection and review. Nothing is saved, imported,
-exported, diffed, approved, executed, checked against the live filesystem, or
-changed on disk. Because the runtime classifier still lacks several required
-facts, an honest real scan can show zero eligible draft candidates.
+exported, diffed, approved, acknowledged, attested, authorized, executed,
+checked against the live filesystem, or changed on disk. Because the runtime
+classifier still lacks several required facts, an honest real scan can show
+zero eligible draft candidates. An exact npm candidate whose non-deferred facts
+all pass may instead appear as Review required with the pending condition; that
+does not make it safe to operate.
 
 DevSiftCore now has a separate approval-review session contract prepared from
 an exact source-bound planning request, but this app increment does not invoke
 it. The app continues to discard the Core manifest after making its
 identity-free presentation, exposes no approval button or state, and cannot
 reconstruct the opaque session, its exact root, or its session-bound entry
-references from that lossy presentation.
+or precondition references from that lossy presentation.
 
 ## Observation and policy language
 
@@ -186,11 +202,14 @@ after a bounded stable traversal matches the pinned cacache grammar and earlier
 scan count. The app does not display descendant paths, the raw candidate
 timestamp, scan-time identity, current account home path, or UID, and none of
 these satisfied findings makes a candidate eligible by itself. npm activity
-remains unavailable: the [activity capability review](ACTIVITY.md) rejects an
-empty process query or quiet tree as proof of inactivity. The other rules
-retain unknown tool ownership, protected-descendant evidence, and other
-required facts, so candidates remain Protected. Scan-time identity is not
-cleanup or deletion authority.
+remains literally `unknown(.notCollected)`: the
+[activity capability review](ACTIVITY.md) rejects an empty process query or
+quiet tree as proof of inactivity. Classifier contract revision 3 may preserve
+that unknown and expose the fixed pending precondition when every non-deferred
+npm fact passes. The UI must say “Activity remains unobserved”; it must not call
+npm inactive, safe, approved, or authorized. The other rules retain unknown
+tool ownership, protected-descendant evidence, and other required facts, so
+they remain Protected. Scan-time identity is not cleanup or deletion authority.
 
 “Complete observation” describes traversal within the configured limits. A
 partial observation can result from skipped entries, output bounds, incomplete
@@ -231,7 +250,9 @@ eligibility, exact current-session whitelisting, default-zero and frozen
 selection behavior, exact request and report reuse, off-main planning,
 cancellation and stale-result suppression, generic failure text, identity-free
 projection, safe free-form text, canonical ordering, all seven observed
-quantities, and window-lifecycle invalidation.
+quantities, deferred-precondition fail-closed boundaries, explicit unobserved
+activity disclosure, absence of authorization or safety claims, and window-
+lifecycle invalidation.
 
 The optional native snapshot harness renders representative empty, scanning,
 classifying, light and dark results, 900 x 620 complete and partial results,

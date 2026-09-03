@@ -1,8 +1,8 @@
 # Revalidation contract
 
-`CleanupRevalidator` is the first Phase 7 boundary. It is a read-only,
-point-in-time diagnostic over one in-memory `CleanupApproval`; it is neither an
-executor nor a cleanup capability.
+`CleanupRevalidator` contract version 2 is the first Phase 7 boundary. It is a
+read-only, point-in-time diagnostic over one in-memory `CleanupApproval`; it is
+neither an executor nor a cleanup capability.
 
 ## Input and scope
 
@@ -10,6 +10,13 @@ The public API accepts only `CleanupApproval`. It takes no separately supplied
 root, manifest, diff, app presentation, or CLI review document. The approval's
 retained absolute local root is the only scan root, and its reviewed manifest is
 the only candidate roster.
+
+Preflight requires approval contract version 2, cleanup manifest contract
+version 3, and the exact canonical precondition-review-acknowledgement sequence
+retained by the approval. Each acknowledgement establishes only that a pending
+condition and its risk were reviewed. It is not an activity attestation and
+cannot be substituted for future attempt authorization. Older approval or
+manifest values must be regenerated; there is no import migration.
 
 The default revalidator performs a new allocated-size scan and a new built-in
 explainable classification using that retained root. It accepts only the
@@ -44,10 +51,21 @@ does not prove historical creation, write ACLs, content, inactivity, or
 mutation authority. The same exact npm candidate may also satisfy bounded
 protected-descendant evidence after a stable descriptor-relative traversal
 matches the pinned cacache path-and-kind grammar and the earlier scan. npm
-activity remains uncollected, while other rules retain unknown tool ownership,
-protected descendants, and other required facts, so real entries still receive
-no eligible result. This is a policy outcome, not a promise that no future
+activity remains literally `unknown(.notCollected)`. When that is the sole
+deferred finding and the fresh policy exactly matches the approved manifest,
+the entry receives
+`awaitingExecutionPreconditions([.requiresUserAttestationThatResponsibleToolIsStopped])`.
+It does
+not receive `eligibleAtObservation`, and the status does not say that npm is
+inactive. Other rules retain unknown tool ownership, protected descendants, and
+other required facts. This is a policy outcome, not a promise that no future
 observer can make those facts available.
+
+A fresh known-active result or activity `unknown(.permissionDenied)` is
+`.rejected(.blockingFinding(activity-requirement))`. That concrete blocking
+diagnosis takes precedence over reporting a mismatch between the approved and
+fresh pending-condition sets; an absent fresh deferral must not hide active or
+denied activity behind a generic policy-change result.
 
 ## Output and failures
 
@@ -57,6 +75,12 @@ current built-in policy provenance, reference time, and canonical per-entry
 statuses. It is a point-in-time observation: it grants no filesystem mutation
 authority, is not an executor input, and may become stale immediately after it
 is returned.
+
+`eligibleAtObservation` means no precondition was pending at that observation.
+`awaitingExecutionPreconditions` means no non-deferred rejection was found but
+one or more exact versioned conditions remain unresolved.
+`hasPendingExecutionPreconditions` reports that state; it is deliberately not
+“ready to execute.”
 
 Public failures are deliberately reduced to stable categories: invalid approval
 invariants, unsupported policy, scan or scan-report failure, changed root,
@@ -69,17 +93,24 @@ report.
 
 ## Execution remains later
 
-This contract does not close time-of-check/time-of-use gaps. A future executor
-must accept the `CleanupApproval`, not this report, and revalidate each item
-inline while holding verified descriptors immediately before a recoverable
-operation. That executor must independently establish containment, kind,
-identity, device, activity, and current policy evidence; it must not treat this
-report as a capability or proof that a later path lookup is safe.
+This contract does not close time-of-check/time-of-use gaps. A later phase must
+create `CleanupQuarantineAuthorization` from the exact `CleanupApproval`, a
+fresh explicit user attestation scoped to that quarantine attempt, and process-
+local single-attempt identity and consumption. A precondition review
+acknowledgement is not the attestation, and a wall-clock TTL is not freshness.
 
-Activity is the remaining npm eligibility fact. The
+A future executor must accept only that authorization, not a bare approval or
+this report, and revalidate each item inline while holding verified descriptors
+immediately before a recoverable operation. It must independently establish
+containment, kind, identity, device, the selected activity policy, and current
+policy evidence; it must not treat this report as a capability or proof that a
+later path lookup is safe.
+
+Activity is the remaining npm execution fact. The
 [activity safety contract](ACTIVITY.md) establishes that the current
 unprivileged product has no supported primitive for proving subtree-wide
 inactivity or preventing access after a check. Revalidation therefore keeps npm
-activity unknown and cannot emit execution authority. Any future executor must
-adopt a separately reviewed activity policy while retaining this immediate,
-descriptor-held revalidation boundary.
+activity unknown and cannot emit execution authority. The selected narrow
+recoverable-quarantine policy remains pending until the separate attempt-
+authorization phase, while immediate descriptor-held revalidation remains
+mandatory.

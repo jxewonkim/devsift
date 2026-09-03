@@ -60,8 +60,12 @@ only after a stable descriptor-relative traversal matches the pinned cacache
 path-and-kind grammar and the earlier scan. npm activity remains uncollected;
 the [activity capability review](ACTIVITY.md) rejects a quiet tree or empty
 process result as proof of inactivity. The other rules retain unknown tool
-ownership, protected descendants, and other required facts, so real recognized
-candidates stay protected; see the [rules contract](RULES.md).
+ownership, protected descendants, and other required facts, so they stay
+protected. An otherwise valid npm decision retains activity as
+`unknown(.notCollected)`, becomes Review required, and prints the pending
+`requires-user-attestation-that-responsible-tool-is-stopped@1` condition. That
+is policy metadata, not an inactivity or execution claim; see the
+[rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits
@@ -117,6 +121,8 @@ Each decision contains:
 - terminal-safe root-relative path text;
 - disposition, match state, rule revision or conflict revisions;
 - display name, responsible tool, and reproducibility;
+- sorted deferred execution preconditions as `identifier@policyRevision`, or
+  `none`;
 - observed apparent and hard-link-exclusive allocation, observation
   completeness, overflow, and unknown-allocation state;
 - every structured finding and its satisfied, failed, or unknown state;
@@ -228,31 +234,38 @@ A minimal synthetic envelope has this shape:
 Directory allocation and metadata availability vary by filesystem, so this is
 a schema example, not a promised scan result for an empty directory.
 
-## Classification JSON schema version 1
+## Classification JSON schema version 2
 
 `devsift classify --json` emits a separate CLI-owned contract. It does not
 change the existing scan schema.
 
-The classification JSON schema remains version 1. Its built-in catalog is
-version 5. `devsift.cache.npm` is rule revision 4 for its exact cacache-layout,
-trusted-location, account-owned cache-namespace, and protected-descendant
-evidence;
+The classification JSON schema is version 2. Its built-in catalog is version 6.
+`devsift.cache.npm` is rule revision 5 for its exact cacache-layout, trusted-
+location, account-owned cache-namespace, protected-descendant evidence, and
+narrow deferred activity policy;
 `devsift.swiftpm.build` remains revision 2 for the exact
 `workspace-state.json` marker, and every other built-in rule remains revision
 1. Catalog and rule revisions can change without changing the JSON key shape.
 The identifier and version come from the Core-owned
 `BuiltInRuleCatalog.revision`, preventing CLI metadata from drifting from the
-classifier; the wire shape remains unchanged. The full Core policy provenance
-and its rule roster are not exported by this schema.
+classifier. The full Core policy provenance and its rule roster are not
+exported by this schema.
 
-This rule-specific revision does not change scan JSON v2, classification JSON
-v1, cleanup manifest contract v2, or the internal cleanup-manifest-review JSON
-v1 schema.
+Schema version 2 adds an always-present `deferredExecutionPreconditions` array
+to every decision. Each element contains a stable `identifier` and decimal-
+string `policyRevision`; the array is empty when nothing is deferred. Version 1
+documents are not imported or migrated. Re-run classification to create a
+current export.
+
+The related current contracts are explainable classification revision 3,
+cleanup manifest version 3, manifest diff version 2, approval version 2,
+revalidation version 2, and internal cleanup-manifest-review JSON version 2
+pinned to source manifest version 3. Scan JSON remains version 2.
 
 The envelope contains:
 
 - `schema`: always `devsift.classification`;
-- `schemaVersion`: the JSON number `1`;
+- `schemaVersion`: the JSON number `2`;
 - `devsiftVersion`, `safetyMode`, and root-relative `pathStyle`;
 - `catalog`: identifier, version, and built-in rule count;
 - `referenceUnixSeconds`: one decimal string used by every age check;
@@ -275,16 +288,18 @@ The envelope contains:
 Each decision contains the same display and Base64 raw path representation as
 the scan schema, an optional `ruleRevision`, sorted `matchingRuleRevisions`,
 match and disposition fields, reproducibility, a nullable observation, ordered
-findings, and an explanation. A finding state has a `status` and nullable
-unknown `reason`. The observation includes decimal-string apparent,
+findings, an always-present sorted `deferredExecutionPreconditions` array, and
+an explanation. A finding state has a `status` and nullable unknown `reason`.
+The observation includes decimal-string apparent,
 hard-link-exclusive, and unknown-allocation counts plus completeness and
 overflow booleans.
 
-An age finding may now be satisfied, failed, or unknown from the in-memory scan
-aggregate. Classification JSON v1 does not emit the candidate's raw timestamp
+An age finding may be satisfied, failed, or unknown from the in-memory scan
+aggregate. Classification JSON v2 does not emit the candidate's raw timestamp
 or scan-time identity; it emits the existing finding states and explanations
-and continues to use the single `referenceUnixSeconds` value. SwiftPM and npm
-marker findings use that same existing shape, so the wire schema is unchanged.
+and continues to use the single `referenceUnixSeconds` value. The deferred
+array does not alter the activity finding: npm activity remains explicitly
+unknown, and the pending condition is not an attestation or authorization.
 
 Every classification integer that can exceed a portable JSON integer range is
 encoded as a decimal string. Nullable fields are emitted explicitly as JSON
@@ -297,11 +312,11 @@ A shortened synthetic decision has this shape:
 ```json
 {
   "schema": "devsift.classification",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "pathStyle": "root-relative",
   "catalog": {
     "identifier": "devsift.builtin-rules",
-    "version": "5",
+    "version": "6",
     "ruleCount": "6"
   },
   "referenceUnixSeconds": "1700000000",
@@ -323,25 +338,26 @@ A shortened synthetic decision has this shape:
         "version": "1"
       },
       "matchState": "possible-match",
-      "disposition": "protected"
+      "disposition": "protected",
+      "deferredExecutionPreconditions": []
     }
   ]
 }
 ```
 
 The `scanIntegrity` object and decision above are shortened, and the excerpt
-omits other required v1 keys for readability. It is not a complete schema
+omits other required v2 keys for readability. It is not a complete schema
 fixture. Tests assert the exact key sets and round-trip the full DTO.
 
-## Cleanup manifest review JSON schema version 1 (internal only)
+## Cleanup manifest review JSON schema version 2 (internal only)
 
 The CLI target owns an internal one-way JSON projection for a future manifest
 review surface. It is not reachable from `CLIArguments` or `CLIApplication`, so
 there is currently no `devsift` command, standard-output path, or file-writing
 operation for it. It does not change the usage or exit-code contract above.
 
-The projection accepts only Core cleanup manifest contract version 2 and emits
-schema `devsift.cleanup-manifest-review` version 1. Its DTOs conform to
+The projection accepts only Core cleanup manifest contract version 3 and emits
+schema `devsift.cleanup-manifest-review` version 2. Its DTOs conform to
 `Encodable`, not `Decodable`; Core `CleanupManifest` and its entries remain
 non-`Codable`. The resulting JSON is deliberately lossy and cannot recreate a
 Core manifest. It also cannot serve as an input to `CleanupManifestDiffer`, an
@@ -349,11 +365,19 @@ approval operation, or an executor. The envelope says `importSupported: false`,
 `canBeApproved: false`, `canBeExecuted: false`, and `executionAuthority: none`.
 There is no manifest-diff review schema in this increment.
 
+Every projected entry always has a sorted `deferredExecutionPreconditions`
+array. Each element contains the fixed policy `identifier` and decimal-string
+`policyRevision`; an empty array is encoded explicitly. Both privacy profiles
+include these fields so a pending execution condition cannot disappear through
+redaction. They are review disclosure only and cannot represent the future user
+attestation or `CleanupQuarantineAuthorization`.
+
 Core's current approval boundary instead prepares an opaque review session from
 the exact source-bound planning request. The session owns its exact root and
-Core-built manifest and issues process-local entry references that this lossy
-document cannot reconstruct. The CLI does not expose an approval command or
-retain review-session or approval state in this increment.
+Core-built manifest and issues process-local entry and pending-precondition
+references that this lossy document cannot reconstruct. The CLI does not expose
+an approval, review-acknowledgement, attestation, or authorization command and
+retains none of that state.
 
 Every invocation requires one explicit privacy profile:
 
@@ -362,10 +386,11 @@ Every invocation requires one explicit privacy profile:
   explanations, and unselected policy-rule revisions. It substitutes a
   canonical `candidate-00001`-style ordinal for each entry. It still includes
   exact observed sizes and uncertainty counts, classification and catalog
-  identifiers, each selected rule revision, and every selected finding's
-  identifier, kind, and state. Those values can reveal tools, policy, storage
-  volume, and work patterns. Redacted output is neither anonymous nor
-  automatically safe to share.
+  identifiers, each selected rule revision, every selected finding's identifier,
+  kind, and state, and every fixed deferred-precondition identifier and policy
+  revision. Those values can reveal tools, policy, storage volume, and work
+  patterns. Redacted output is neither anonymous nor automatically safe to
+  share.
 - `root-relative-exact` includes a terminal-safe display path, every exact raw
   path component as Base64, the exact classification reference time, escaped
   display and responsible-tool text, escaped classification and finding
@@ -393,13 +418,17 @@ Swift/Foundation runtime. `JSONEncoder` output is not a cryptographic canonical
 form, stable content digest, signature, authenticity proof, or approval token;
 consumers must not compare its bytes for security decisions.
 
-The encoder validates the version-2 manifest and bounded entry invariants
+The encoder validates the version-3 manifest and bounded entry invariants
 before projection. It performs a per-entry encoded-size preflight and repeats a
 post-encode check against a hard 128 MiB limit. Cancellation is checked during
 validation, projection, and the per-entry preflight. A single Foundation
 `JSONEncoder.encode` call is not cooperatively interruptible, so cancellation
 requested during the final bounded encode is observed only after that call
 returns. No partial JSON document is returned.
+
+Version-1 review exports and source-manifest-version-2 material have no import
+or migration path. Regenerate them from a current classification and manifest;
+never synthesize a missing pending condition while decoding old data.
 
 ## Exit codes
 

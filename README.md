@@ -46,9 +46,13 @@ cacache path-and-kind grammar, non-empty `tmp`, links, special nodes,
 different-device entries, different-account owners, and repeated directory
 identities. A clean result requires exhaustive stable traversal and agreement
 with the earlier scan. Other rules retain unknown tool-ownership and protected-
-descendant evidence. npm activity remains unknown, so runtime npm
-candidates—and all other real candidates with unavailable required facts—stay
-protected. Large AI models, virtual machines, user documents, and active
+descendant evidence. npm activity remains literally `unknown(.notCollected)`.
+Only the npm rule can defer that one exact unknown to the versioned
+`requires-user-attestation-that-responsible-tool-is-stopped@1` execution
+precondition and produce a Review-required draft candidate; it does not report
+npm inactive or authorize an operation. All other unavailable required facts
+stay protected. Large AI
+models, virtual machines, user documents, and active
 application data are never treated as disposable merely because they are large.
 
 ## Current interfaces
@@ -72,9 +76,16 @@ candidates.
 Core can now prepare an opaque approval-review session directly from one exact
 source-bound planning request. The session retains that request's exact root
 and Core-built manifest and issues entry references that cannot be reused in a
-different review session. The caller must explicitly confirm every session
-entry in canonical order; a missing, added, duplicate, reordered, changed, or
-foreign confirmation rejects the whole request. Partial approval is
+different review session. It also issues canonical references for every
+deferred execution precondition. The caller must explicitly confirm every
+session entry and acknowledge every pending condition for review in canonical
+order; a missing, added, duplicate, reordered, changed, or foreign entry
+confirmation or review acknowledgement rejects the whole request. A
+precondition review acknowledgement means only that its condition and risk were
+included in review. It is not an attestation that npm stopped, current
+activity evidence, freshness, or execution authorization. The acknowledgement
+and resulting approval remain copyable, replayable review intent rather than
+single-attempt authority. Partial approval is
 intentionally unsupported: changing the subset requires a new draft and review.
 Before issuing approval, Core regenerates the manifest from the retained source
 request and requires exact equality with the reviewed value. The resulting
@@ -88,32 +99,46 @@ built-in classification of its retained root. Its canonical per-entry report is
 a point-in-time, non-`Codable` diagnostic, not mutation authority or executor
 input. Root, path, kind, device, identity, rule, findings, and policy are
 reobserved; incomplete or unknown observations fail closed. Current runtime
-evidence still leaves real candidates Protected. Exact default uv, npm, and
-Homebrew containers can now have trusted location reobserved, and npm may also
-satisfy its supported cacache-layout marker, current-account cache-namespace
-check, and bounded protected-descendant exclusion. These npm-specific checks do
-not authorize mutation. npm activity remains uncollected, as do tool ownership,
-protected descendants, and other required evidence for the other rules. See the
+evidence still leaves most real candidates Protected. Exact default uv, npm,
+and Homebrew containers can now have trusted location reobserved, and npm may
+also satisfy its supported cacache-layout marker, current-account cache-
+namespace check, and bounded protected-descendant exclusion. These npm-specific
+checks do not authorize mutation. npm activity remains uncollected; an otherwise
+valid npm entry is reported as awaiting its unchanged deferred execution
+precondition, not as inactive or execution-ready. Tool ownership, protected
+descendants, and other required evidence remain unavailable for the other
+rules. See the
 [revalidation contract](docs/REVALIDATION.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
-one-way manifest-review JSON v1 encoder pinned to Core manifest contract
-version 2, but no command invokes it and it never writes a file. The app review
+one-way manifest-review JSON v2 encoder pinned to Core manifest contract
+version 3, but no command invokes it and it never writes a file. The app review
 is not a saved or serialized manifest. Neither frontend invokes the Core
 approval contract or provides manifest persistence, import, export, diffing,
 approval, execution, or filesystem mutation.
 
+Current semantic contracts are explainable classification revision 3, cleanup
+manifest version 3, manifest diff version 2, approval version 2, and
+revalidation version 2. CLI scan JSON remains version 2; classification JSON
+is version 2, and the internal manifest-review JSON is version 2 over source
+manifest version 3. The built-in catalog is version 6, with npm at rule
+revision 5.
+
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
 
-The remaining npm eligibility fact is activity. DevSift's completed capability
+The remaining npm execution fact is activity. DevSift's completed capability
 review found no supported, unprivileged macOS API that can prove the absence of
 active use across an entire cache tree or turn that observation into a lease.
 DevSift therefore does not infer `inactive` from a quiet tree, an empty process
-query, or an advisory lock: npm stays Protected at runtime. Any future cleanup
-policy must first choose and separately review either a privileged activity
-gate, an explicit user-attested recoverable-quarantine policy that makes no
-inactivity claim, or an upstream cooperative lock. See the
+query, or an advisory lock. The project has narrowly selected the explicit
+user-attested policy only for a future recoverable quarantine attempt: this
+milestone carries the pending condition through classification, planning,
+review, approval, and revalidation, but collects no attestation and grants no
+execution authority. A later `CleanupQuarantineAuthorization` must bind the
+exact approval to a fresh, explicit, attempt-scoped user statement and a
+process-local single-attempt identity and consumption rule. A wall-clock TTL is
+not freshness. See the
 [activity safety contract](docs/ACTIVITY.md).
 
 ## Safety first
@@ -155,7 +180,9 @@ review projection for privacy-contract testing; this is not a CLI command or
 file-export feature. The native app invokes the same Core scanner, classifier,
 and planner and does not contain a separate filesystem or policy
 implementation. Its review shows all seven stored observation and uncertainty
-quantities as point-in-time estimates, not guaranteed savings. See the
+quantities as point-in-time estimates, not guaranteed savings, and shows a
+pending npm condition as unobserved rather than as a safety or inactivity
+claim. See the
 [app contract](docs/APP.md),
 [CLI contract](docs/CLI.md), [scanning contract](docs/SCANNING.md),
 [rules contract](docs/RULES.md), and [planning contract](docs/PLANNING.md).
@@ -167,14 +194,16 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 ## Project status
 
 - Current phase: policy-provenanced in-memory dry-run manifests, Core-only
-  diffing, review-bound approval, and an approval-only, point-in-time Core
-  revalidation diagnostic; app and CLI remain read-only
+  diffing, review-bound entry confirmation and precondition review
+  acknowledgement, and an approval-only, point-in-time Core revalidation
+  diagnostic; app and CLI remain read-only
 - Current behavior: Core scanner, rule classifier, in-memory draft planner,
   compatible-manifest differ, approver, and revalidator, plus the existing
   text/JSON CLI and native analysis dashboard with explicit in-memory draft
-  review; no manifest-review CLI command, persistence, import, or user-facing
-  export; no frontend diff, approval, or revalidation workflow; and no
-  execution, cleanup, quarantine, or deletion
+  review of pending execution conditions; no manifest-review CLI command,
+  persistence, import, or user-facing export; no frontend diff, approval,
+  attestation, authorization, or revalidation workflow; and no executor,
+  cleanup, quarantine, restore, purge, or deletion
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer
