@@ -48,7 +48,7 @@ public struct CleanupApprover: CleanupApproving, Sendable {
     _ source: CleanupManifestRequest
   ) throws -> CleanupApprovalReviewSession {
     try Task.checkCancellation()
-    guard cleanupApprovalSourceRootIsValid(source.classificationRequest.root) else {
+    guard LocalFileSystemRootValidator.isValid(source.classificationRequest.root) else {
       throw CleanupApprovalError.invalidSourceRoot
     }
 
@@ -73,7 +73,7 @@ public struct CleanupApprover: CleanupApproving, Sendable {
     let sourceRoot = session.sourceRequest.classificationRequest.root
     guard
       session.sourceRoot == sourceRoot,
-      cleanupApprovalSourceRootIsValid(sourceRoot)
+      LocalFileSystemRootValidator.isValid(sourceRoot)
     else {
       throw CleanupApprovalError.invalidSourceRoot
     }
@@ -116,27 +116,4 @@ public struct CleanupApprover: CleanupApproving, Sendable {
       }
     }
   }
-}
-
-/// Pure lexical validation only. Descriptor-relative root and identity checks
-/// remain mandatory at execution time.
-private func cleanupApprovalSourceRootIsValid(_ root: URL) -> Bool {
-  let hostIsLocal: Bool
-  if let host = root.host, !host.isEmpty {
-    hostIsLocal = host.caseInsensitiveCompare("localhost") == .orderedSame
-  } else {
-    hostIsLocal = true
-  }
-
-  return root.isFileURL
-    && root.baseURL == nil
-    && hostIsLocal
-    && !root.path.utf8.contains(0)
-    && !root.absoluteString.lowercased().contains("%00")
-    && root.user == nil
-    && root.password == nil
-    && root.port == nil
-    && root.query == nil
-    && root.fragment == nil
-    && root.pathComponents.first == "/"
 }

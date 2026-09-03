@@ -58,7 +58,9 @@ public struct AllocatedSizeScanner: FileSystemScanning, Sendable {
 
   private func scanOnWorker(_ request: ScanRequest) throws -> ScanReport {
     try checkpoint(0)
-    try validateLocalRootURL(request.root)
+    guard LocalFileSystemRootValidator.isValid(request.root) else {
+      throw ScanError.rootMustBeAbsoluteFileURL
+    }
 
     let initialRootMetadata = try validatedRootMetadata(at: request.root)
     try afterRootValidation()
@@ -891,28 +893,6 @@ private struct ScanIssueCollector {
       maximumHeap.swapAt(parent, largestChild)
       parent = largestChild
     }
-  }
-}
-
-private func validateLocalRootURL(_ url: URL) throws {
-  let hostIsLocal: Bool
-  if let host = url.host, !host.isEmpty {
-    hostIsLocal = host.caseInsensitiveCompare("localhost") == .orderedSame
-  } else {
-    hostIsLocal = true
-  }
-
-  guard
-    url.isFileURL,
-    hostIsLocal,
-    url.user == nil,
-    url.password == nil,
-    url.port == nil,
-    url.query == nil,
-    url.fragment == nil,
-    url.pathComponents.first == "/"
-  else {
-    throw ScanError.rootMustBeAbsoluteFileURL
   }
 }
 

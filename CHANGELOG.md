@@ -102,7 +102,21 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   and manifest in memory, remains non-`Codable`, and performs no filesystem I/O.
   It is copyable rather than single-use and is not freshness evidence,
   authentication, proof of human review, execution authority, or a frontend
-  feature. Only future execution-time revalidation may consume it.
+  feature. Only an approval-bound revalidation layer may consume it;
+  descriptor-relative execution-time checks remain later work.
+- A Core-only, approval-only `CleanupRevalidator` as the first Phase 7
+  diagnostic boundary. It freshly scans and classifies only the exact root
+  retained by `CleanupApproval`, supports only the current built-in policy
+  provenance, and emits canonical per-entry revalidation results.
+- Reobservation of root identity plus each approved path, kind, device,
+  identity, rule revision, findings, and policy decision. Incomplete or unknown
+  observations fail closed; current real candidates remain Protected while
+  trusted-location, ownership, reliable-activity, and protected-descendant
+  evidence is absent.
+- In-memory, non-`Codable`, copyable, root-URL-free revalidation reports that
+  are diagnostic only, not execution inputs or mutation authority. No
+  quarantine, restore, purge, persistence, frontend, CLI, network, or mutation
+  surface was added.
 
 ### Changed
 

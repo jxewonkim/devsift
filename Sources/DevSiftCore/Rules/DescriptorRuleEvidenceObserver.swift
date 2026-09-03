@@ -171,7 +171,7 @@ struct DescriptorRuleEvidenceObserver: RuleEvidenceObserving, Sendable {
       !report.traversalDetailsWereDiscarded,
       report.issues.isEmpty,
       report.suppressedIssueCount == 0,
-      descriptorRootURLIsValid(request.root)
+      LocalFileSystemRootValidator.isValid(request.root)
     else {
       return .unavailable(.invalidMetadata)
     }
@@ -528,25 +528,6 @@ private struct DescriptorStatSnapshot: Sendable {
       && modificationSeconds == other.modificationSeconds
       && modificationNanoseconds == other.modificationNanoseconds
   }
-}
-
-private func descriptorRootURLIsValid(_ url: URL) -> Bool {
-  let hostIsLocal: Bool
-  if let host = url.host, !host.isEmpty {
-    hostIsLocal = host.caseInsensitiveCompare("localhost") == .orderedSame
-  } else {
-    hostIsLocal = true
-  }
-  return url.isFileURL
-    && hostIsLocal
-    && !url.path.utf8.contains(0)
-    && !url.absoluteString.lowercased().contains("%00")
-    && url.user == nil
-    && url.password == nil
-    && url.port == nil
-    && url.query == nil
-    && url.fragment == nil
-    && url.pathComponents.first == "/"
 }
 
 private func descriptorOpenRoot(_ url: URL) throws -> Int32 {

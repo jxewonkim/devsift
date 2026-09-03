@@ -98,6 +98,15 @@ I/O, and is not exposed in the app or CLI. It records intent, not proof of human
 review, freshness, authenticity, execution authority, or reclaimed space. The
 approval remains copyable and is not single-use.
 
+Phase 7 has begun with a Core-only revalidation diagnostic. It accepts only the
+approval, rescans its stored root, and reruns current built-in policy before
+returning canonical per-entry status. It reobserves root identity, path, kind,
+device, identity, rule, findings, and policy, while incomplete or unknown data
+fails closed. The report is point-in-time, copyable, non-`Codable`, and omits
+the absolute root; it is neither a cleanup capability nor an executor input.
+Current real entries normally remain Protected because trusted location,
+ownership, reliable activity, and protected descendants are still unobserved.
+
 The CLI JSON projection is lossy and non-importable; it explicitly sets
 `canBeApproved` and `canBeExecuted` to `false`. The app projection is ephemeral,
 identity-free presentation state rather than a document. A diff requires the
@@ -105,9 +114,11 @@ same manifest contract, policy provenance, and expected root identity, and
 still says nothing about current disk freshness. No frontend workflow persists,
 imports, exports, diffs, approves, executes, performs live-filesystem
 revalidation, or mutates from a manifest, and no diff-export format exists.
-A future revalidation boundary must accept only `CleanupApproval` and reopen
-the root stored within it, rather than accepting a separately supplied root,
-standalone draft, diff, or review projection.
+The revalidation boundary accepts only `CleanupApproval` and reopens the root
+stored within it, rather than accepting a separately supplied root, standalone
+draft, diff, or review projection. A future executor must take the approval,
+not the report, and revalidate inline while holding descriptors before a
+recoverable operation.
 
 ## Non-goals
 

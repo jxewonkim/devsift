@@ -282,6 +282,22 @@ struct DescriptorRuleEvidenceObserverTests {
       nulRootObservation.candidates.first?.identityMatchesScan
         == .unknown(.invalidMetadata)
     )
+
+    let baseRelativeRoot = URL(
+      fileURLWithPath: "relative-root",
+      relativeTo: URL(fileURLWithPath: "/devsift-observer-base", isDirectory: true)
+    )
+    #expect(baseRelativeRoot.baseURL != nil)
+    let baseRelativeRootObservation = try await DescriptorRuleEvidenceObserver().observe(
+      request(
+        root: baseRelativeRoot,
+        report: identifiedReport(rootIdentity: rootIdentity, items: [identifiedBuild])
+      )
+    )
+    #expect(
+      baseRelativeRootObservation.candidates.first?.identityMatchesScan
+        == .unknown(.invalidMetadata)
+    )
   }
 
   @Test("Raw syscall components reject traversal and C-string truncation inputs")

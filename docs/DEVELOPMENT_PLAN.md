@@ -223,8 +223,8 @@ Implemented next commit: `feat(approval): bind intent to reviewed manifests`.
 - Perform only bounded, cancellation-aware value validation. Approval performs
   no filesystem I/O or mutation and establishes neither freshness,
   authenticity, nor execution authority.
-- Retain the exact source root and manifest in the approval. Require a future
-  execution-time revalidation request to consume only that approval rather
+- Retain the exact source root and manifest in the approval. Require any future
+  executor and its inline revalidation to consume only that approval rather
   than a separately supplied root or unapproved manifest.
 
 The recorded identity is comparison evidence, not mutation authority. A plan
@@ -235,9 +235,9 @@ contract. The separate CLI review projection is a lossy presentation document,
 not serialized Core state. The app review is a separate ephemeral presentation,
 not a wire format or approval input. The Core approval review session retains
 the exact planning request, root, manifest, and process-local entry bindings.
-The final approval drops the larger source request, retains the root and
-manifest, and is not an executor input until a separate revalidation contract
-exists.
+The final approval drops the larger source request and retains the root and
+manifest. It is accepted by the read-only revalidator but grants no execution
+authority; a future executor requires its own inline revalidation boundary.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
@@ -255,8 +255,28 @@ Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 
 ## Phase 7: recoverable cleanup
 
-The next commit sequence begins with a separately reviewed execution-time
-revalidation contract; recoverable cleanup follows only after it is stable.
+Implemented first commit: `feat(revalidation): reobserve approved cleanup intent`.
+
+- Add a Core-only `CleanupRevalidator` that accepts only `CleanupApproval`,
+  rescans its stored exact root, and reruns classification using only current
+  built-in policy provenance.
+- Reobserve exact root identity and each candidate's raw path, directory kind,
+  device, identity, rule revision, findings, disposition, and stable policy
+  fields. Preserve manifest order in canonical per-entry diagnostic results;
+  incomplete or unknown source observations fail closed.
+- Keep the report non-`Codable`, root-URL-free, copyable, and point-in-time. It
+  creates no mutation authority, executor input, persistence, frontend, CLI,
+  network, quarantine, restore, or purge capability.
+- Keep cancellation cooperative and collapse public failures into stable,
+  fail-closed categories. The report does not prove freshness after return or
+  close execution races.
+
+Next: add separately reviewed evidence observers needed for real eligibility;
+only then design recoverable quarantine. The future executor must accept the
+approval, not the diagnostic report, and revalidate inline while holding
+descriptors immediately before an operation.
+
+Later Phase 7 work, after that evidence and executor design:
 
 - Accept only `CleanupApproval` and reopen the root stored within it, never a
   separately supplied root, draft manifest, diff, or presentation.
