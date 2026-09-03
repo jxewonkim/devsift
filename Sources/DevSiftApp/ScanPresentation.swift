@@ -5,6 +5,7 @@ struct ScanItemRow: Hashable, Identifiable, Sendable {
   let summary: ScanItemSummary
   let displayPath: String
   let policy: PolicyDecisionPresentation
+  let cleanupSelection: CleanupCandidateSelection?
 
   var id: ScanRelativePath {
     summary.path
@@ -353,23 +354,47 @@ struct ScanPresentation: Equatable, Sendable {
       }
       try Task.checkCancellation()
 
-      let evaluationsByPath = Dictionary(
-        grouping: classification.evaluations,
-        by: \RuleEvaluation.path
-      )
+      var evaluationsByPath: [ScanRelativePath: [RuleEvaluation]] = [:]
+      evaluationsByPath.reserveCapacity(classification.evaluations.count)
+      for evaluation in classification.evaluations {
+        try Task.checkCancellation()
+        evaluationsByPath[evaluation.path, default: []].append(evaluation)
+      }
+
+      var summaryCountsByPath: [ScanRelativePath: Int] = [:]
+      summaryCountsByPath.reserveCapacity(report.topLevelItems.count)
+      for summary in report.topLevelItems {
+        try Task.checkCancellation()
+        summaryCountsByPath[summary.path, default: 0] += 1
+      }
+
+      var items: [ScanItemRow] = []
+      items.reserveCapacity(sortedItems.count)
+      for summary in sortedItems {
+        try Task.checkCancellation()
+        let policy = PolicyDecisionPresentation(
+          evaluations: evaluationsByPath[summary.path, default: []]
+        )
+        items.append(
+          ScanItemRow(
+            summary: summary,
+            displayPath: SafeDisplayText.path(summary.path),
+            policy: policy,
+            cleanupSelection: cleanupSelection(
+              for: summary,
+              summaryCount: summaryCountsByPath[summary.path, default: 0],
+              policy: policy,
+              report: report,
+              classification: classification
+            )
+          )
+        )
+      }
 
       return ScanPresentation(
         report: report,
         classification: classification,
-        items: sortedItems.map {
-          ScanItemRow(
-            summary: $0,
-            displayPath: SafeDisplayText.path($0.path),
-            policy: PolicyDecisionPresentation(
-              evaluations: evaluationsByPath[$0.path, default: []]
-            )
-          )
-        }
+        items: items
       )
     }
 
@@ -378,6 +403,82 @@ struct ScanPresentation: Equatable, Sendable {
     } onCancel: {
       worker.cancel()
     }
+  }
+
+  /// This is only a conservative UI convenience filter. `CleanupPlanner`
+  /// remains the final validator and never treats this selection as approval or
+  /// execution authority.
+  private static func cleanupSelection(
+    for summary: ScanItemSummary,
+    summaryCount: Int,
+    policy: PolicyDecisionPresentation,
+    report: ScanReport,
+    classification: RuleClassificationReport
+  ) -> CleanupCandidateSelection? {
+    guard
+      report.isComplete,
+      report.root.path == .root,
+      report.root.kind == .directory,
+      report.root.isComplete,
+      !report.root.sizeOverflowed,
+      report.root.unknownAllocatedItemCount == 0,
+      report.hardLinkAccountingIsComplete,
+      let rootIdentity = report.root.scanTimeIdentity,
+      let policyProvenance = classification.policyProvenance
+    else {
+      return nil
+    }
+
+    guard
+      summaryCount == 1,
+      isValidTopLevelCandidatePath(summary.path),
+      summary.kind == .directory,
+      summary.isComplete,
+      !summary.sizeOverflowed,
+      summary.unknownAllocatedItemCount == 0,
+      summary.hardLinkExclusiveAllocatedBytes <= summary.recursiveSize.allocatedBytes,
+      let candidateIdentity = summary.scanTimeIdentity,
+      candidateIdentity.device == rootIdentity.device
+    else {
+      return nil
+    }
+
+    guard
+      !policy.isMalformed,
+      policy.evaluations.count == 1,
+      let evaluation = policy.evaluation,
+      evaluation.path == summary.path,
+      evaluation.matchState == .matched,
+      evaluation.disposition == .reclaimable || evaluation.disposition == .reviewRequired,
+      let rule = evaluation.rule,
+      evaluation.matchingRules == [rule],
+      policyProvenance.ruleRevisions.contains(rule),
+      !evaluation.findings.isEmpty,
+      evaluation.findings.allSatisfy(\.isSatisfied),
+      evaluation.findings.contains(where: {
+        $0.identifier.rawValue == "identity-matches-scan"
+          && $0.state == .satisfied
+      }),
+      evaluation.reproducibility != .unknown,
+      evaluation.disposition != .reclaimable
+        || evaluation.reproducibility == .reproducible
+    else {
+      return nil
+    }
+
+    return CleanupCandidateSelection(path: summary.path, ruleRevision: rule)
+  }
+
+  private static func isValidTopLevelCandidatePath(_ path: ScanRelativePath) -> Bool {
+    guard path.rawComponents.count == 1, let component = path.rawComponents.first else {
+      return false
+    }
+    return !component.isEmpty
+      && component != [0x2E]
+      && component != [0x2E, 0x2E]
+      && !component.contains(0)
+      && !component.contains(0x2F)
+      && component.count <= CleanupPlanningLimits.maximumCandidateComponentBytes
   }
 }
 

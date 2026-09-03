@@ -5,6 +5,13 @@ import SwiftUI
 struct ScanResultView: View {
   let root: URL
   let presentation: ScanPresentation
+  let cleanupReviewPhase: CleanupReviewPhase
+  let cleanupCandidateCount: Int
+  let selectedCleanupCandidates: Set<CleanupCandidateSelection>
+  let setCleanupCandidate: (CleanupCandidateSelection, Bool) -> Void
+  let clearCleanupCandidates: () -> Void
+  let prepareCleanupReview: () -> Void
+  let cancelCleanupReviewPreparation: () -> Void
 
   @State private var selectedItem: ScanRelativePath?
   @State private var policyDetailsAreExpanded: Bool
@@ -12,10 +19,24 @@ struct ScanResultView: View {
   init(
     root: URL,
     presentation: ScanPresentation,
+    cleanupReviewPhase: CleanupReviewPhase,
+    cleanupCandidateCount: Int,
+    selectedCleanupCandidates: Set<CleanupCandidateSelection>,
+    setCleanupCandidate: @escaping (CleanupCandidateSelection, Bool) -> Void,
+    clearCleanupCandidates: @escaping () -> Void,
+    prepareCleanupReview: @escaping () -> Void,
+    cancelCleanupReviewPreparation: @escaping () -> Void,
     policyDetailsInitiallyExpanded: Bool = false
   ) {
     self.root = root
     self.presentation = presentation
+    self.cleanupReviewPhase = cleanupReviewPhase
+    self.cleanupCandidateCount = cleanupCandidateCount
+    self.selectedCleanupCandidates = selectedCleanupCandidates
+    self.setCleanupCandidate = setCleanupCandidate
+    self.clearCleanupCandidates = clearCleanupCandidates
+    self.prepareCleanupReview = prepareCleanupReview
+    self.cancelCleanupReviewPreparation = cancelCleanupReviewPreparation
     _selectedItem = State(
       initialValue: policyDetailsInitiallyExpanded ? presentation.items.first?.id : nil
     )
@@ -33,6 +54,15 @@ struct ScanResultView: View {
         }
 
         topLevelContent
+
+        CleanupDraftSelectionBar(
+          candidateCount: cleanupCandidateCount,
+          selectedCount: selectedCleanupCandidates.count,
+          phase: cleanupReviewPhase,
+          clearSelection: clearCleanupCandidates,
+          prepareReview: prepareCleanupReview,
+          cancelPreparation: cancelCleanupReviewPreparation
+        )
 
         if let selectedRow {
           PolicyExplanationDisclosure(
@@ -138,6 +168,30 @@ struct ScanResultView: View {
         }
 
         Table(presentation.items, selection: $selectedItem) {
+          TableColumn("Dry run") { row in
+            if let selection = row.cleanupSelection {
+              Toggle(
+                "Include \(row.displayPath) in the dry run",
+                isOn: cleanupSelectionBinding(for: selection)
+              )
+              .labelsHidden()
+              .toggleStyle(.checkbox)
+              .disabled(cleanupReviewPhase.isPreparing)
+              .accessibilityValue(
+                selectedCleanupCandidates.contains(selection) ? "Included" : "Not included"
+              )
+              .accessibilityHint(
+                "Adds this exact path and rule revision to an unapproved in-memory draft"
+              )
+            } else {
+              Image(systemName: "lock.fill")
+                .foregroundStyle(.tertiary)
+                .accessibilityLabel("Not eligible for the dry run")
+                .help("This item does not meet every Core planning requirement.")
+            }
+          }
+          .width(58)
+
           TableColumn("Item") { row in
             HStack(spacing: 8) {
               Image(systemName: row.summary.kind.systemImage)
@@ -149,13 +203,13 @@ struct ScanResultView: View {
             }
             .help(row.displayPath)
           }
-          .width(min: 145, ideal: 205, max: 420)
+          .width(min: 130, ideal: 170, max: 360)
 
           TableColumn("Kind") { row in
             Text(row.summary.kind.displayName)
               .foregroundStyle(.secondary)
           }
-          .width(min: 52, ideal: 62, max: 80)
+          .width(54)
 
           TableColumn("Allocation") { row in
             SizeCell(
@@ -165,7 +219,7 @@ struct ScanResultView: View {
                 || row.summary.unknownAllocatedItemCount > 0
             )
           }
-          .width(min: 92, ideal: 105, max: 120)
+          .width(92)
 
           TableColumn("Link-adjusted") { row in
             SizeCell(
@@ -177,13 +231,13 @@ struct ScanResultView: View {
                 || row.summary.unobservedHardLinkFileCount > 0
             )
           }
-          .width(min: 96, ideal: 108, max: 124)
+          .width(98)
 
           TableColumn("Entries") { row in
             Text(row.summary.counts.total.formatted())
               .monospacedDigit()
           }
-          .width(min: 50, ideal: 58, max: 70)
+          .width(54)
 
           TableColumn("Observation") { row in
             Label(
@@ -194,12 +248,12 @@ struct ScanResultView: View {
             .labelStyle(.titleAndIcon)
             .foregroundStyle(row.observationIsComplete ? .green : .orange)
           }
-          .width(min: 80, ideal: 86, max: 98)
+          .width(86)
 
           TableColumn("Policy") { row in
             PolicyBadge(policy: row.policy)
           }
-          .width(min: 84, ideal: 92, max: 108)
+          .width(94)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
         .frame(height: tableHeight)
@@ -218,6 +272,98 @@ struct ScanResultView: View {
 
   private var tableHeight: CGFloat {
     policyDetailsAreExpanded || shouldShowObservationNotice ? 120 : 180
+  }
+
+  private func cleanupSelectionBinding(
+    for selection: CleanupCandidateSelection
+  ) -> Binding<Bool> {
+    Binding(
+      get: { selectedCleanupCandidates.contains(selection) },
+      set: { setCleanupCandidate(selection, $0) }
+    )
+  }
+}
+
+private struct CleanupDraftSelectionBar: View {
+  let candidateCount: Int
+  let selectedCount: Int
+  let phase: CleanupReviewPhase
+  let clearSelection: () -> Void
+  let prepareReview: () -> Void
+  let cancelPreparation: () -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Label(statusTitle, systemImage: statusImage)
+        .font(.callout.weight(.medium))
+
+      Text(statusDetail)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      Spacer()
+
+      if phase.isPreparing {
+        ProgressView()
+          .controlSize(.small)
+          .accessibilityLabel("Preparing the in-memory draft")
+        Button("Cancel", role: .cancel, action: cancelPreparation)
+      } else {
+        if selectedCount > 0 {
+          Button("Clear", action: clearSelection)
+        }
+        Button("Review Draft…", action: prepareReview)
+          .buttonStyle(.borderedProminent)
+          .disabled(selectedCount == 0)
+          .accessibilityHint(
+            "Creates an unapproved, read-only draft without changing files"
+          )
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+    }
+    .accessibilityElement(children: .contain)
+  }
+
+  private var statusTitle: String {
+    if phase.isPreparing {
+      return "Preparing draft"
+    }
+    if case .failed(let failure) = phase {
+      return failure.title
+    }
+    if candidateCount == 0 {
+      return "No eligible draft candidates"
+    }
+    return "\(selectedCount) of \(candidateCount) included"
+  }
+
+  private var statusDetail: String {
+    if case .failed(let failure) = phase {
+      return failure.message
+    }
+    if phase.isPreparing {
+      return "Core is validating a frozen selection snapshot."
+    }
+    if candidateCount == 0 {
+      return "Nothing currently meets every planning requirement."
+    }
+    return "Selection is not approval. No files will be changed."
+  }
+
+  private var statusImage: String {
+    if phase.isPreparing {
+      return "hourglass"
+    }
+    if case .failed = phase {
+      return "exclamationmark.triangle"
+    }
+    return candidateCount == 0 ? "lock.shield" : "checklist"
   }
 }
 

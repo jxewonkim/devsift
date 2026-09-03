@@ -125,6 +125,97 @@ struct VisualSnapshotTests {
       size: CGSize(width: 900, height: 620),
       to: outputDirectory.appendingPathComponent("result-minimum-light.png")
     )
+
+    let reviewRoot = URL(
+      fileURLWithPath: "/private/tmp/DevSiftVisualFixture/Caches",
+      isDirectory: true
+    )
+    let selectionModel = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(representativePlanningReport())),
+      classifier: SyntheticEligibleRuleClassifier(),
+      securityScope: SecurityScopeSpy(),
+      referenceUnixSeconds: { 1_000_000 }
+    )
+    await selectionModel.startScan(at: reviewRoot).value
+    guard case .result(_, let planningPresentation) = selectionModel.phase else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    let selections = planningPresentation.items.compactMap(\.cleanupSelection)
+    guard selections.count == 2 else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    for selection in selections {
+      selectionModel.setCleanupCandidate(selection, isIncluded: true)
+    }
+    try render(
+      ScanDashboardView(viewModel: selectionModel),
+      appearance: .aqua,
+      size: CGSize(width: 900, height: 620),
+      to: outputDirectory.appendingPathComponent("draft-selection-minimum-light.png")
+    )
+
+    // Closing a rendered window intentionally invalidates its in-memory draft.
+    // Use a fresh model to represent the separate review window snapshot.
+    let reviewModel = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(representativePlanningReport())),
+      classifier: SyntheticEligibleRuleClassifier(),
+      securityScope: SecurityScopeSpy(),
+      referenceUnixSeconds: { 1_000_000 }
+    )
+    await reviewModel.startScan(at: reviewRoot).value
+    guard case .result(_, let reviewPresentation) = reviewModel.phase else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    let reviewSelections = reviewPresentation.items.compactMap(\.cleanupSelection)
+    guard reviewSelections.count == 2 else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    for selection in reviewSelections {
+      reviewModel.setCleanupCandidate(selection, isIncluded: true)
+    }
+    guard let reviewTask = reviewModel.prepareCleanupReview() else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    await reviewTask.value
+    guard case .review = reviewModel.cleanupReviewPhase else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    try render(
+      ScanDashboardView(viewModel: reviewModel),
+      appearance: .aqua,
+      size: CGSize(width: 900, height: 620),
+      to: outputDirectory.appendingPathComponent("draft-review-minimum-light.png")
+    )
+
+    let darkReviewModel = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(representativePlanningReport())),
+      classifier: SyntheticEligibleRuleClassifier(),
+      securityScope: SecurityScopeSpy(),
+      referenceUnixSeconds: { 1_000_000 }
+    )
+    await darkReviewModel.startScan(at: reviewRoot).value
+    guard case .result(_, let darkReviewPresentation) = darkReviewModel.phase else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    let darkReviewSelections = darkReviewPresentation.items.compactMap(\.cleanupSelection)
+    guard darkReviewSelections.count == 2 else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    for selection in darkReviewSelections {
+      darkReviewModel.setCleanupCandidate(selection, isIncluded: true)
+    }
+    guard let darkReviewTask = darkReviewModel.prepareCleanupReview() else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    await darkReviewTask.value
+    guard case .review = darkReviewModel.cleanupReviewPhase else {
+      throw SnapshotError.couldNotPrepareDraft
+    }
+    try render(
+      ScanDashboardView(viewModel: darkReviewModel),
+      appearance: .darkAqua,
+      to: outputDirectory.appendingPathComponent("draft-review-dark.png")
+    )
   }
 
   private func render(
@@ -238,6 +329,41 @@ struct VisualSnapshotTests {
     )
   }
 
+  private func representativePlanningReport() -> ScanReport {
+    let device: UInt64 = 42
+    let uv = AppTestReportFactory.item(
+      rawComponents: [Array("uv".utf8)],
+      scanTimeIdentity: FileIdentity(device: device, inode: 2),
+      logicalBytes: gibibytes(6.8),
+      allocatedBytes: gibibytes(6.4),
+      hardLinkExclusiveAllocatedBytes: gibibytes(6.1),
+      counts: AppTestReportFactory.counts(regularFiles: 419, directories: 1),
+      newestContentModificationUnixSeconds: 0
+    )
+    let npm = AppTestReportFactory.item(
+      rawComponents: [Array("_cacache".utf8)],
+      scanTimeIdentity: FileIdentity(device: device, inode: 3),
+      logicalBytes: gibibytes(3.5),
+      allocatedBytes: gibibytes(3.1),
+      hardLinkExclusiveAllocatedBytes: gibibytes(2.9),
+      counts: AppTestReportFactory.counts(regularFiles: 719, directories: 1),
+      possibleSharedContentFileCount: 2,
+      newestContentModificationUnixSeconds: 0
+    )
+    return AppTestReportFactory.report(
+      root: AppTestReportFactory.item(
+        scanTimeIdentity: FileIdentity(device: device, inode: 1),
+        logicalBytes: gibibytes(10.3),
+        allocatedBytes: gibibytes(9.5),
+        hardLinkExclusiveAllocatedBytes: gibibytes(9.0),
+        counts: AppTestReportFactory.counts(regularFiles: 1_138, directories: 3),
+        possibleSharedContentFileCount: 2,
+        newestContentModificationUnixSeconds: 0
+      ),
+      topLevelItems: [uv, npm]
+    )
+  }
+
   private func row(
     _ name: String,
     gibibytes: Double,
@@ -270,4 +396,5 @@ struct VisualSnapshotTests {
 private enum SnapshotError: Error {
   case couldNotCreateBitmap
   case couldNotEncodePNG
+  case couldNotPrepareDraft
 }
