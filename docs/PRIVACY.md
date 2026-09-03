@@ -107,6 +107,13 @@ unlogged, and unuploaded, and neither frontend currently creates one.
 Non-`Codable` supplies no encryption, zeroization, confidentiality, or copy
 prevention.
 
+A revalidation report retains the observed root identity, policy provenance,
+reference time, and canonical root-relative entry statuses, but deliberately
+omits the absolute root URL. It is non-`Codable`, in-memory, copyable, and not
+created by either frontend. It is not persisted, logged, uploaded, imported, or
+exported. Omitting the root URL does not make raw relative paths, rule revisions,
+findings, or policy results non-sensitive.
+
 The native app immediately maps a planned manifest to a separate identity-free
 presentation and does not retain the manifest. The presentation omits root and
 candidate filesystem identities, the source request and report, reference time,
@@ -160,9 +167,11 @@ the current schema is one-way and cannot be imported. Review documents continue
 to omit filesystem identities, and the current app presentation must not be
 treated as a wire format or approval input. Future execution-time revalidation
 must receive only the in-memory Core approval and use its retained root without
-turning either into automatic persistence. Any future execution document must
-decide its identity and authority fields in a separate security review. Adding
-these features must not silently make Core domain models `Codable`.
+turning either into automatic persistence. A revalidation report must never be
+used as an execution input or mutation capability. Any future execution
+document must decide its identity and authority fields in a separate security
+review. Adding these features must not silently make Core domain models
+`Codable`.
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

@@ -9,8 +9,8 @@ explainable read-only policy rules to recognized development caches.
 
 > [!IMPORTANT]
 > DevSift is pre-alpha. Scanning, classification, draft planning, Core approval,
-> and the native app's in-memory draft review are read-only: DevSift does not
-> delete, move, quarantine, or otherwise modify files.
+> and Core revalidation are read-only: DevSift does not delete, move, quarantine,
+> or otherwise modify files.
 
 ## Why DevSift?
 
@@ -67,8 +67,16 @@ request and requires exact equality with the reviewed value. The resulting
 approval retains the exact root and manifest in memory and remains
 non-`Codable`. It proves neither freshness, authenticity, nor human review; it
 is copyable rather than single-use, grants no execution or filesystem authority,
-and performs no filesystem I/O. Only a future execution-time revalidation
-boundary may consume it.
+and performs no filesystem I/O.
+
+Core can also revalidate only that in-memory approval with a fresh scan and
+built-in classification of its retained root. Its canonical per-entry report is
+a point-in-time, non-`Codable` diagnostic, not mutation authority or executor
+input. Root, path, kind, device, identity, rule, findings, and policy are
+reobserved; incomplete or unknown observations fail closed. Current runtime
+evidence still leaves real candidates Protected because trusted location,
+ownership, reliable activity, and protected descendants are uncollected. See
+the [revalidation contract](docs/REVALIDATION.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v1 encoder pinned to Core manifest contract
@@ -87,8 +95,8 @@ path containment, symlink handling, and race-condition tests are in place.
 Recoverable quarantine is planned before permanent removal.
 
 Read the full [rules contract](docs/RULES.md),
-[planning contract](docs/PLANNING.md), [safety model](docs/SAFETY.md), and
-[privacy contract](docs/PRIVACY.md).
+[planning contract](docs/PLANNING.md), [revalidation contract](docs/REVALIDATION.md),
+[safety model](docs/SAFETY.md), and [privacy contract](docs/PRIVACY.md).
 
 ## Development
 
@@ -110,8 +118,9 @@ swift run DevSiftApp
 ```
 
 DevSiftCore contains a read-only allocated-size scanner, rule classifier,
-Core-only draft-manifest planner, fail-closed manifest differ, and in-memory
-approval sessions. The CLI exposes the scanner and classifier as deterministic
+Core-only draft-manifest planner, fail-closed manifest differ, in-memory
+approval sessions, and a read-only approval revalidator. The CLI exposes the
+scanner and classifier as deterministic
 text and separately versioned JSON. It also owns an internal, non-importable
 review projection for privacy-contract testing; this is not a CLI command or
 file-export feature. The native app invokes the same Core scanner, classifier,
@@ -129,14 +138,14 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 ## Project status
 
 - Current phase: policy-provenanced in-memory dry-run manifests, Core-only
-  diffing, an internal CLI-owned privacy-aware review projection, and native
-  app selection plus identity-free draft review, with a Core-only exact
-  review-bound approval contract
+  diffing, review-bound approval, and an approval-only, point-in-time Core
+  revalidation diagnostic; app and CLI remain read-only
 - Current behavior: Core scanner, rule classifier, in-memory draft planner,
-  compatible-manifest differ, and approver, plus the existing text/JSON CLI and
-  native analysis dashboard with explicit in-memory draft review; no
-  manifest-review CLI command, persistence, import, user-facing export,
-  frontend diff or approval, execution, cleanup, quarantine, or deletion
+  compatible-manifest differ, approver, and revalidator, plus the existing
+  text/JSON CLI and native analysis dashboard with explicit in-memory draft
+  review; no manifest-review CLI command, persistence, import, or user-facing
+  export; no frontend diff, approval, or revalidation workflow; and no
+  execution, cleanup, quarantine, or deletion
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer

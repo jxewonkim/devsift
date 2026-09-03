@@ -31,8 +31,9 @@ The current Core planner produces only an immutable policy-provenanced draft,
 and the Core differ compares only compatible drafts. An explicit
 `CleanupCandidateSelection` binds an exact root-relative raw path to an exact
 rule revision, but selection and diff output are not approval. Core can now
-record explicit intent for one fully confirmed reviewed manifest. Execution,
-revalidation, quarantine, and deletion APIs do not exist in this phase.
+record explicit intent for one fully confirmed reviewed manifest. Core now has
+an approval-only, read-only revalidation diagnostic. Execution, quarantine, and
+deletion APIs do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -56,6 +57,16 @@ The CLI target has an internal one-way review JSON encoder over an already
 constructed manifest. No command or file-writing workflow invokes it. It is
 non-importable, cannot reconstruct or diff a manifest, and explicitly declares
 that its document cannot be approved or executed.
+
+`CleanupRevalidator` accepts only an in-memory `CleanupApproval`, rescans the
+approval's retained root, and uses only current built-in policy provenance. It
+requires the observed root identity to match, then emits canonical diagnostic
+statuses after reobserving each approved path, kind, device, identity, rule,
+findings, and policy decision. Incomplete and unknown observations fail closed.
+Its root-URL-free, non-`Codable` report is point-in-time and copyable; it is not
+freshness proof, mutation authority, or executor input. Current real entries
+remain Protected while trusted-location, ownership, reliable-activity, and
+protected-descendant evidence is uncollected.
 
 ## Hard invariants
 
@@ -93,6 +104,15 @@ that its document cannot be approved or executed.
   revalidation must accept only `CleanupApproval` and reopen the root stored
   within it, rather than accepting a separately supplied root, standalone draft,
   diff, app presentation, or CLI review document.
+- Revalidation accepts only `CleanupApproval`, uses its retained root, and
+  accepts only current built-in policy provenance. It returns canonical,
+  point-in-time diagnostic entries; incomplete or unknown observations fail
+  closed. Its report omits the absolute root URL and is not an execution input
+  or filesystem capability.
+- Revalidation does not make a later operation race-free. A future executor
+  must receive the approval rather than the report and revalidate containment,
+  kind, device, identity, activity, and current policy inline while holding
+  verified descriptors immediately before mutation.
 - App planning reuses the exact retained classification request and report,
   freezes the selected set, and runs without a filesystem capability or active
   security scope. Planning and scan-session tokens must reject any late result
@@ -172,6 +192,11 @@ while validating the complete confirmation sequence. Deep source validation
 and whole-manifest equality can finish before the next checkpoint, but
 cancellation produces no partial approval.
 
+Revalidation is also cooperative: it checks cancellation at bounded phase
+boundaries and while producing entry diagnostics. A scanner or classifier call
+already in progress may finish before its next checkpoint. Cancellation returns
+no partial revalidation report.
+
 ## Rule requirements
 
 A cleanup rule must declare:
@@ -222,10 +247,11 @@ planning request, then accepts only that session's complete per-entry
 confirmation sequence. The session binds its source root, full manifest,
 canonical ordinals, raw paths, and rule revisions without deriving intent from
 a diff or lossy projection. Its process-local seal prevents cross-session value
-mixing but is not proof of human review or authenticity. A future revalidator
-must consume only the approval, reopen its stored root and candidates, and
-establish fresh policy and object evidence before any mutation. See the
-[planning contract](PLANNING.md).
+mixing but is not proof of human review or authenticity. The revalidator is a
+read-only diagnostic that consumes only the approval and reopens its stored
+root. A future executor must independently establish policy and object
+evidence inline while holding verified descriptors before any mutation. See
+the [planning contract](PLANNING.md) and [revalidation contract](REVALIDATION.md).
 
 The internal review encoder accepts only Core manifest contract version 2 and
 emits CLI schema `devsift.cleanup-manifest-review` version 1. A per-entry

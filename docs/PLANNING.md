@@ -13,7 +13,9 @@ an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
 persistence, saved drafts, user-facing export, import, frontend diffing,
 frontend approval, execution, execution-time filesystem revalidation, and
-cleanup remain separate later increments.
+cleanup remain separate later increments. Core-only approval revalidation is
+now available as a diagnostic; it is not an app or CLI surface and does not
+provide execution-time authority.
 
 ## Inputs and selection
 
@@ -206,10 +208,10 @@ requires full value equality with the reviewed manifest; this detects value
 substitution but does not refresh the filesystem. Deep source validation and
 whole-value equality can finish before the next cancellation checkpoint, so
 cancellation is cooperative rather than instantaneous. Failure is atomic and
-produces no partial approval. A future execution-time revalidation request must
-accept only `CleanupApproval`—not a separately supplied root, unapproved
-manifest, diff, or review projection—and must reopen the root stored within the
-approval and every candidate descriptor-relatively before any mutation.
+produces no partial approval. `CleanupRevalidator` now accepts only
+`CleanupApproval`—not a separately supplied root, unapproved manifest, diff,
+or review projection—and rescans the root stored within it. It remains a
+diagnostic rather than the future descriptor-relative execution check.
 
 ## Internal manifest-review projection
 
@@ -327,12 +329,20 @@ to prove that content, activity, containment, protected descendants, or rule
 evidence is unchanged; inode reuse is also possible. The approval therefore has
 no “safe to execute” state.
 
+`CleanupRevalidator` now supplies an approval-only, point-in-time diagnostic
+before execution. It rescans the approval's retained root and reruns only the
+current built-in classification, returning canonical statuses for the complete
+approved manifest. Its root-URL-free, non-`Codable` report is neither a
+capability nor executor input and can become stale immediately. See the
+[revalidation contract](REVALIDATION.md).
+
 A future executor must receive only the Core approval, reopen its stored root
 and each candidate descriptor-relatively, and revalidate containment, kind,
 device, identity, activity, rule revision, and all required policy evidence
-immediately before any mutation. Changed or unavailable candidates must be
-skipped. A caller-selected root, standalone manifest, diff, or presentation
-must never be an executor input.
+inline while holding descriptors immediately before any mutation. Changed or
+unavailable candidates must be skipped. A caller-selected root, standalone
+manifest, diff, presentation, or revalidation report must never be an executor
+input.
 
 ## Test boundary
 

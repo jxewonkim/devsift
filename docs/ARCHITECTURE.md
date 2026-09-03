@@ -5,8 +5,8 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 ```text
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
-                 scan -> rules -> plan -> diff -> approve -> executor
-                   now      now    now    Core      Core      later
+             scan -> rules -> plan -> diff -> approve -> revalidate -> executor
+               now      now    now    Core      Core        Core       later
                                    |
                                    +-> app review now
 ```
@@ -41,8 +41,11 @@ Core layers are:
   session-bound entry references. It permits no partial subset, performs no
   filesystem I/O, and creates neither freshness, authenticity, nor execution
   authority;
-- **Execution:** fresh revalidation of an approval and recoverable quarantine,
-  introduced only after the earlier layers are stable;
+- **Revalidation:** a read-only Core diagnostic that accepts only an approval,
+  rescans its retained root, and reclassifies it with current built-in policy.
+  It emits canonical point-in-time entry statuses and no execution capability;
+- **Execution:** descriptor-relative, inline revalidation and recoverable
+  quarantine, introduced only after the earlier layers are stable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 ### devsift CLI
@@ -139,10 +142,19 @@ The approval output retains the session's exact root and manifest in memory
 without `Codable`, filesystem I/O, clock reads, or mutation capability. The
 opaque seal correlates values only inside the current process; it is not a
 secret, authenticity proof, proof of human review, or permission to execute.
-Neither frontend invokes this contract in the current increment. A future
-revalidation request must accept only `CleanupApproval` and reopen the root
-stored within it, rather than accepting a separately supplied root, unapproved
-manifest, diff, or review projection.
+Neither frontend invokes this contract. Core revalidation accepts only
+`CleanupApproval` and reopens the root stored within it, rather than accepting a
+separately supplied root, unapproved manifest, diff, or review projection.
+
+The first Phase 7 `CleanupRevalidator` now accepts only `CleanupApproval`. It
+performs a fresh scan and fresh built-in classification using the approval's
+stored root, validates only current built-in policy provenance, and compares the
+new root identity and each approved entry's path, kind, device, identity, rule,
+findings, and stable policy fields. Its per-entry results are canonical,
+point-in-time diagnostics; incomplete observations fail closed. The report
+omits the absolute root URL, is non-`Codable`, copyable, and never a filesystem
+capability or executor input. A later executor must instead take the approval
+and revalidate inline while holding descriptors immediately before mutation.
 
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
