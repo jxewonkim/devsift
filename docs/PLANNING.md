@@ -64,11 +64,15 @@ An empty selection produces an empty draft when its enclosing scan and
 classification inputs are valid; the planner never invents candidates.
 
 The current real-scan pipeline can establish trusted location for three exact
-default cache containers and the supported npm cacache-layout marker, but still
-leaves several other required built-in facts unknown. Recognized candidates
-therefore remain `Protected` and cannot enter a nonempty draft. Synthetic
-complete evidence exercises eligible planning without weakening the runtime
-classification boundary.
+default cache containers, the supported npm cacache-layout marker, and the
+npm-specific `account-owned-cache-namespace` fact. The last fact proves only
+that the held selected root and held `_cacache` directory have the current
+account's exact POSIX UID; it is not generic tool ownership or mutation
+authority. npm activity and protected descendants remain unknown, and other
+rules retain unknown tool ownership and other required facts. Recognized
+candidates therefore remain `Protected` and cannot enter a nonempty draft.
+Synthetic complete evidence exercises eligible planning without weakening the
+runtime classification boundary.
 
 ## Policy provenance
 
@@ -79,7 +83,7 @@ roster is limited to 128 rules and rejects duplicate identifiers rather than
 silently deduplicating them.
 
 The default classifier seals `devsift.classification.explainable@2`, the
-Core-owned `devsift.builtin-rules@3` catalog revision, and the exact built-in
+Core-owned `devsift.builtin-rules@4` catalog revision, and the exact built-in
 roster into every report. `ExplainableRuleClassifier(rules:)` remains a
 presentation-only extension point: its reports are source-bound but
 deliberately unprovenanced and therefore cannot be planned. A trusted custom
@@ -345,6 +349,11 @@ inline while holding descriptors immediately before any mutation. Changed or
 unavailable candidates must be skipped. A caller-selected root, standalone
 manifest, diff, presentation, or revalidation report must never be an executor
 input.
+
+Before executor work, the next npm policy increment is bounded protected-
+descendant evidence. Activity remains the final eligibility fact so its
+observation can be coordinated with that executor's immediate, descriptor-held
+revalidation instead of being mistaken for durable authority.
 
 ## Test boundary
 

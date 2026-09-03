@@ -131,6 +131,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   failures, races, and over-limit directories remain structured unknowns.
 - Exact raw directory-entry gating for the existing SwiftPM
   `workspace-state.json` marker, including on case-insensitive filesystems.
+- Descriptor-bound `account-owned-cache-namespace` evidence for an exact
+  top-level npm `_cacache` candidate. It is satisfied only when the held
+  selected root and held candidate directory both have the current account's
+  exact POSIX UID.
+  It does not invoke npm, inspect processes or contents, make network calls, or
+  infer historical creation, descendant ownership, write ACLs, inactivity, or
+  mutation authority.
 
 ### Changed
 
@@ -138,11 +145,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   Raw candidate timestamps and scan-time identities remain Core-only;
   classification reflects the timestamp only through the existing age finding
   state and generic explanation.
-- The CLI built-in catalog is now version 3. `devsift.cache.npm` advances to
-  rule revision 2 for its cacache-layout marker; `devsift.swiftpm.build` remains
-  at revision 2 and every other rule remains at revision 1. The catalog
+- The CLI built-in catalog is now version 4. `devsift.cache.npm` advances to
+  rule revision 3 for its account-owned cache-namespace requirement;
+  `devsift.swiftpm.build` remains at revision 2 and every other rule remains at
+  revision 1. The catalog
   identifier and version come from the Core-owned catalog revision rather than
   duplicate CLI constants; the classification JSON wire shape is unchanged.
 - The explainable-classification contract is now revision 2 for trusted-location
-  evidence interpretation. The npm marker advances only its rule and the
-  built-in catalog; scan JSON v2 and classification JSON v1 remain unchanged.
+  evidence interpretation. The npm-specific namespace fact advances only its
+  rule and the built-in catalog; scan JSON v2, classification JSON v1, cleanup
+  manifest contract v2, and manifest-review JSON v1 remain unchanged.

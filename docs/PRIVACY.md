@@ -26,8 +26,11 @@ DevSift is designed to work locally and reveal as little as possible.
   over a 256 non-dot-entry limit, and inspect the metadata of exact `content-v2`
   and `index-v5` entries. For exact uv, npm, and Homebrew default cache
   candidates, it may resolve the current account home and rewalk the matching
-  container without following symbolic links. It does not read file contents,
-  invoke package managers, or make network calls.
+  container without following symbolic links. For an exact npm candidate, it
+  may also compare the POSIX UID metadata of the held selected root and held
+  `_cacache` directory with the current account UID. It reads no descendant
+  ownership or ACL metadata for that fact. It does not read file contents,
+  invoke package managers, inspect processes, or make network calls.
 - Core draft planning runs only over already constructed scan and
   classification values. It performs no filesystem or network I/O, stores no
   absolute root URL, and is not exposed by the CLI. The native app can invoke

@@ -176,11 +176,17 @@ Satisfied after an identity-bound metadata check for `workspace-state.json`.
 An exact npm `_cacache` row may satisfy the same finding when bounded raw
 directory enumeration confirms exact `content-v2` and `index-v5` directories.
 An exact uv, npm, or Homebrew default cache location may show trusted-location
-as Satisfied after descriptor-bound root reobservation. The app does not display
-the raw candidate timestamp, scan-time identity, or current account home path,
-and none of these findings changes disposition by itself. Missing ownership,
-activity, protected-descendant, or other required evidence keeps the candidate
-Protected. Scan-time identity is not cleanup or deletion authority.
+as Satisfied after descriptor-bound root reobservation. The exact npm candidate
+may additionally show `account-owned-cache-namespace` as Satisfied only when
+the held root and `_cacache` directory both carry the current account's exact
+POSIX UID. That fact replaces generic tool ownership only for the npm rule; it
+does not establish historical creation, descendant ownership, write ACLs,
+content, inactivity, or mutation authority. The app does not display the raw
+candidate timestamp, scan-time identity, current account home path, or UID, and
+none of these satisfied findings makes a candidate eligible by itself. npm
+activity and protected-descendant evidence remain unavailable, while the other
+rules retain unknown tool ownership and other required facts, so candidates
+remain Protected. Scan-time identity is not cleanup or deletion authority.
 
 “Complete observation” describes traversal within the configured limits. A
 partial observation can result from skipped entries, output bounds, incomplete

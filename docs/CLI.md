@@ -49,10 +49,15 @@ check metadata for an exact regular-file `workspace-state.json` generated
 marker. For an exact npm `_cacache`, bounded raw enumeration can identify exact
 `content-v2` and `index-v5` directories as a supported cacache-layout marker.
 Exact default uv, npm, and Homebrew cache containers may also satisfy trusted-
-location evidence after descriptor-bound reobservation. Ownership, activity,
-protected-descendant, and generated markers for the other rules remain
-uncollected, so real recognized candidates stay protected; see the [rules
-contract](RULES.md).
+location evidence after descriptor-bound reobservation. For an exact npm
+candidate, the held selected root and held `_cacache` directory may additionally
+satisfy `account-owned-cache-namespace` when both have the current account's
+exact POSIX UID. This is not generic npm ownership and does not inspect cache
+contents, processes, or network state. It also proves neither historical
+creation, descendant ownership, write ACLs, inactivity, nor mutation authority.
+npm activity and protected descendants remain uncollected, while the other
+rules retain unknown tool ownership and other required facts, so real
+recognized candidates stay protected; see the [rules contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits
@@ -225,14 +230,19 @@ a schema example, not a promised scan result for an empty directory.
 change the existing scan schema.
 
 The classification JSON schema remains version 1. Its built-in catalog is
-version 3. `devsift.cache.npm` is rule revision 2 for the exact cacache-layout
-marker, `devsift.swiftpm.build` remains revision 2 for the exact
+version 4. `devsift.cache.npm` is rule revision 3 for its exact cacache-layout,
+trusted-location, and account-owned cache-namespace evidence;
+`devsift.swiftpm.build` remains revision 2 for the exact
 `workspace-state.json` marker, and every other built-in rule remains revision
 1. Catalog and rule revisions can change without changing the JSON key shape.
 The identifier and version come from the Core-owned
 `BuiltInRuleCatalog.revision`, preventing CLI metadata from drifting from the
 classifier; the wire shape remains unchanged. The full Core policy provenance
 and its rule roster are not exported by this schema.
+
+This rule-specific revision does not change scan JSON v2, classification JSON
+v1, cleanup manifest contract v2, or the internal cleanup-manifest-review JSON
+v1 schema.
 
 The envelope contains:
 
@@ -286,7 +296,7 @@ A shortened synthetic decision has this shape:
   "pathStyle": "root-relative",
   "catalog": {
     "identifier": "devsift.builtin-rules",
-    "version": "3",
+    "version": "4",
     "ruleCount": "6"
   },
   "referenceUnixSeconds": "1700000000",
