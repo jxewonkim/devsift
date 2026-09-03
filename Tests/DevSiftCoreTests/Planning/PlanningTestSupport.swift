@@ -180,7 +180,8 @@ func makePlanningTestScenario(
 
 func planningEvaluation(
   _ evaluation: RuleEvaluation,
-  findings: [RuleFinding]? = nil
+  findings: [RuleFinding]? = nil,
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]? = nil
 ) -> RuleEvaluation {
   RuleEvaluation(
     path: evaluation.path,
@@ -192,6 +193,8 @@ func planningEvaluation(
     disposition: evaluation.disposition,
     reproducibility: evaluation.reproducibility,
     findings: findings ?? evaluation.findings,
+    deferredExecutionPreconditions: deferredExecutionPreconditions
+      ?? evaluation.deferredExecutionPreconditions,
     explanation: evaluation.explanation
   )
 }

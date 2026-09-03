@@ -176,10 +176,13 @@ public struct CleanupRevalidator: CleanupRevalidating, Sendable {
         evaluation: evaluationsByPath[entry.path]
       )
       statuses[entry.path] = status
-      if status == .eligibleAtObservation {
+      switch status {
+      case .eligibleAtObservation, .awaitingExecutionPreconditions:
         eligibleSelections.append(
           CleanupCandidateSelection(path: entry.path, ruleRevision: entry.ruleRevision)
         )
+      case .rejected:
+        break
       }
     }
 
@@ -274,14 +277,28 @@ public struct CleanupRevalidator: CleanupRevalidating, Sendable {
         .ruleRevisionChanged(expected: approved.ruleRevision, observed: evaluation.rule)
       )
     }
-    if let blockingFinding = evaluation.findings.first(where: { $0.state != .satisfied }) {
+    guard evaluation.deferredExecutionPreconditionsAreWellFormed else {
+      return .rejected(.policyDecisionChanged)
+    }
+    if let blockingFinding = evaluation.nonDeferredBlockingFindings.first {
       return .rejected(.blockingFinding(blockingFinding.identifier))
+    }
+    guard
+      evaluation.deferredExecutionPreconditions
+        == approved.deferredExecutionPreconditions
+    else {
+      return .rejected(.policyDecisionChanged)
     }
     guard
       evaluation.matchState == .matched,
       evaluation.disposition == .reclaimable || evaluation.disposition == .reviewRequired
     else {
       return .rejected(.policyDecisionChanged)
+    }
+    if !evaluation.deferredExecutionPreconditions.isEmpty {
+      return .awaitingExecutionPreconditions(
+        evaluation.deferredExecutionPreconditions
+      )
     }
     return .eligibleAtObservation
   }
@@ -300,6 +317,8 @@ public struct CleanupRevalidator: CleanupRevalidating, Sendable {
       && approved.responsibleTool == fresh.responsibleTool
       && approved.classificationExplanation == fresh.classificationExplanation
       && approved.findings == fresh.findings
+      && approved.deferredExecutionPreconditions
+        == fresh.deferredExecutionPreconditions
   }
 
   private func validateApprovalPreflight(_ approval: CleanupApproval) throws {
@@ -348,25 +367,59 @@ public struct CleanupRevalidator: CleanupRevalidating, Sendable {
       guard entry.disposition == .reclaimable || entry.disposition == .reviewRequired else {
         throw invalid(.ineligibleDisposition)
       }
-      guard findingsAreValid(entry.findings) else {
+      guard entryIsPolicyValid(entry) else {
         throw invalid(.invalidFindings)
       }
+    }
+    guard preconditionReviewAcknowledgementsAreValid(approval) else {
+      throw invalid(.invalidPreconditionReviewAcknowledgements)
     }
     guard try totalsAreValid(manifest) else {
       throw invalid(.invalidTotals)
     }
   }
 
-  private func findingsAreValid(_ findings: [RuleFinding]) -> Bool {
+  private func entryIsPolicyValid(_ entry: CleanupManifestEntry) -> Bool {
+    let findings = entry.findings
     guard
       !findings.isEmpty,
-      findings.count <= RuleCatalogLimits.maximumFindingsPerEvaluation,
-      findings.allSatisfy({ $0.state == .satisfied })
+      findings.count <= RuleCatalogLimits.maximumFindingsPerEvaluation
     else {
       return false
     }
     let identifiers = findings.map(\.identifier)
-    return identifiers == identifiers.sorted() && Set(identifiers).count == identifiers.count
+    guard identifiers == identifiers.sorted(), Set(identifiers).count == identifiers.count else {
+      return false
+    }
+    return entry.deferredExecutionPreconditionsAreWellFormed
+      && entry.nonDeferredBlockingFindings.isEmpty
+  }
+
+  private func preconditionReviewAcknowledgementsAreValid(
+    _ approval: CleanupApproval
+  ) -> Bool {
+    var expected: [PreconditionBinding] = []
+    for entry in approval.reviewedManifest.entries {
+      for precondition in entry.deferredExecutionPreconditions {
+        expected.append(
+          PreconditionBinding(
+            ordinal: expected.count,
+            path: entry.path,
+            ruleRevision: entry.ruleRevision,
+            precondition: precondition
+          )
+        )
+      }
+    }
+    let actual = approval.preconditionReviewAcknowledgements.map { acknowledgement in
+      PreconditionBinding(
+        ordinal: acknowledgement.ordinal,
+        path: acknowledgement.path,
+        ruleRevision: acknowledgement.ruleRevision,
+        precondition: acknowledgement.precondition
+      )
+    }
+    return actual == expected
   }
 
   private func totalsAreValid(_ manifest: CleanupManifest) throws -> Bool {
@@ -455,4 +508,11 @@ public struct CleanupRevalidator: CleanupRevalidating, Sendable {
       preconditionFailure("The built-in rule policy provenance is invalid")
     }
   }()
+}
+
+private struct PreconditionBinding: Equatable {
+  let ordinal: Int
+  let path: ScanRelativePath
+  let ruleRevision: RuleRevision
+  let precondition: RuleDeferredExecutionPrecondition
 }

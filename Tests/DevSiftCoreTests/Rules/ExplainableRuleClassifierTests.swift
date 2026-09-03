@@ -206,6 +206,85 @@ struct ExplainableRuleClassifierTests {
     }
   }
 
+  @Test("Only deliberately uncollected activity can become a deferred execution precondition")
+  func deferredActivityRequirement() async throws {
+    let definition = syntheticDefinition(
+      id: "devsift.test.deferred-activity",
+      disposition: .reviewRequired,
+      reproducibility: .conditional,
+      activity: .mustBeInactiveOrDeferToAttestationWhenUnobserved
+    )
+    let classifier = try ExplainableRuleClassifier(
+      rules: [SyntheticRule(definition: definition)]
+    )
+    let cases:
+      [(
+        activity: RuleObserved<RuleActivityState>,
+        expectedMatchState: RuleMatchState,
+        expectedDisposition: RuleDisposition,
+        expectedFindingState: RuleFindingState,
+        expectedPreconditions: [RuleDeferredExecutionPrecondition]
+      )] =
+        [
+          (
+            .known(.inactive), .matched, .reviewRequired, .satisfied, []
+          ),
+          (
+            .known(.active), .possibleMatch, .protected, .failed, []
+          ),
+        ]
+        + RuleUnknownReason.allCases.map { reason in
+          let isDeliberatelyUncollected = reason == .notCollected
+          return (
+            .unknown(reason),
+            isDeliberatelyUncollected ? .matched : .possibleMatch,
+            isDeliberatelyUncollected ? .reviewRequired : .protected,
+            .unknown(reason),
+            isDeliberatelyUncollected ? [.requiresUserAttestationThatResponsibleToolIsStopped] : []
+          )
+        }
+
+    for testCase in cases {
+      let report = try await classifier.classify(
+        observations: [
+          ruleObservation(
+            name: Array("candidate".utf8),
+            facts: satisfiedRuleFacts(activity: testCase.activity)
+          )
+        ],
+        referenceUnixSeconds: 100
+      )
+      let result = try #require(report.evaluations.first)
+      let activityFinding = try #require(
+        result.findings.first { $0.identifier == AutomaticCheckIdentifier.activity }
+      )
+
+      #expect(result.matchState == testCase.expectedMatchState)
+      #expect(result.disposition == testCase.expectedDisposition)
+      #expect(activityFinding.kind == .activity)
+      #expect(activityFinding.state == testCase.expectedFindingState)
+      #expect(result.deferredExecutionPreconditions == testCase.expectedPreconditions)
+      #expect(result.deferredExecutionPreconditionsAreWellFormed)
+      #expect(
+        result.nonDeferredBlockingFindings.isEmpty
+          == (testCase.expectedMatchState == .matched)
+      )
+    }
+
+    #expect(
+      RuleDeferredExecutionPrecondition.allCases
+        == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+    #expect(
+      RuleDeferredExecutionPrecondition.requiresUserAttestationThatResponsibleToolIsStopped.rawValue
+        == "requires-user-attestation-that-responsible-tool-is-stopped"
+    )
+    #expect(
+      RuleDeferredExecutionPrecondition.requiresUserAttestationThatResponsibleToolIsStopped
+        .policyRevision == 1
+    )
+  }
+
   @Test("Every partial or uncertain scan guard protects a recognized item")
   func scanIntegrityGuards() async throws {
     let classifier = ExplainableRuleClassifier()

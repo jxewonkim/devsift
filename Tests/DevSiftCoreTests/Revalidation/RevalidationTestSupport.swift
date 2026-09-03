@@ -47,6 +47,27 @@ func revalidationApproval(
   return (source, approval)
 }
 
+func pendingRevalidationApproval(
+  rawNames: [[UInt8]] = [Array("candidate".utf8)],
+  root: URL = URL(fileURLWithPath: "/synthetic/RevalidationRoot", isDirectory: true)
+) async throws -> (source: ApprovalTestSource, approval: CleanupApproval) {
+  let source = try await approvalPendingPreconditionTestSource(
+    rawNames: rawNames,
+    root: root
+  )
+  let approver = CleanupApprover()
+  let session = try approver.beginReview(source.manifestRequest)
+  let approval = try approver.approve(
+    CleanupApprovalRequest(
+      session: session,
+      confirmations: try approvalConfirmations(from: session),
+      preconditionReviewAcknowledgements: try approvalPreconditionReviewAcknowledgements(
+        from: session)
+    )
+  )
+  return (source, approval)
+}
+
 func revalidationReport(
   _ report: ScanReport,
   root: ScanItemSummary? = nil,
@@ -136,7 +157,8 @@ func revalidationEvaluation(
   displayName: String? = nil,
   matchState: RuleMatchState? = nil,
   disposition: RuleDisposition? = nil,
-  findings: [RuleFinding]? = nil
+  findings: [RuleFinding]? = nil,
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]? = nil
 ) -> RuleEvaluation {
   RuleEvaluation(
     path: source.path,
@@ -148,8 +170,31 @@ func revalidationEvaluation(
     disposition: disposition ?? source.disposition,
     reproducibility: source.reproducibility,
     findings: findings ?? source.findings,
+    deferredExecutionPreconditions: deferredExecutionPreconditions
+      ?? source.deferredExecutionPreconditions,
     explanation: source.explanation
   )
+}
+
+func pendingActivityRevalidationReport(
+  request: RuleClassificationRequest,
+  activity: RuleObserved<RuleActivityState>
+) async throws -> RuleClassificationReport {
+  let classifier = try ExplainableRuleClassifier(
+    rules: [SyntheticRule(definition: approvalPendingPreconditionRuleDefinition)],
+    catalogRevision: planningTestCatalogRevision
+  )
+  return try await classifier.classify(
+    observations: request.report.topLevelItems.map { summary in
+      RuleObservation(
+        summary: summary,
+        selectedRootBasename: .known(Array("Caches".utf8)),
+        integrity: completeRuleIntegrity(),
+        facts: satisfiedRuleFacts(activity: activity)
+      )
+    },
+    referenceUnixSeconds: request.referenceUnixSeconds
+  ).binding(to: request)
 }
 
 func expectRevalidationError(

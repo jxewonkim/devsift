@@ -71,7 +71,7 @@ struct RulePolicyProvenanceTests {
       policy.ruleRevisions
         == BuiltInRuleCatalog.rules.map { $0.definition.revision }.sorted()
     )
-    #expect(policy.classificationContractRevision.version.rawValue == 2)
+    #expect(policy.classificationContractRevision.version.rawValue == 3)
     #expect(policy.catalogRevision.version.rawValue == 5)
     #expect(
       Dictionary(

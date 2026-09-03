@@ -214,6 +214,7 @@ enum CLITestClassificationFactory {
     matchState: RuleMatchState = .matched,
     disposition: RuleDisposition = .reviewRequired,
     reproducibility: RuleReproducibility = .reproducible,
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
     findings: [RuleFinding] = [finding()],
     explanation: String = "The test decision is explained."
   ) -> RuleEvaluation {
@@ -227,6 +228,7 @@ enum CLITestClassificationFactory {
       disposition: disposition,
       reproducibility: reproducibility,
       findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
       explanation: explanation
     )
   }
@@ -349,6 +351,7 @@ enum CLITestManifestFactory {
     ruleRevision: RuleRevision = primaryRuleRevision,
     disposition: RuleDisposition = .reviewRequired,
     reproducibility: RuleReproducibility = .reproducible,
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
     displayName: String = "Manifest test cache",
     responsibleTool: String = "Manifest test tool",
     classificationExplanation: String = "The manifest test decision is explained.",
@@ -383,6 +386,7 @@ enum CLITestManifestFactory {
       responsibleTool: responsibleTool,
       classificationExplanation: classificationExplanation,
       findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions,
       size: CleanupManifestSizeObservation(summary: summary)
     )
   }

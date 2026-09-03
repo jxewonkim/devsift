@@ -122,6 +122,37 @@ public enum RuleAgeRequirement: Hashable, Sendable {
 public enum RuleActivityRequirement: String, CaseIterable, Hashable, Sendable {
   case notRequired = "not-required"
   case mustBeInactive = "must-be-inactive"
+  case mustBeInactiveOrDeferToAttestationWhenUnobserved =
+    "must-be-inactive-or-defer-to-attestation-when-unobserved"
+}
+
+/// A policy requirement deliberately deferred beyond classification.
+///
+/// This is neither evidence nor a completed user attestation. It records what
+/// a future, attempt-scoped authorization flow must establish before a
+/// recoverable quarantine operation can begin.
+public enum RuleDeferredExecutionPrecondition: String, CaseIterable, Comparable, Hashable,
+  Sendable
+{
+  case requiresUserAttestationThatResponsibleToolIsStopped =
+    "requires-user-attestation-that-responsible-tool-is-stopped"
+
+  public var policyRevision: UInt32 {
+    switch self {
+    case .requiresUserAttestationThatResponsibleToolIsStopped:
+      1
+    }
+  }
+
+  public static func < (
+    left: RuleDeferredExecutionPrecondition,
+    right: RuleDeferredExecutionPrecondition
+  ) -> Bool {
+    if left.rawValue != right.rawValue {
+      return left.rawValue < right.rawValue
+    }
+    return left.policyRevision < right.policyRevision
+  }
 }
 
 public enum RuleUnknownReason: String, CaseIterable, Hashable, Sendable {
@@ -348,7 +379,122 @@ public struct RuleEvaluation: Hashable, Sendable {
   public let disposition: RuleDisposition
   public let reproducibility: RuleReproducibility
   public let findings: [RuleFinding]
+  public let deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]
   public let explanation: String
+
+  init(
+    path: ScanRelativePath,
+    rule: RuleRevision?,
+    matchingRules: [RuleRevision],
+    displayName: String,
+    responsibleTool: String,
+    matchState: RuleMatchState,
+    disposition: RuleDisposition,
+    reproducibility: RuleReproducibility,
+    findings: [RuleFinding],
+    deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
+    explanation: String
+  ) {
+    self.path = path
+    self.rule = rule
+    self.matchingRules = matchingRules
+    self.displayName = displayName
+    self.responsibleTool = responsibleTool
+    self.matchState = matchState
+    self.disposition = disposition
+    self.reproducibility = reproducibility
+    self.findings = findings
+    self.deferredExecutionPreconditions = deferredExecutionPreconditions
+    self.explanation = explanation
+  }
+
+  /// Findings that still block review or planning after applying the narrow,
+  /// versioned deferred-precondition policy.
+  public var nonDeferredBlockingFindings: [RuleFinding] {
+    ruleNonDeferredBlockingFindings(
+      matchState: matchState,
+      disposition: disposition,
+      findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions
+    )
+  }
+
+  /// Whether the pending requirement has the one supported canonical shape.
+  /// Empty requirements are structurally valid and defer no evidence.
+  public var deferredExecutionPreconditionsAreWellFormed: Bool {
+    ruleDeferredExecutionPreconditionsAreWellFormed(
+      matchState: matchState,
+      disposition: disposition,
+      findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions
+    )
+  }
+}
+
+func ruleNonDeferredBlockingFindings(
+  matchState: RuleMatchState,
+  disposition: RuleDisposition,
+  findings: [RuleFinding],
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]
+) -> [RuleFinding] {
+  guard
+    ruleDeferredExecutionPreconditionsAreWellFormed(
+      matchState: matchState,
+      disposition: disposition,
+      findings: findings,
+      deferredExecutionPreconditions: deferredExecutionPreconditions
+    )
+  else {
+    // A caller cannot accidentally use this projection as a fail-open shortcut
+    // for a malformed pending-policy mapping.
+    return findings.filter { $0.state != .satisfied }
+  }
+  return findings.filter { finding in
+    finding.state != .satisfied
+      && !ruleFindingIsDeferred(
+        finding,
+        deferredExecutionPreconditions: deferredExecutionPreconditions
+      )
+  }
+}
+
+func ruleDeferredExecutionPreconditionsAreWellFormed(
+  matchState: RuleMatchState,
+  disposition: RuleDisposition,
+  findings: [RuleFinding],
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]
+) -> Bool {
+  guard deferredExecutionPreconditions == deferredExecutionPreconditions.sorted(),
+    Set(deferredExecutionPreconditions).count == deferredExecutionPreconditions.count
+  else {
+    return false
+  }
+  guard !deferredExecutionPreconditions.isEmpty else {
+    return true
+  }
+  guard
+    deferredExecutionPreconditions == [.requiresUserAttestationThatResponsibleToolIsStopped],
+    matchState == .matched,
+    disposition == .reviewRequired
+  else {
+    return false
+  }
+  return findings.count { finding in
+    ruleFindingIsDeferred(
+      finding,
+      deferredExecutionPreconditions: deferredExecutionPreconditions
+    )
+  } == 1
+}
+
+private func ruleFindingIsDeferred(
+  _ finding: RuleFinding,
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition]
+) -> Bool {
+  deferredExecutionPreconditions == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    && finding.identifier == AutomaticCheckIdentifier.activity
+    && finding.kind == .activity
+    && finding.state == .unknown(.notCollected)
 }
 
 public struct RuleClassificationRequest: Hashable, Sendable {
@@ -436,6 +582,7 @@ public enum RuleCatalogLimits {
   public static let maximumRuntimeFindingsPerRule = 64
   public static let maximumRuntimeFindingTextUTF8Bytes = 1_024
   public static let maximumFindingsPerEvaluation = 80
+  public static let maximumDeferredExecutionPreconditionsPerEvaluation = 8
   public static let maximumTotalEvaluationFindings = 1_000_000
   public static let maximumTotalMatchingRuleRevisions = 100_000
   public static let maximumEvaluationMetadataUTF8Bytes = 4_096
@@ -461,6 +608,7 @@ public enum RuleEvaluationInvariant: String, CaseIterable, Hashable, Sendable {
   case matchedExclusion = "matched-exclusion"
   case matchedReproducibility = "matched-reproducibility"
   case reclaimableReproducibility = "reclaimable-reproducibility"
+  case deferredExecutionPreconditions = "deferred-execution-preconditions"
   case protectedDisposition = "protected-disposition"
   case possibleMatchRuleIdentity = "possible-match-rule-identity"
   case unrecognizedRuleIdentity = "unrecognized-rule-identity"
@@ -496,6 +644,12 @@ public enum RuleClassificationReportValidationError: Error, Equatable, Sendable 
   case tooManyMatchingRules(path: ScanRelativePath, maximum: Int, actual: Int)
   case tooManyTotalMatchingRuleRevisions(maximum: Int, actual: Int)
   case matchingRulesNotSortedAndUnique(ScanRelativePath)
+  case tooManyDeferredExecutionPreconditions(
+    path: ScanRelativePath,
+    maximum: Int,
+    actual: Int
+  )
+  case deferredExecutionPreconditionsNotSortedAndUnique(ScanRelativePath)
   case emptyMetadata(path: ScanRelativePath, field: RuleEvaluationMetadataField)
   case metadataTooLarge(path: ScanRelativePath, maximumBytes: Int, actualBytes: Int)
   case tooManyFindings(path: ScanRelativePath, maximum: Int, actual: Int)
@@ -558,6 +712,7 @@ public enum RuleCatalogValidationError: Error, Equatable, Sendable {
   case reclaimableRuleIsNotReproducible(RuleIdentifier)
   case reclaimableRuleRequiresMinimumAge(RuleIdentifier)
   case reclaimableRuleRequiresInactiveCheck(RuleIdentifier)
+  case deferredActivityRequiresReviewDisposition(RuleIdentifier)
   case missingExclusion(RuleIdentifier)
   case zeroMinimumAge(RuleIdentifier)
   case reservedCatalogIdentifier(RuleIdentifier)

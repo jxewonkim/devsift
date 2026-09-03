@@ -12,7 +12,7 @@ struct CleanupApproverSafetyTests {
     try fixture.write("sentinel.bin", bytes: [4, 5, 6], under: fixture.outside)
     let beforeRoot = try treeSnapshot(at: fixture.root)
     let beforeOutside = try treeSnapshot(at: fixture.outside)
-    let source = try await approvalTestSource(
+    let source = try await approvalPendingPreconditionTestSource(
       rawNames: [Array("candidate".utf8)],
       root: fixture.root
     )
@@ -23,7 +23,9 @@ struct CleanupApproverSafetyTests {
     let approval = try approver.approve(
       CleanupApprovalRequest(
         session: session,
-        confirmations: confirmations
+        confirmations: confirmations,
+        preconditionReviewAcknowledgements: try approvalPreconditionReviewAcknowledgements(
+          from: session)
       )
     )
 

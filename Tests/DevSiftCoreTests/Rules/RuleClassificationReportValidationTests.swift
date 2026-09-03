@@ -680,6 +680,110 @@ struct RuleClassificationReportValidationTests {
     )
   }
 
+  @Test("Deferred execution preconditions validate only in their exact semantic shape")
+  func deferredExecutionPreconditionSemantics() throws {
+    let precondition = RuleDeferredExecutionPrecondition
+      .requiresUserAttestationThatResponsibleToolIsStopped
+    let pendingFindings =
+      validationCommonFindings(
+        states: [AutomaticCheckIdentifier.activity: .unknown(.notCollected)]
+      ) + validationRuleSpecificFindings()
+    let valid = validationEvaluation(
+      disposition: .reviewRequired,
+      reproducibility: .conditional,
+      findings: pendingFindings,
+      deferredExecutionPreconditions: [precondition]
+    )
+
+    try validationReport([valid]).validate(for: validationRequest(names: ["a"]))
+    #expect(valid.deferredExecutionPreconditionsAreWellFormed)
+    #expect(valid.nonDeferredBlockingFindings.isEmpty)
+
+    expectSemanticError(
+      .deferredExecutionPreconditions,
+      evaluation: validationEvaluation(
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        deferredExecutionPreconditions: [precondition]
+      )
+    )
+    expectSemanticError(
+      .matchedFindings,
+      evaluation: validationEvaluation(
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        findings: pendingFindings
+      )
+    )
+    let malformedDisposition = validationEvaluation(
+      findings: pendingFindings,
+      deferredExecutionPreconditions: [precondition]
+    )
+    #expect(!malformedDisposition.deferredExecutionPreconditionsAreWellFormed)
+    #expect(
+      malformedDisposition.nonDeferredBlockingFindings.map(\.identifier)
+        == [AutomaticCheckIdentifier.activity]
+    )
+    expectSemanticError(
+      .deferredExecutionPreconditions,
+      evaluation: malformedDisposition
+    )
+    expectSemanticError(
+      .deferredExecutionPreconditions,
+      evaluation: validationEvaluation(
+        disposition: .reviewRequired,
+        reproducibility: .conditional,
+        findings: validationCommonFindings(
+          states: [AutomaticCheckIdentifier.activity: .unknown(.permissionDenied)]
+        ) + validationRuleSpecificFindings(),
+        deferredExecutionPreconditions: [precondition]
+      )
+    )
+    expectSemanticError(
+      .deferredExecutionPreconditions,
+      evaluation: validationEvaluation(
+        matchState: .possibleMatch,
+        disposition: .protected,
+        reproducibility: .conditional,
+        findings: pendingFindings,
+        deferredExecutionPreconditions: [precondition]
+      )
+    )
+
+    expectValidationError(
+      .deferredExecutionPreconditionsNotSortedAndUnique(validationPath("a")),
+      report: validationReport([
+        validationEvaluation(
+          disposition: .reviewRequired,
+          reproducibility: .conditional,
+          findings: pendingFindings,
+          deferredExecutionPreconditions: [precondition, precondition]
+        )
+      ]),
+      request: validationRequest(names: ["a"])
+    )
+    let oversized = Array(
+      repeating: precondition,
+      count: RuleCatalogLimits.maximumDeferredExecutionPreconditionsPerEvaluation + 1
+    )
+    expectValidationError(
+      .tooManyDeferredExecutionPreconditions(
+        path: validationPath("a"),
+        maximum: RuleCatalogLimits.maximumDeferredExecutionPreconditionsPerEvaluation,
+        actual: oversized.count
+      ),
+      report: validationReport([
+        validationEvaluation(
+          disposition: .reviewRequired,
+          reproducibility: .conditional,
+          findings: pendingFindings,
+          deferredExecutionPreconditions: oversized
+        )
+      ]),
+      request: validationRequest(names: ["a"])
+    )
+  }
+
   @Test("Matched results require rule-specific positive evidence and an exclusion")
   func matchedEvidenceFloor() {
     expectSemanticError(
@@ -1151,6 +1255,7 @@ private func validationEvaluation(
   disposition: RuleDisposition = .reclaimable,
   reproducibility: RuleReproducibility = .reproducible,
   findings: [RuleFinding]? = nil,
+  deferredExecutionPreconditions: [RuleDeferredExecutionPrecondition] = [],
   explanation: String = "The result is internally consistent."
 ) -> RuleEvaluation {
   RuleEvaluation(
@@ -1163,6 +1268,7 @@ private func validationEvaluation(
     disposition: disposition,
     reproducibility: reproducibility,
     findings: findings ?? validationEligibleFindings(),
+    deferredExecutionPreconditions: deferredExecutionPreconditions,
     explanation: explanation
   )
 }

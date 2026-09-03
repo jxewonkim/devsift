@@ -3,7 +3,7 @@ import Foundation
 
 enum ClassificationOutputContract {
   static let schema = "devsift.classification"
-  static let schemaVersion = 1
+  static let schemaVersion = 2
   static let catalogIdentifier = BuiltInRuleCatalog.revision.identifier.rawValue
   static let catalogVersion = BuiltInRuleCatalog.revision.version.rawValue
   static let catalogRuleCount = BuiltInRuleCatalog.rules.count
@@ -189,6 +189,9 @@ enum ClassificationTextRenderer {
     lines.append("  Name: \(TerminalText.escaped(decision.displayName))")
     lines.append("  Responsible tool: \(TerminalText.escaped(decision.responsibleTool))")
     lines.append("  Reproducibility: \(decision.reproducibility.rawValue)")
+    lines.append(
+      "  Deferred execution preconditions: \(deferredExecutionPreconditionsText(decision.deferredExecutionPreconditions))"
+    )
     if let summary {
       lines.append(
         "  Observed apparent allocated: \(sizeText(summary.recursiveSize.allocatedBytes, overflowed: summary.sizeOverflowed))"
@@ -238,6 +241,17 @@ enum ClassificationTextRenderer {
     return revisions.sorted().map { revisionText($0) }.joined(separator: ", ")
   }
 
+  private static func deferredExecutionPreconditionsText(
+    _ preconditions: [RuleDeferredExecutionPrecondition]
+  ) -> String {
+    guard !preconditions.isEmpty else {
+      return "none"
+    }
+    return preconditions.map { precondition in
+      "\(precondition.rawValue)@\(precondition.policyRevision)"
+    }.joined(separator: ", ")
+  }
+
   private static func stateText(_ state: RuleFindingState) -> String {
     switch state {
     case .satisfied:
@@ -259,7 +273,7 @@ enum ClassificationJSONRenderer {
     report: RuleClassificationReport,
     scanReport: ScanReport
   ) throws -> String {
-    let document = ClassificationJSONDocumentV1(
+    let document = ClassificationJSONDocumentV2(
       report: report,
       scanReport: scanReport
     )
@@ -274,7 +288,7 @@ enum ClassificationJSONRenderer {
   }
 }
 
-struct ClassificationJSONDocumentV1: Codable, Equatable, Sendable {
+struct ClassificationJSONDocumentV2: Codable, Equatable, Sendable {
   let schema: String
   let schemaVersion: Int
   let devsiftVersion: String
@@ -285,7 +299,7 @@ struct ClassificationJSONDocumentV1: Codable, Equatable, Sendable {
   let scanIsComplete: Bool
   let scanIntegrity: ClassificationJSONScanIntegrityV1
   let summary: ClassificationJSONSummaryV1
-  let decisions: [ClassificationJSONDecisionV1]
+  let decisions: [ClassificationJSONDecisionV2]
 
   init(report: RuleClassificationReport, scanReport: ScanReport) {
     let evaluations = ClassificationDecisionOrdering.sorted(report.evaluations)
@@ -305,7 +319,7 @@ struct ClassificationJSONDocumentV1: Codable, Equatable, Sendable {
       summary: ClassificationSummary(evaluations: evaluations)
     )
     decisions = evaluations.map { evaluation in
-      ClassificationJSONDecisionV1(
+      ClassificationJSONDecisionV2(
         evaluation: evaluation,
         summary: summaries[evaluation.path],
         hardLinkAccountingIsComplete: scanReport.hardLinkAccountingIsComplete
@@ -438,7 +452,7 @@ struct ClassificationJSONSummaryV1: Codable, Equatable, Sendable {
   }
 }
 
-struct ClassificationJSONDecisionV1: Codable, Equatable, Sendable {
+struct ClassificationJSONDecisionV2: Codable, Equatable, Sendable {
   let path: ScanJSONPathV1
   let ruleRevision: ClassificationJSONRuleRevisionV1?
   let matchingRuleRevisions: [ClassificationJSONRuleRevisionV1]
@@ -447,6 +461,7 @@ struct ClassificationJSONDecisionV1: Codable, Equatable, Sendable {
   let matchState: String
   let disposition: String
   let reproducibility: String
+  let deferredExecutionPreconditions: [ClassificationJSONDeferredExecutionPreconditionV1]
   let observation: ClassificationJSONObservationV1?
   let findings: [ClassificationJSONFindingV1]
   let explanation: String
@@ -466,6 +481,9 @@ struct ClassificationJSONDecisionV1: Codable, Equatable, Sendable {
     matchState = evaluation.matchState.rawValue
     disposition = evaluation.disposition.rawValue
     reproducibility = evaluation.reproducibility.rawValue
+    deferredExecutionPreconditions = evaluation.deferredExecutionPreconditions.map(
+      ClassificationJSONDeferredExecutionPreconditionV1.init
+    )
     observation = summary.map {
       ClassificationJSONObservationV1(
         summary: $0,
@@ -492,6 +510,10 @@ struct ClassificationJSONDecisionV1: Codable, Equatable, Sendable {
     matchState = try container.decode(String.self, forKey: .matchState)
     disposition = try container.decode(String.self, forKey: .disposition)
     reproducibility = try container.decode(String.self, forKey: .reproducibility)
+    deferredExecutionPreconditions = try container.decode(
+      [ClassificationJSONDeferredExecutionPreconditionV1].self,
+      forKey: .deferredExecutionPreconditions
+    )
     observation = try container.decodeIfPresent(
       ClassificationJSONObservationV1.self,
       forKey: .observation
@@ -514,6 +536,10 @@ struct ClassificationJSONDecisionV1: Codable, Equatable, Sendable {
     try container.encode(matchState, forKey: .matchState)
     try container.encode(disposition, forKey: .disposition)
     try container.encode(reproducibility, forKey: .reproducibility)
+    try container.encode(
+      deferredExecutionPreconditions,
+      forKey: .deferredExecutionPreconditions
+    )
     if let observation {
       try container.encode(observation, forKey: .observation)
     } else {
@@ -532,9 +558,25 @@ struct ClassificationJSONDecisionV1: Codable, Equatable, Sendable {
     case matchState
     case disposition
     case reproducibility
+    case deferredExecutionPreconditions
     case observation
     case findings
     case explanation
+  }
+}
+
+struct ClassificationJSONDeferredExecutionPreconditionV1: Codable, Equatable, Sendable {
+  let identifier: String
+  let policyRevision: String
+
+  init(precondition: RuleDeferredExecutionPrecondition) {
+    identifier = precondition.rawValue
+    policyRevision = String(precondition.policyRevision)
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case identifier
+    case policyRevision
   }
 }
 

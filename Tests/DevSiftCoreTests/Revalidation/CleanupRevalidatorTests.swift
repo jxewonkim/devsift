@@ -28,6 +28,7 @@ struct CleanupRevalidatorTests {
     #expect(await scanLog.snapshot().map(\.root) == [approval.sourceRoot])
     #expect(await classificationLog.snapshot().map(\.root) == [approval.sourceRoot])
     #expect(report.contractVersion == CleanupRevalidationReport.currentContractVersion)
+    #expect(report.contractVersion == 2)
     #expect(report.observedRootIdentity == approval.reviewedManifest.expectedRootIdentity)
     #expect(report.policyProvenance == approval.reviewedManifest.policyProvenance)
     #expect(report.referenceUnixSeconds == 2_000_000)
@@ -39,6 +40,97 @@ struct CleanupRevalidatorTests {
     #expect(!report.grantsFilesystemMutationAuthority)
     #expect(report.requiresImmediateExecutionRevalidation)
     #expect(!isEncodableRevalidationValue(report))
+  }
+
+  @Test("Deferred activity remains pending, while active and unavailable observations fail closed")
+  func deferredActivityBoundary() async throws {
+    let (source, approval) = try await pendingRevalidationApproval()
+    let expectedPreconditions = [
+      RuleDeferredExecutionPrecondition.requiresUserAttestationThatResponsibleToolIsStopped
+    ]
+    #expect(
+      approval.reviewedManifest.entries.first?.deferredExecutionPreconditions
+        == expectedPreconditions
+    )
+
+    let makeRevalidator:
+      @Sendable (
+        RuleObserved<RuleActivityState>
+      ) -> CleanupRevalidator = { activity in
+        CleanupRevalidator(
+          scanner: RevalidationStubScanner { _ in
+            source.classificationRequest.report
+          },
+          classifier: RevalidationStubClassifier { request in
+            try await pendingActivityRevalidationReport(
+              request: request,
+              activity: activity
+            )
+          },
+          referenceTime: { 2_000_000 },
+          supportedPolicyProvenance: approval.reviewedManifest.policyProvenance
+        )
+      }
+
+    let pending = try await makeRevalidator(.unknown(.notCollected)).revalidate(approval)
+    let active = try await makeRevalidator(.known(.active)).revalidate(approval)
+    let unavailable = try await makeRevalidator(.unknown(.permissionDenied)).revalidate(approval)
+
+    #expect(
+      pending.entries.map(\.status)
+        == [.awaitingExecutionPreconditions(expectedPreconditions)]
+    )
+    #expect(!pending.isFullyEligibleAtObservation)
+    #expect(pending.hasPendingExecutionPreconditions)
+    #expect(!pending.grantsFilesystemMutationAuthority)
+    #expect(pending.requiresImmediateExecutionRevalidation)
+
+    #expect(
+      active.entries.map(\.status)
+        == [.rejected(.blockingFinding(AutomaticCheckIdentifier.activity))]
+    )
+    #expect(
+      unavailable.entries.map(\.status)
+        == [.rejected(.blockingFinding(AutomaticCheckIdentifier.activity))]
+    )
+    #expect(!active.hasPendingExecutionPreconditions)
+    #expect(!unavailable.hasPendingExecutionPreconditions)
+    #expect(!active.grantsFilesystemMutationAuthority)
+    #expect(!unavailable.grantsFilesystemMutationAuthority)
+  }
+
+  @Test("A stable pending condition cannot mask other fresh policy drift")
+  func deferredPreconditionPolicyDrift() async throws {
+    let (source, approval) = try await pendingRevalidationApproval()
+    let original = try #require(source.classificationReport.evaluations.first)
+    let changed = revalidationEvaluation(
+      original,
+      displayName: "Changed pending policy display name"
+    )
+    let revalidator = CleanupRevalidator(
+      scanner: RevalidationStubScanner { _ in
+        source.classificationRequest.report
+      },
+      classifier: RevalidationStubClassifier { request in
+        boundRevalidationReport(
+          request: request,
+          source: source,
+          evaluations: [changed]
+        )
+      },
+      referenceTime: { 2_000_000 },
+      supportedPolicyProvenance: approval.reviewedManifest.policyProvenance
+    )
+
+    let result = try await revalidator.revalidate(approval)
+
+    #expect(
+      changed.deferredExecutionPreconditions
+        == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+    #expect(result.entries.map(\.status) == [.rejected(.policyDecisionChanged)])
+    #expect(!result.hasPendingExecutionPreconditions)
+    #expect(!result.grantsFilesystemMutationAuthority)
   }
 
   @Test("The default built-in composition rejects a fresh observation with uncollected evidence")

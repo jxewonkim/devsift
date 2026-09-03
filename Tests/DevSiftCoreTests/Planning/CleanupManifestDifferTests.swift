@@ -27,6 +27,7 @@ struct CleanupManifestDifferTests {
     )
 
     #expect(result.contractVersion == CleanupManifestDiff.currentContractVersion)
+    #expect(result.contractVersion == 2)
     #expect(result.sourceManifestContractVersion == CleanupManifest.currentContractVersion)
     #expect(result.policyProvenance == baseline.policyProvenance)
     #expect(result.expectedRootIdentity == baseline.expectedRootIdentity)
@@ -44,6 +45,34 @@ struct CleanupManifestDifferTests {
     #expect(result.totals.sharedContentMetadataUnavailableCount == .unchanged)
     #expect(result.totals.unobservedHardLinkFileCount == .unchanged)
     #expect(result.totals.nonExclusiveHardLinkFileCount == .unchanged)
+  }
+
+  @Test("A precondition-only change is surfaced as an explicit policy-field modification")
+  func preconditionOnlyDifference() throws {
+    let rawName = Array("candidate".utf8)
+    let baselineEntry = diffEntry(rawName: rawName)
+    let comparisonEntry = diffEntry(
+      rawName: rawName,
+      deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+
+    let result = try CleanupManifestDiffer().difference(
+      from: diffManifest(entries: [baselineEntry]),
+      to: diffManifest(entries: [comparisonEntry])
+    )
+
+    guard case .modified(let modification) = result.entryDifferences.first else {
+      Issue.record("Expected a precondition-only manifest modification")
+      return
+    }
+    #expect(modification.changedFields == [.deferredExecutionPreconditions])
+    #expect(modification.baseline.deferredExecutionPreconditions.isEmpty)
+    #expect(
+      modification.comparison.deferredExecutionPreconditions
+        == [.requiresUserAttestationThatResponsibleToolIsStopped]
+    )
+    #expect(result.totals.observedLogicalBytes == .unchanged)
+    #expect(result.totals.observedAllocatedBytes == .unchanged)
   }
 
   @Test("Added, removed, and modified entries use one global raw-path order")
@@ -181,6 +210,7 @@ struct CleanupManifestDifferTests {
           "responsibleTool",
           "classificationExplanation",
           "findings",
+          "deferredExecutionPreconditions",
           "size",
         ]
     )
@@ -196,7 +226,7 @@ struct CleanupManifestDifferTests {
           "nonExclusiveHardLinkFileCount",
         ]
     )
-    #expect(CleanupManifestEntryField.allCases.count == 16)
+    #expect(CleanupManifestEntryField.allCases.count == 17)
   }
 
   @Test("Multiple changed fields retain declaration order")
@@ -501,6 +531,11 @@ struct CleanupManifestDifferTests {
       )
     case .findings:
       diffEntry(rawName: rawName, findings: changedFindings())
+    case .deferredExecutionPreconditions:
+      diffEntry(
+        rawName: rawName,
+        deferredExecutionPreconditions: [.requiresUserAttestationThatResponsibleToolIsStopped]
+      )
     case .observedLogicalBytes:
       diffEntry(rawName: rawName, observedLogicalBytes: 11)
     case .observedAllocatedBytes:

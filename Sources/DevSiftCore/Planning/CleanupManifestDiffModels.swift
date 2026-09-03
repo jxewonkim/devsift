@@ -36,6 +36,7 @@ public enum CleanupManifestEntryField: String, CaseIterable, Hashable, Sendable 
   case responsibleTool = "responsible-tool"
   case classificationExplanation = "classification-explanation"
   case findings
+  case deferredExecutionPreconditions = "deferred-execution-preconditions"
   case observedLogicalBytes = "observed-logical-bytes"
   case observedAllocatedBytes = "observed-allocated-bytes"
   case observedHardLinkExclusiveAllocatedBytes =
@@ -131,7 +132,7 @@ public enum CleanupManifestEntryDifference: Hashable, Sendable {
 /// This value describes retained observations only. It is not approval,
 /// freshness evidence, an authenticity proof, or filesystem authority.
 public struct CleanupManifestDiff: Hashable, Sendable {
-  public static let currentContractVersion: UInt32 = 1
+  public static let currentContractVersion: UInt32 = 2
 
   public let contractVersion: UInt32
   public let sourceManifestContractVersion: UInt32

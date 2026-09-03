@@ -49,9 +49,9 @@ struct CLIIntegrationTests {
       JSONSerialization.jsonObject(with: data) as? [String: Any]
     )
     try assertClassificationJSONKeepsScanIdentityPrivate(rawObject)
-    let document = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
+    let document = try JSONDecoder().decode(ClassificationJSONDocumentV2.self, from: data)
     #expect(document.schema == "devsift.classification")
-    #expect(document.schemaVersion == 1)
+    #expect(document.schemaVersion == 2)
     #expect(document.pathStyle == "root-relative")
     #expect(document.scanIsComplete)
     #expect(document.summary.decisionCount == "5")

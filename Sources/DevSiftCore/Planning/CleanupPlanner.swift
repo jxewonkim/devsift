@@ -104,6 +104,9 @@ public struct CleanupPlanner: CleanupPlanning, Sendable {
           disposition: evaluation.disposition
         )
       }
+      guard evaluation.deferredExecutionPreconditionsAreWellFormed else {
+        throw CleanupPlanningError.invalidDeferredExecutionPreconditions(selection.path)
+      }
       guard
         evaluation.rule == selection.ruleRevision,
         evaluation.matchingRules == [selection.ruleRevision]
@@ -141,9 +144,7 @@ public struct CleanupPlanner: CleanupPlanning, Sendable {
       guard identityFinding?.state == .satisfied else {
         throw CleanupPlanningError.identityEvidenceNotSatisfied(selection.path)
       }
-      if let blockingFinding = evaluation.findings.first(where: { finding in
-        finding.state != .satisfied
-      }) {
+      if let blockingFinding = evaluation.nonDeferredBlockingFindings.first {
         throw CleanupPlanningError.evidenceNotSatisfied(
           path: selection.path,
           finding: blockingFinding.identifier
@@ -169,6 +170,7 @@ public struct CleanupPlanner: CleanupPlanning, Sendable {
           responsibleTool: evaluation.responsibleTool,
           classificationExplanation: evaluation.explanation,
           findings: evaluation.findings,
+          deferredExecutionPreconditions: evaluation.deferredExecutionPreconditions,
           size: size
         )
       )

@@ -70,7 +70,11 @@ struct ClassificationOutputTests {
 
     #expect(first == second)
     #expect(first.hasSuffix("\n"))
-    #expect(first.contains("Catalog: devsift.builtin-rules v5"))
+    #expect(
+      first.contains(
+        "Catalog: devsift.builtin-rules v\(BuiltInRuleCatalog.revision.version.rawValue)"
+      )
+    )
     #expect(first.contains("Catalog rules: 6"))
     #expect(first.contains("Scan completeness: partial"))
     #expect(first.contains("Reference time (Unix seconds): -42"))
@@ -84,6 +88,7 @@ struct ClassificationOutputTests {
     #expect(first.contains("Rule revision: devsift.test.cache@7"))
     #expect(first.contains("Matching rule revisions: none"))
     #expect(first.contains("unknown(not-collected)"))
+    #expect(first.contains("Deferred execution preconditions: none"))
     #expect(first.contains("Generated\\ncache"))
     #expect(first.contains("Evidence\\rnot collected"))
     #expect(first.contains("8.0 KiB (8192 B)"))
@@ -131,7 +136,7 @@ struct ClassificationOutputTests {
     let text = ClassificationTextRenderer.render(report: report, scanReport: scanReport)
     let json = try ClassificationJSONRenderer.render(report: report, scanReport: scanReport)
     let data = try #require(json.data(using: String.Encoding.utf8))
-    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
+    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV2.self, from: data)
 
     #expect(text.contains("Report: partial"))
     #expect(text.contains("Root summary: partial"))
@@ -155,7 +160,7 @@ struct ClassificationOutputTests {
     #expect(decoded.scanIntegrity.anyUnknownAllocatedSize)
   }
 
-  @Test("JSON v1 has exact key sets, string integers, and lossless raw paths")
+  @Test("JSON v2 has exact key sets, deferred preconditions, string integers, and raw paths")
   func jsonOutputContract() throws {
     let rawPath = [[UInt8](arrayLiteral: 0xFF, 0x00, 0x5C)]
     let rootIdentity = FileIdentity(device: 0xD35, inode: 0x200)
@@ -227,18 +232,17 @@ struct ClassificationOutputTests {
       scanReport: scanReport
     )
     let data = try #require(first.data(using: String.Encoding.utf8))
-    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV1.self, from: data)
+    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV2.self, from: data)
 
     #expect(first == second)
     #expect(first.hasSuffix("\n"))
     #expect(first.hasSuffix("\n\n") == false)
-    #expect(decoded == ClassificationJSONDocumentV1(report: report, scanReport: scanReport))
+    #expect(decoded == ClassificationJSONDocumentV2(report: report, scanReport: scanReport))
     #expect(decoded.schema == "devsift.classification")
-    #expect(decoded.schemaVersion == 1)
+    #expect(decoded.schemaVersion == 2)
     #expect(decoded.pathStyle == "root-relative")
     #expect(decoded.catalog.identifier == BuiltInRuleCatalog.revision.identifier.rawValue)
     #expect(decoded.catalog.version == String(BuiltInRuleCatalog.revision.version.rawValue))
-    #expect(decoded.catalog.version == "5")
     #expect(decoded.catalog.ruleCount == String(BuiltInRuleCatalog.rules.count))
     #expect(decoded.referenceUnixSeconds == String(Int64.min))
     #expect(decoded.scanIntegrity.retainedTopLevelItemCount == "1")
@@ -257,8 +261,57 @@ struct ClassificationOutputTests {
     #expect(decoded.decisions.first?.observation?.unknownAllocatedItemCount == String(UInt64.max))
     #expect(decoded.decisions.first?.findings.first?.state.status == "unknown")
     #expect(decoded.decisions.first?.findings.first?.state.reason == "resource-limit")
+    #expect(decoded.decisions.first?.deferredExecutionPreconditions == [])
     #expect(first.contains("\"ruleRevision\" : null"))
-    try assertJSONV1KeySets(data)
+    try assertJSONV2KeySets(data)
+  }
+
+  @Test("Deferred execution preconditions stay distinct from unknown activity evidence")
+  func deferredExecutionPreconditionOutput() throws {
+    let precondition = RuleDeferredExecutionPrecondition
+      .requiresUserAttestationThatResponsibleToolIsStopped
+    let evaluation = CLITestClassificationFactory.evaluation(
+      deferredExecutionPreconditions: [precondition],
+      findings: [
+        CLITestClassificationFactory.finding(
+          identifier: "activity-requirement",
+          kind: .activity,
+          state: .unknown(.notCollected),
+          explanation: "Activity remains unobserved."
+        )
+      ]
+    )
+    let report = CLITestClassificationFactory.report(evaluations: [evaluation])
+    let scanReport = CLITestReportFactory.report(
+      topLevelItems: [CLITestReportFactory.item(rawComponents: evaluation.path.rawComponents)]
+    )
+
+    let text = ClassificationTextRenderer.render(report: report, scanReport: scanReport)
+    let json = try ClassificationJSONRenderer.render(report: report, scanReport: scanReport)
+    let data = try #require(json.data(using: .utf8))
+    let decoded = try JSONDecoder().decode(ClassificationJSONDocumentV2.self, from: data)
+    let rendered = try #require(decoded.decisions.first?.deferredExecutionPreconditions.first)
+    let activity = try #require(decoded.decisions.first?.findings.first)
+    let object = try #require(
+      JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    let decision = try #require((object["decisions"] as? [[String: Any]])?.first)
+    let rawPrecondition = try #require(
+      (decision["deferredExecutionPreconditions"] as? [[String: Any]])?.first
+    )
+
+    #expect(
+      text.contains(
+        "Deferred execution preconditions: \(precondition.rawValue)@\(precondition.policyRevision)"
+      )
+    )
+    #expect(rendered.identifier == precondition.rawValue)
+    #expect(rendered.policyRevision == String(precondition.policyRevision))
+    #expect(rendered.policyRevision == "1")
+    #expect(Set(rawPrecondition.keys) == ["identifier", "policyRevision"])
+    #expect(rawPrecondition["policyRevision"] is String)
+    #expect(activity.state.status == "unknown")
+    #expect(activity.state.reason == "not-collected")
   }
 
   @Test("Ambiguous duplicate scan summaries do not get attached to a decision")
@@ -277,7 +330,7 @@ struct ClassificationOutputTests {
     #expect(json.contains("\"observation\" : null"))
   }
 
-  private func assertJSONV1KeySets(_ data: Data) throws {
+  private func assertJSONV2KeySets(_ data: Data) throws {
     let object = try #require(
       JSONSerialization.jsonObject(with: data) as? [String: Any]
     )
@@ -329,9 +382,10 @@ struct ClassificationOutputTests {
       Set(decision.keys) == [
         "path", "ruleRevision", "matchingRuleRevisions", "displayName", "responsibleTool",
         "matchState", "disposition", "reproducibility", "observation", "findings",
-        "explanation",
+        "deferredExecutionPreconditions", "explanation",
       ]
     )
+    #expect(try #require(decision["deferredExecutionPreconditions"] as? [Any]).isEmpty)
 
     let path = try #require(decision["path"] as? [String: Any])
     #expect(Set(path.keys) == ["display", "rawComponentsBase64"])
