@@ -1,13 +1,26 @@
 import Foundation
 
 public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
+  /// Increment this revision whenever classifier-wide decision semantics,
+  /// automatic findings, evidence interpretation, or validation changes.
+  public static let classificationContractRevision = RuleRevision(
+    identifier: makeRuleIdentifier("devsift.classification.explainable"),
+    version: makeRuleVersion(1)
+  )
+
   private let rules: [any ExplainableRule]
   private let evidenceObserver: any RuleEvidenceObserving
+  private let policyProvenance: RulePolicyProvenance?
 
   public init() {
     let builtIns = BuiltInRuleCatalog.rules
     do {
       try Self.validateCatalog(builtIns)
+      policyProvenance = try RulePolicyProvenance(
+        classificationContractRevision: Self.classificationContractRevision,
+        catalogRevision: BuiltInRuleCatalog.revision,
+        ruleRevisions: builtIns.map { $0.definition.revision }
+      )
     } catch {
       preconditionFailure("The built-in rule catalog is invalid: \(error)")
     }
@@ -15,19 +28,58 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
     evidenceObserver = DescriptorRuleEvidenceObserver()
   }
 
+  /// Creates a presentation-only custom classifier. Its reports deliberately
+  /// have no planning provenance; use the catalog-revision overload when a
+  /// custom catalog maintains an explicit semantic version contract.
   public init(rules: [any ExplainableRule]) throws {
     try Self.validateCatalog(rules)
     self.rules = rules.sorted { $0.definition.revision < $1.definition.revision }
     evidenceObserver = DescriptorRuleEvidenceObserver()
+    policyProvenance = nil
+  }
+
+  /// Creates a custom classifier whose catalog owner explicitly versions all
+  /// catalog composition and assessment semantics. The built-in catalog
+  /// identifier is reserved for the default initializer.
+  public init(
+    rules: [any ExplainableRule],
+    catalogRevision: RuleRevision
+  ) throws {
+    guard catalogRevision.identifier != BuiltInRuleCatalog.revision.identifier else {
+      throw RuleCatalogValidationError.reservedCatalogIdentifier(
+        catalogRevision.identifier
+      )
+    }
+    try Self.validateCatalog(rules)
+    self.rules = rules.sorted { $0.definition.revision < $1.definition.revision }
+    evidenceObserver = DescriptorRuleEvidenceObserver()
+    policyProvenance = try RulePolicyProvenance(
+      classificationContractRevision: Self.classificationContractRevision,
+      catalogRevision: catalogRevision,
+      ruleRevisions: rules.map { $0.definition.revision }
+    )
   }
 
   init(
     rules: [any ExplainableRule],
-    evidenceObserver: any RuleEvidenceObserving
+    evidenceObserver: any RuleEvidenceObserving,
+    catalogRevision: RuleRevision? = nil
   ) throws {
+    if catalogRevision?.identifier == BuiltInRuleCatalog.revision.identifier {
+      throw RuleCatalogValidationError.reservedCatalogIdentifier(
+        BuiltInRuleCatalog.revision.identifier
+      )
+    }
     try Self.validateCatalog(rules)
     self.rules = rules.sorted { $0.definition.revision < $1.definition.revision }
     self.evidenceObserver = evidenceObserver
+    policyProvenance = try catalogRevision.map { catalogRevision in
+      try RulePolicyProvenance(
+        classificationContractRevision: Self.classificationContractRevision,
+        catalogRevision: catalogRevision,
+        ruleRevisions: rules.map { $0.definition.revision }
+      )
+    }
   }
 
   public func classify(
@@ -79,7 +131,9 @@ public struct ExplainableRuleClassifier: RuleClassifying, Sendable {
 
     return RuleClassificationReport(
       referenceUnixSeconds: referenceUnixSeconds,
-      evaluations: result
+      evaluations: result,
+      policyProvenance: policyProvenance,
+      sourceBinding: nil
     )
   }
 

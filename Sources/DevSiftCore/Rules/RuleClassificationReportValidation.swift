@@ -98,9 +98,12 @@ extension RuleClassificationReport {
   /// request. Custom classifiers are trusted in-process code, but callers can
   /// use this method to reject bounded yet structurally inconsistent output.
   public func validate(for request: RuleClassificationRequest) throws {
-    if let sourceRequestBinding {
-      guard sourceRequestBinding == request else {
+    if let sourceBinding {
+      guard sourceBinding.request == request else {
         throw RuleClassificationReportValidationError.sourceRequestMismatch
+      }
+      guard sourceBinding.policyProvenance == policyProvenance else {
+        throw RuleClassificationReportValidationError.sourcePolicyProvenanceMismatch
       }
     }
     guard referenceUnixSeconds == request.referenceUnixSeconds else {
@@ -174,7 +177,24 @@ extension RuleClassificationReport {
     var totalTextBytes = 0
     var totalIdentityTextBytes = 0
     var totalMatchingRuleRevisions = 0
+    let declaredRuleRevisions = policyProvenance.map { Set($0.ruleRevisions) }
     for evaluation in evaluations {
+      if let declaredRuleRevisions {
+        if let rule = evaluation.rule, !declaredRuleRevisions.contains(rule) {
+          throw RuleClassificationReportValidationError.undeclaredPolicyRuleRevision(
+            path: evaluation.path,
+            revision: rule
+          )
+        }
+        if let undeclared = evaluation.matchingRules.first(where: {
+          !declaredRuleRevisions.contains($0)
+        }) {
+          throw RuleClassificationReportValidationError.undeclaredPolicyRuleRevision(
+            path: evaluation.path,
+            revision: undeclared
+          )
+        }
+      }
       let inputCount = inputCounts[evaluation.path] ?? 0
       if inputCount > 1 {
         try validateDuplicateObservationDecision(evaluation)

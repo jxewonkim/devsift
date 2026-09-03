@@ -2,6 +2,19 @@ import Foundation
 
 @testable import DevSiftCore
 
+let planningTestCatalogRevision = RuleRevision(
+  identifier: testRuleIdentifier("devsift.test.planning-catalog"),
+  version: testRuleVersion()
+)
+
+func builtInTestPolicyProvenance() throws -> RulePolicyProvenance {
+  try RulePolicyProvenance(
+    classificationContractRevision: ExplainableRuleClassifier.classificationContractRevision,
+    catalogRevision: BuiltInRuleCatalog.revision,
+    ruleRevisions: BuiltInRuleCatalog.rules.map { $0.definition.revision }
+  )
+}
+
 struct PlanningTestCandidate {
   let rawName: [UInt8]
   let identity: FileIdentity?
@@ -148,7 +161,10 @@ func makePlanningTestScenario(
   )
   let classifier: ExplainableRuleClassifier
   if let rules {
-    classifier = try ExplainableRuleClassifier(rules: rules)
+    classifier = try ExplainableRuleClassifier(
+      rules: rules,
+      catalogRevision: planningTestCatalogRevision
+    )
   } else {
     classifier = ExplainableRuleClassifier()
   }
@@ -188,6 +204,7 @@ func planningClassificationReport(
   RuleClassificationReport(
     referenceUnixSeconds: referenceUnixSeconds ?? report.referenceUnixSeconds,
     evaluations: evaluations ?? report.evaluations,
-    sourceRequestBinding: report.sourceRequestBinding
+    policyProvenance: report.policyProvenance,
+    sourceBinding: report.sourceBinding
   )
 }

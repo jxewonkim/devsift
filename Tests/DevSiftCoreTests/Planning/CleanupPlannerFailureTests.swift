@@ -82,7 +82,9 @@ struct CleanupPlannerFailureTests {
     )
     let emptyClassificationReport = RuleClassificationReport(
       referenceUnixSeconds: 100,
-      evaluations: []
+      evaluations: [],
+      policyProvenance: try builtInTestPolicyProvenance(),
+      sourceBinding: nil
     ).binding(to: partialClassificationRequest)
     expectPlanningError(
       .incompleteScan,
@@ -170,6 +172,81 @@ struct CleanupPlannerFailureTests {
       request: source.manifestRequest(
         selections: [selection],
         classificationReport: unboundReport
+      )
+    )
+  }
+
+  @Test("Planning requires classifier-sealed policy provenance and declared rules")
+  func policyProvenance() async throws {
+    let candidate = PlanningTestCandidate(
+      rawName: Array("candidate".utf8),
+      identity: FileIdentity(device: 42, inode: 2)
+    )
+    let definition = syntheticDefinition(id: "devsift.test.policy-candidate")
+    let rule = SyntheticRule(definition: definition)
+    let scenario = try await makePlanningTestScenario(
+      candidates: [candidate],
+      rules: [rule]
+    )
+    let selection = scenario.selection(for: candidate.path)
+
+    let presentationClassifier = try ExplainableRuleClassifier(rules: [rule])
+    let unprovenanced = try await presentationClassifier.classify(
+      observations: [candidate.observation],
+      referenceUnixSeconds: scenario.classificationRequest.referenceUnixSeconds
+    ).binding(to: scenario.classificationRequest)
+    #expect(unprovenanced.isSourceBound(to: scenario.classificationRequest))
+    expectPlanningError(
+      .missingPolicyProvenance,
+      request: scenario.manifestRequest(
+        selections: [selection],
+        classificationReport: unprovenanced
+      )
+    )
+
+    let emptyRoster = try RulePolicyProvenance(
+      classificationContractRevision: ExplainableRuleClassifier.classificationContractRevision,
+      catalogRevision: planningTestCatalogRevision,
+      ruleRevisions: []
+    )
+    let undeclaredRule = RuleClassificationReport(
+      referenceUnixSeconds: scenario.classificationReport.referenceUnixSeconds,
+      evaluations: scenario.classificationReport.evaluations,
+      policyProvenance: emptyRoster,
+      sourceBinding: nil
+    ).binding(to: scenario.classificationRequest)
+    expectPlanningError(
+      .invalidClassificationReport(
+        .undeclaredPolicyRuleRevision(
+          path: candidate.path,
+          revision: definition.revision
+        )
+      ),
+      request: scenario.manifestRequest(
+        selections: [selection],
+        classificationReport: undeclaredRule
+      )
+    )
+
+    let editedProvenance = try RulePolicyProvenance(
+      classificationContractRevision: ExplainableRuleClassifier.classificationContractRevision,
+      catalogRevision: RuleRevision(
+        identifier: planningTestCatalogRevision.identifier,
+        version: testRuleVersion(2)
+      ),
+      ruleRevisions: [definition.revision]
+    )
+    let editedAfterBinding = RuleClassificationReport(
+      referenceUnixSeconds: scenario.classificationReport.referenceUnixSeconds,
+      evaluations: scenario.classificationReport.evaluations,
+      policyProvenance: editedProvenance,
+      sourceBinding: scenario.classificationReport.sourceBinding
+    )
+    expectPlanningError(
+      .invalidClassificationReport(.sourcePolicyProvenanceMismatch),
+      request: scenario.manifestRequest(
+        selections: [selection],
+        classificationReport: editedAfterBinding
       )
     )
   }

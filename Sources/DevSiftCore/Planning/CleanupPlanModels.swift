@@ -31,6 +31,7 @@ public enum CleanupPlanningError: Error, Equatable, Sendable {
   case invalidClassificationReport(RuleClassificationReportValidationError)
   case classificationValidationFailed
   case classificationReportIsNotSourceBound
+  case missingPolicyProvenance
   case tooManySelections(maximum: Int, actual: Int)
   case incompleteScan
   case missingRootIdentity
@@ -168,9 +169,10 @@ public struct CleanupManifestTotals: Hashable, Sendable {
 /// An immutable, unapproved dry-run artifact produced from validated scan and
 /// classification values. This value is never authority to mutate a path.
 public struct CleanupManifest: Hashable, Sendable {
-  public static let currentContractVersion: UInt32 = 1
+  public static let currentContractVersion: UInt32 = 2
 
   public let contractVersion: UInt32
+  public let policyProvenance: RulePolicyProvenance
   public let classificationReferenceUnixSeconds: Int64
   public let expectedRootIdentity: FileIdentity
   public let entries: [CleanupManifestEntry]
@@ -184,6 +186,8 @@ public struct CleanupManifest: Hashable, Sendable {
   public var requiresExecutionRevalidation: Bool { true }
 
   init(
+    contractVersion: UInt32 = CleanupManifest.currentContractVersion,
+    policyProvenance: RulePolicyProvenance,
     classificationReferenceUnixSeconds: Int64,
     expectedRootIdentity: FileIdentity,
     entries: [CleanupManifestEntry]
@@ -194,7 +198,8 @@ public struct CleanupManifest: Hashable, Sendable {
       }
       return left.ruleRevision < right.ruleRevision
     }
-    contractVersion = Self.currentContractVersion
+    self.contractVersion = contractVersion
+    self.policyProvenance = policyProvenance
     self.classificationReferenceUnixSeconds = classificationReferenceUnixSeconds
     self.expectedRootIdentity = expectedRootIdentity
     self.entries = orderedEntries
