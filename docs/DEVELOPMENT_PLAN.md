@@ -92,16 +92,18 @@ observed inode modification time per summary and projects it into age findings
 for complete items. Summaries also retain their own scan-time identity, and a
 bounded identity-bound observer can now verify the metadata of an exact
 `workspace-state.json` marker inside an exact SwiftPM `.build` candidate. This
-advances that rule to revision 2 and the CLI catalog to version 2. A later
-observer can now establish trusted location for exact uv, npm, and Homebrew
-default containers, advancing the classification contract to revision 2 without
-changing catalog or rule revisions.
+advances that rule to revision 2. The observer also establishes trusted location
+for exact uv, npm, and Homebrew default containers, advancing the classification
+contract to revision 2, and recognizes the supported npm cacache layout from
+exact `content-v2` and `index-v5` directory children. That npm rule is now
+revision 2 and the built-in catalog is version 3; the classifier contract stays
+at revision 2 because common evidence interpretation is unchanged.
 
 The scan-time identity only binds this read-only reobservation; it is not cleanup
 or deletion authority. Ownership, reliable activity, protected descendants,
-non-SwiftPM generated markers, and location for other rules remain uncollected,
-so real candidates stay `Protected`. Observers for those remaining facts are
-later increments.
+generated markers outside SwiftPM and npm, and location for other rules remain
+uncollected, so real candidates stay `Protected`. Observers for those remaining
+facts are later increments.
 
 Implemented commit sequence:
 
@@ -123,7 +125,9 @@ Implemented commit sequence:
 - `feat(rules): bind SwiftPM marker evidence`;
 - `docs(rules): document identity-bound marker evidence`;
 - `feat(rules): bind trusted cache locations`;
-- `docs(rules): define trusted location evidence`.
+- `docs(rules): define trusted location evidence`;
+- `feat(rules): bind npm cache marker evidence`;
+- `docs(rules): define npm layout evidence`.
 
 - Introduce versioned rule definitions, eligible dispositions, and
   reproducibility classes.
@@ -288,6 +292,19 @@ Implemented second increment: `feat(rules): bind trusted cache locations`.
   evidence alone cannot make a real candidate eligible.
 - Advance only the classifier-wide evidence contract to revision 2; keep the
   built-in catalog and individual rule revisions unchanged.
+
+Implemented third increment: `feat(rules): bind npm cache marker evidence`.
+
+- Recognize the supported cacache layout only when exact raw direct-child names
+  `content-v2` and `index-v5` both identify same-device directories.
+- Enumerate raw direct-child names to EOF through a descriptor, permit at most
+  256 non-dot entries, and use the same gate to harden SwiftPM marker casing.
+- Read no file contents, infer no tool ownership or activity, and expose no
+  mutation authority; unresolved required facts keep real candidates
+  `Protected`.
+- Advance npm to rule revision 2 and the built-in catalog to revision 3. Keep
+  SwiftPM and the classifier contract at revision 2, with frontend schemas
+  unchanged.
 
 Next: add separately reviewed rule-specific evidence needed for real
 eligibility; only then design recoverable quarantine. The future executor must

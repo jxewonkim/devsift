@@ -46,11 +46,13 @@ scan report. For a complete retained item, the classifier can evaluate age from
 the conservative newest inode modification time observed during that scan.
 For an exact SwiftPM `.build` candidate, an identity-bound observer can also
 check metadata for an exact regular-file `workspace-state.json` generated
-marker. Exact default uv, npm, and Homebrew cache containers may also satisfy
-trusted-location evidence after descriptor-bound reobservation. Ownership,
-activity, protected-descendant, and non-SwiftPM generated-marker evidence remain
-uncollected, so real recognized candidates stay protected; see the
-[rules contract](RULES.md).
+marker. For an exact npm `_cacache`, bounded raw enumeration can identify exact
+`content-v2` and `index-v5` directories as a supported cacache-layout marker.
+Exact default uv, npm, and Homebrew cache containers may also satisfy trusted-
+location evidence after descriptor-bound reobservation. Ownership, activity,
+protected-descendant, and generated markers for the other rules remain
+uncollected, so real recognized candidates stay protected; see the [rules
+contract](RULES.md).
 Before rendering, the CLI validates the returned classification against the
 original `ScanReport` and reference time supplied to the classifier. An invalid
 or malformed report produces only the generic internal-error response. It exits
@@ -223,10 +225,11 @@ a schema example, not a promised scan result for an empty directory.
 change the existing scan schema.
 
 The classification JSON schema remains version 1. Its built-in catalog is
-version 2, which advances only `devsift.swiftpm.build` to rule revision 2 for
-the exact `workspace-state.json` marker semantic; every other built-in rule
-remains at revision 1. Catalog and rule revisions can change without changing
-the JSON key shape. The identifier and version now come from the Core-owned
+version 3. `devsift.cache.npm` is rule revision 2 for the exact cacache-layout
+marker, `devsift.swiftpm.build` remains revision 2 for the exact
+`workspace-state.json` marker, and every other built-in rule remains revision
+1. Catalog and rule revisions can change without changing the JSON key shape.
+The identifier and version come from the Core-owned
 `BuiltInRuleCatalog.revision`, preventing CLI metadata from drifting from the
 classifier; the wire shape remains unchanged. The full Core policy provenance
 and its rule roster are not exported by this schema.
@@ -265,8 +268,8 @@ overflow booleans.
 An age finding may now be satisfied, failed, or unknown from the in-memory scan
 aggregate. Classification JSON v1 does not emit the candidate's raw timestamp
 or scan-time identity; it emits the existing finding states and explanations
-and continues to use the single `referenceUnixSeconds` value. The SwiftPM
-marker finding uses that same existing shape, so the wire schema is unchanged.
+and continues to use the single `referenceUnixSeconds` value. SwiftPM and npm
+marker findings use that same existing shape, so the wire schema is unchanged.
 
 Every classification integer that can exceed a portable JSON integer range is
 encoded as a decimal string. Nullable fields are emitted explicitly as JSON
@@ -283,7 +286,7 @@ A shortened synthetic decision has this shape:
   "pathStyle": "root-relative",
   "catalog": {
     "identifier": "devsift.builtin-rules",
-    "version": "2",
+    "version": "3",
     "ruleCount": "6"
   },
   "referenceUnixSeconds": "1700000000",

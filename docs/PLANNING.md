@@ -64,10 +64,11 @@ An empty selection produces an empty draft when its enclosing scan and
 classification inputs are valid; the planner never invents candidates.
 
 The current real-scan pipeline can establish trusted location for three exact
-default cache containers, but still leaves several other required built-in facts
-unknown. Recognized candidates therefore remain `Protected` and cannot enter a
-nonempty draft. Synthetic complete evidence exercises eligible planning without
-weakening the runtime classification boundary.
+default cache containers and the supported npm cacache-layout marker, but still
+leaves several other required built-in facts unknown. Recognized candidates
+therefore remain `Protected` and cannot enter a nonempty draft. Synthetic
+complete evidence exercises eligible planning without weakening the runtime
+classification boundary.
 
 ## Policy provenance
 
@@ -78,7 +79,7 @@ roster is limited to 128 rules and rejects duplicate identifiers rather than
 silently deduplicating them.
 
 The default classifier seals `devsift.classification.explainable@2`, the
-Core-owned `devsift.builtin-rules@2` catalog revision, and the exact built-in
+Core-owned `devsift.builtin-rules@3` catalog revision, and the exact built-in
 roster into every report. `ExplainableRuleClassifier(rules:)` remains a
 presentation-only extension point: its reports are source-bound but
 deliberately unprovenanced and therefore cannot be planned. A trusted custom

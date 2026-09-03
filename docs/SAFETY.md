@@ -66,8 +66,9 @@ findings, and policy decision. Incomplete and unknown observations fail closed.
 Its root-URL-free, non-`Codable` report is point-in-time and copyable; it is not
 freshness proof, mutation authority, or executor input. Current real entries
 remain Protected. Exact default uv, npm, and Homebrew containers can satisfy
-trusted location, while ownership, reliable activity, protected descendants,
-non-SwiftPM generated markers, and location for other rules remain uncollected.
+trusted location, and npm may satisfy its supported cacache-layout marker.
+Ownership, reliable activity, protected descendants, generated markers for
+other rules, and location for other rules remain uncollected.
 
 ## Hard invariants
 
@@ -177,6 +178,10 @@ non-SwiftPM generated markers, and location for other rules remain uncollected.
 - A satisfied SwiftPM `workspace-state.json` marker proves only that the exact
   metadata check passed. It does not override an unavailable required fact, so
   the candidate remains `Protected`.
+- A satisfied npm generated marker proves only that bounded direct-child
+  metadata matched the supported `content-v2` and `index-v5` cacache layout. It
+  does not prove npm ownership, inspect cached content, or grant mutation
+  authority.
 - A candidate remains `Protected` when a required activity check reports active
   use or is unavailable.
 - A changed candidate is skipped during revalidation.

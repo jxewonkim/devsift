@@ -122,8 +122,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   absolute descriptor walks.
 - Structured false or unknown location outcomes for non-default, unavailable,
   malformed, cross-device, or changed observations. Xcode, SwiftPM, custom cache
-  roots, ownership, activity, protected descendants, and non-SwiftPM generated
-  markers remain uncollected, so real candidates remain Protected.
+  roots, ownership, activity, protected descendants, and most generated markers
+  remain uncollected, so real candidates remain Protected.
+- Bounded generated-marker evidence for an exact npm `_cacache` containing
+  exact raw `content-v2` and `index-v5` direct-child directories. Observation
+  permits at most 256 non-dot direct entries, reads no cache contents, follows
+  no symbolic links, and reports missing or wrong-kind entries as false while
+  failures, races, and over-limit directories remain structured unknowns.
+- Exact raw directory-entry gating for the existing SwiftPM
+  `workspace-state.json` marker, including on case-insensitive filesystems.
 
 ### Changed
 
@@ -131,12 +138,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   Raw candidate timestamps and scan-time identities remain Core-only;
   classification reflects the timestamp only through the existing age finding
   state and generic explanation.
-- The CLI built-in catalog is now version 2. Only
-  `devsift.swiftpm.build` advances to rule revision 2 for its generated-marker
-  semantics; all other built-in rule revisions remain at version 1. The catalog
-  identifier and version now come from the Core-owned catalog revision rather
-  than duplicate CLI constants; the classification JSON wire shape is
-  unchanged.
+- The CLI built-in catalog is now version 3. `devsift.cache.npm` advances to
+  rule revision 2 for its cacache-layout marker; `devsift.swiftpm.build` remains
+  at revision 2 and every other rule remains at revision 1. The catalog
+  identifier and version come from the Core-owned catalog revision rather than
+  duplicate CLI constants; the classification JSON wire shape is unchanged.
 - The explainable-classification contract is now revision 2 for trusted-location
-  evidence interpretation. Built-in catalog version 2, every individual rule
-  revision, scan JSON v2, and classification JSON v1 remain unchanged.
+  evidence interpretation. The npm marker advances only its rule and the
+  built-in catalog; scan JSON v2 and classification JSON v1 remain unchanged.

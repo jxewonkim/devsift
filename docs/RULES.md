@@ -63,13 +63,15 @@ are reserved so rule findings cannot collide with common guards. If malformed
 findings and a multi-rule conflict occur together, invalid-rule reporting takes
 precedence; both outcomes remain protected.
 
-## Built-in catalog version 2
+## Built-in catalog version 3
 
 The initial catalog intentionally starts small. The eligible disposition shown
 below is a ceiling reached only after every required fact is known and passes.
-Catalog version 2 advances only `devsift.swiftpm.build` to rule revision 2 to
-define its generated marker as an exact regular-file `workspace-state.json`
-inside `.build`. Every other built-in rule remains at revision 1.
+Catalog version 3 keeps `devsift.swiftpm.build` at rule revision 2 and advances
+`devsift.cache.npm` to rule revision 2. SwiftPM requires an exact regular-file
+`workspace-state.json` inside `.build`; npm requires exact direct-child
+directories named `content-v2` and `index-v5` inside `_cacache`. Every other
+built-in rule remains at revision 1.
 The identity-rebinding finding is a classifier-owned integrity invariant, not
 a rule-specific definition change; classifier-wide semantics are now tracked
 separately by the explainable-classification contract revision.
@@ -77,7 +79,7 @@ separately by the explainable-classification contract revision.
 | Rule ID | Raw-byte recognition | Reproducibility | Eligible disposition | Minimum age | Additional policy |
 | --- | --- | --- | --- | ---: | --- |
 | `devsift.cache.uv` | direct child named exactly `uv` | Reproducible | Reclaimable | 7 days | Generated, tool-owned cache in a trusted uv cache container; uv inactive |
-| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Generated, tool-owned npm content cache; npm inactive |
+| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, tool ownership, and npm inactivity |
 | `devsift.cache.homebrew` | direct child named exactly `Homebrew` | Conditional | Review required | 7 days | Trusted Homebrew cache container; Homebrew inactive |
 | `devsift.xcode.derived-data` | direct child named exactly `DerivedData` | Conditional | Review required | 7 days | Trusted Xcode container and generated-content evidence; Xcode inactive |
 | `devsift.swiftpm.build` | direct child named exactly `.build` | Conditional | Review required | 7 days | Exact regular-file `Package.swift` sibling and `.build/workspace-state.json` marker; build tooling inactive |
@@ -95,7 +97,11 @@ The catalog policy is informed by the tools' own documentation:
 - npm documents `~/.npm` as its default POSIX cache and `_cacache` as its
   integrity-verified content store:
   [npm configuration](https://docs.npmjs.com/cli/using-npm/config/) and
-  [npm cache documentation](https://docs.npmjs.com/cli/cache/).
+  [npm cache documentation](https://docs.npmjs.com/cli/cache/). The pinned
+  cacache source defines content paths beneath `content-v2` and index paths
+  beneath `index-v5`:
+  [content path](https://github.com/npm/cacache/blob/6e8eb4d7e82694149c34fbb0fbe5441628fc1703/lib/content/path.js) and
+  [index path](https://github.com/npm/cacache/blob/6e8eb4d7e82694149c34fbb0fbe5441628fc1703/lib/entry-index.js).
 - Homebrew documents `~/Library/Caches/Homebrew` as its default macOS cache and
   provides `brew --cache` and age-based `brew cleanup` behavior:
   [Homebrew manual](https://docs.brew.sh/Manpage).
@@ -137,13 +143,23 @@ content, or the absence of protected descendants.
 
 The current evidence observer reopens the selected root and every retained
 top-level candidate descriptor-relatively to verify their kinds and scan-time
-`(device, inode)` identities. It handles one deliberately narrow generated-
-marker case: for an exact top-level `.build` directory, it checks only metadata
-for an exact child named `workspace-state.json`. A stable same-device regular
-file produces a known present marker; a stably absent or different-kind entry
-produces a known missing marker. Symbolic-link targets are never followed.
-Permission, resource-limit, invalid-metadata, incomplete, or changed-object
-cases remain structured unknowns.
+`(device, inode)` identities. It handles two deliberately narrow generated-
+marker cases. For an exact top-level `.build` directory, an exact child named
+`workspace-state.json` must be a stable same-device regular file. For an exact
+top-level `_cacache` directory, exact direct children named `content-v2` and
+`index-v5` must both be stable same-device directories. Missing or wrong-kind
+requirements produce a known missing marker. Extra direct children do not
+invalidate the npm signature, and no descendant or file content is read.
+
+Before metadata lookup, the observer enumerates direct child names as raw bytes
+through a descriptor-backed directory stream. This prevents a case-insensitive
+filesystem from satisfying an exact-name rule with a case variant. Enumeration
+continues to EOF even after all requirements are found and permits at most 256
+non-dot entries; exceeding that bound produces
+`unknown(.resourceLimit)`. Symbolic-link targets are never followed. Permission,
+resource-limit, invalid-metadata, incomplete, or changed-object cases remain
+structured unknowns. The cacache layout is generated-content evidence only: it
+does not establish that npm owns the candidate.
 
 For exact top-level `uv`, `_cacache`, and `Homebrew` candidates, the observer
 also recognizes only the documented default containers `$HOME/.cache`,
@@ -166,7 +182,7 @@ The default classifier seals its returned Core report to the exact in-memory
 report if it is later paired with a different root URL, scan report, reference
 time, or edited provenance. The provenance contains
 `devsift.classification.explainable@2`, the Core-owned
-`devsift.builtin-rules@2` revision, and the complete sorted built-in rule roster.
+`devsift.builtin-rules@3` revision, and the complete sorted built-in rule roster.
 Neither the private binding nor provenance is part of CLI JSON. A report created
 with the public unbound initializer can still support a trusted custom
 presentation flow, but the cleanup planner will not accept it.
@@ -184,8 +200,8 @@ filesystem identity, and grants no planning, cleanup, or deletion authority.
 Inodes can be reused, so any future execution must reopen and revalidate
 containment, kind, identity, and policy evidence immediately before mutation.
 Ownership, reliable-activity, and protected-descendant facts remain uncollected.
-Generated-marker evidence also remains uncollected outside the SwiftPM rule,
-and trusted location remains uncollected outside the three default cache
+Generated-marker evidence also remains uncollected outside the SwiftPM and npm
+rules, and trusted location remains uncollected outside the three default cache
 profiles above.
 
 Consequently, a real scan can recognize a possible built-in candidate and may
@@ -193,8 +209,10 @@ satisfy one trusted-location finding, but the remaining unavailable facts keep
 its disposition `Protected`. Tests may construct synthetic complete evidence to
 verify the catalog's eligible outcomes; that does not weaken the runtime
 boundary. The location interpretation advances the classifier-wide contract to
-revision 2. The built-in catalog stays at version 2, SwiftPM stays at rule
-revision 2, and all other rule revisions remain at version 1.
+revision 2. The built-in catalog is version 3, SwiftPM and npm are at rule
+revision 2, and all other rule revisions remain at version 1. The classifier
+contract remains at revision 2 because this increment adds rule-specific
+evidence without changing common evidence interpretation.
 
 Any future observer for the remaining facts must preserve this
 descriptor-relative safety model. It must use operations such as `openat`,
