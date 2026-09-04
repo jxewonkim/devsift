@@ -16,8 +16,10 @@ creating the quarantine directory or invoking any mutation syscall.
 
 The report remains process-local and non-`Codable`, but the internal transaction
 now uses canonical immutable intent and receipt records, full synchronization,
-and descriptor-bound recovery. There is still no restore workflow, purge, or
-permanent deletion, and no app or CLI launch wiring invokes recovery.
+and descriptor-bound recovery. This quarantine transaction grants no restore,
+purge, or deletion authority. The later, separately authorized Core-internal
+manual restore workflow is defined in [RESTORE.md](RESTORE.md); neither it nor
+recovery is wired to the app or CLI.
 
 ## Exact supported policy
 
@@ -194,9 +196,12 @@ A valid final receipt is immutable historical evidence of the transaction and
 is never reinterpreted from later live source or destination changes. Current
 namespace truth is required for receipt-less intent recovery and for promoting
 a canonical receipt stage, where the intent, digest, and terminal namespace
-must all agree. Restore, manual-recovery UI, purge, and permanent deletion remain
-later work. See the exact state machine, record boundary, synchronization order,
-and recovery table in the [quarantine durability contract](DURABILITY.md).
+must all agree. The later Core-internal manual restore increment adds a separate
+authorization and record family without broadening this quarantine authority;
+restore UI, purge, and permanent deletion remain later work. See the exact
+state machine, record boundary, synchronization order, and recovery table in the
+[quarantine durability contract](DURABILITY.md), plus the
+[manual restore contract](RESTORE.md).
 
 ## Frontend and privacy boundary
 

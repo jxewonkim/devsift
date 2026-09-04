@@ -28,12 +28,14 @@ Cleanup functionality must preserve this ordering:
 ```text
 scan -> classify -> plan -> approve -> revalidate -> authorize attempt
   -> durable quarantine -> recover/report
+canonical quarantined receipt -> confirm restore -> authorize restore
+  -> durable manual restore -> recover/report
 ```
 
 Current versions are classifier contract 3, cleanup manifest 3, manifest diff
-2, approval 2, revalidation 2, quarantine authorization 1, internal execution
-report 2, classification JSON 2, and internal manifest-review JSON 2 over
-source manifest 3. npm is rule
+2, approval 2, revalidation 2, quarantine authorization 1, internal quarantine
+execution report 2, restore authorization 1, restore report 1, classification
+JSON 2, and internal manifest-review JSON 2 over source manifest 3. npm is rule
 revision 5 in built-in catalog 6. Scan JSON remains version 2. Old manifests,
 approvals, and exports are regenerated rather than imported or migrated.
 
@@ -51,9 +53,11 @@ pending execution conditions. Core now has an approval-only, read-only
 revalidation diagnostic, a Core-only in-memory quarantine-attempt authorizer,
 and an internal npm-only atomic quarantine kernel. The kernel now surrounds its
 rename with canonical immutable intent/receipt publication, required
-`F_FULLFSYNC` barriers, and descriptor-bound recovery. Restore, manual-recovery
-UI, purge, deletion, public API, frontend actions, and automatic app-launch
-recovery do not exist in this phase.
+`F_FULLFSYNC` barriers, and descriptor-bound recovery. Core also has a separate
+internal, explicitly confirmed, single-item npm restore path with its own
+authorization, intent, receipt, and bounded diagnostics. Restore UI, purge,
+deletion, public mutation API, frontend actions, automatic restore, and
+automatic app-launch recovery do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -121,6 +125,17 @@ requires inline filesystem revalidation, and grants no standalone mutation
 authority. No consumer or executor is public; the internal npm executor is
 the sole consumer. See the [authorization contract](AUTHORIZATION.md) and
 [quarantine execution contract](QUARANTINE.md).
+
+Manual restore does not reuse quarantine authorization. Core first selects one
+exact canonical final `quarantined` transaction, generates a new restore
+transaction identifier, and requires a separate process-local confirmation.
+Restore authorization version 1 is single-use and grants no standalone,
+overwrite, purge, or deletion authority. Its internal executor reopens the
+fixed account-owned npm namespace, validates the receipt-bound item and current
+cacache tree through held descriptors, publishes a durable restore intent, and
+may invoke one exclusive reverse rename only while `_cacache` is absent.
+Observational recovery may finish a conclusive restore receipt but never retries
+that rename. See the [manual restore contract](RESTORE.md).
 
 ## Hard invariants
 
@@ -234,28 +249,43 @@ the sole consumer. See the [authorization contract](AUTHORIZATION.md) and
   it can redirect the move only within the held root and does not yield a
   success report when reconciliation observes the quarantine-root binding
   change.
+- Manual restore accepts only the item selected by one canonical final
+  `quarantined` receipt. It reopens the fixed passwd-home npm and quarantine
+  roots, matches their historical bindings, validates the current held item and
+  bounded cacache tree, and refuses an occupied `_cacache`; no caller-selected
+  path or item name reaches the rename.
+- Restore uses a fresh process-local confirmation and single-use authorization,
+  then at most one same-volume, no-follow, beneath-root, exclusive reverse
+  rename. It cannot overwrite, copy, link, unlink, purge, or delete.
 - A candidate rename cannot be invoked until a canonical immutable intent and
   its quarantine-directory publication barrier exist. Cooperating transactions
   hold a validated nonblocking exclusive journal lock through reconciliation
-  and terminal receipt publication.
+  and terminal receipt publication. The same ordering applies to the separate
+  restore intent before a reverse rename.
 - Record and namespace durability requires every specified `F_FULLFSYNC` call
   to succeed; Core does not downgrade to `fsync` or report durable success after
   a failed barrier. An inconclusive post-intent state remains receipt-less and
   blocks later mutation.
 - Recovery treats a valid final receipt as immutable historical evidence. It
-  consults current source and destination truth only for a receipt-less intent
-  or canonical receipt-stage promotion, and never resumes, reverses, restores,
-  overwrites, compacts, or deletes an interrupted transaction.
-- Report contract version 2 declares only a terminal receipt durably recorded.
+  consults current source and destination truth only for a receipt-less
+  quarantine or restore intent or canonical receipt-stage promotion. It may
+  publish a conclusive receipt but never invokes or retries either rename,
+  adopts an occupant, overwrites, compacts, or deletes.
+- Quarantine report contract version 2 declares only a terminal receipt durably
+  recorded.
   A validated, canonically reachable intent or receipt is crash-recoverable;
   unresolved state is not, even when it carries a transaction identifier. This
   evidence lets restart recovery inspect and safely complete, preserve, or
   block state; it does not promise automatic receipt publication.
+- Restore report contract version 1 uses the same durability rule. A terminal
+  `not-restored` receipt is durably recorded without claiming a restore, and a
+  report is durably restored only when its terminal receipt records `restored`.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
-- Scan, classification, planning, approval, revalidation, and authorization code
-  cannot mutate files. Only the internal npm execution kernel owns the narrow
-  atomic quarantine namespace operation.
+- Scan, classification, planning, approval, revalidation, and both authorization
+  layers cannot mutate files. Only the internal npm quarantine and manual-
+  restore executors own their narrow atomic namespace operations; their
+  authorizations grant no standalone filesystem capability.
 - The app and CLI expose no cleanup, delete, move, quarantine, restore, purge, or
   permission-escalation action; scan and classification reports remain
   read-only.
@@ -345,6 +375,13 @@ another attempt or carrying the wrong statement may be corrected while the
 session remains open, but cancellation, successful issuance, or consumption is
 not reversed by waiting.
 
+Restore-attempt cancellation is also terminal before its internal claim is
+consumed. Before durable restore-intent publication it causes no restore
+mutation. After intent publication but before rename, Core may record a
+conclusive `not-restored` receipt. Once rename has been invoked, cancellation is
+latched for reporting while namespace reconciliation, required durability
+barriers, and safe receipt publication continue.
+
 ## Rule requirements
 
 A cleanup rule must declare:
@@ -409,7 +446,9 @@ internal handoff and establishes policy and object evidence inline while
 holding verified descriptors through its atomic move. See the
 [planning contract](PLANNING.md), [revalidation contract](REVALIDATION.md), and
 [authorization contract](AUTHORIZATION.md), plus the
-[quarantine execution contract](QUARANTINE.md).
+[quarantine execution contract](QUARANTINE.md),
+[durability contract](DURABILITY.md), and
+[manual restore contract](RESTORE.md).
 
 The internal review encoder accepts only Core manifest contract version 3 and
 emits CLI schema `devsift.cleanup-manifest-review` version 2. A per-entry
@@ -460,10 +499,12 @@ internal consumption across copies, terminal cancellation, non-`Codable`
 values, and the absence of process, npm, clock, filesystem, persistence,
 frontend, and CLI operations.
 
-Durability tests use only synthetic temporary journal namespaces. They cover
-canonical intent and receipt bytes, exclusive publication, lock contention,
-sync failures, staged and orphan records, bounded inventory, destination-plan
-collisions, the complete receipt-less recovery table, and preservation outside
+Durability and restore tests use only synthetic temporary journal namespaces.
+They cover canonical quarantine and restore record bytes, exclusive
+publication, lock contention, sync failures, staged and orphan records, mixed
+bounded inventory, capacity boundaries, destination-plan collisions, both
+receipt-less recovery tables, single-use restore confirmation and execution,
+descriptor/path races, non-overwriting reverse rename, and preservation outside
 the exact journal namespace.
 
 Any future permanent-removal feature requires a separate design review, threat

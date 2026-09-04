@@ -568,7 +568,7 @@ Implemented tenth increment:
   API, app action, or CLI action. Record the contract in the
   [quarantine durability contract](DURABILITY.md).
 
-Proposed eleventh increment:
+Implemented eleventh increment:
 `feat(core): add durable manual npm restore`.
 
 - Add a Core-internal, npm-only manual workflow that discovers one exact
@@ -609,20 +609,25 @@ Proposed eleventh increment:
   and report internal and non-`Codable`. Add no public API, app or CLI action,
   automatic launch recovery, batch or background restore, custom-root or
   multi-rule support, purge, permanent deletion, journal compaction, analytics,
-  or network access. Record the full proposed contract in the
+  or network access. Record the implemented contract in the
   [manual quarantine restore contract](RESTORE.md).
 
-Current boundary after the durability increment:
+Current boundary after the manual-restore increment:
 
-- Add restore and a bounded manual-recovery workflow before any permanent-
-  removal work.
-- Wire recovery and execution into the app only after the frontend transaction
-  flow, security review, failure presentation, and release checks are complete.
-  The CLI remains without a mutation command.
-- Design purge as a later, separately reviewed policy, authorization, and user
-  action. Quarantine authorization version 1 never authorizes deletion.
-- Report completed, failed, changed, recovered, restored, and skipped items
-  individually at the applicable stages.
+- Core can internally prepare, explicitly authorize, execute, durably record,
+  recover, and report one exact receipt-bound npm `_cacache` restore at a time.
+  The workflow accepts no arbitrary root, source path, destination path, or
+  quarantine item name.
+- Restore selection, authorization, executor, reports, journal facade, and
+  recovery entry points remain internal and non-`Codable`. The app and CLI are
+  read-only and expose no restore action; no automatic, launch-time, batch, or
+  background restore runs.
+- Purge, permanent deletion, overwrite, unlink, journal compaction, and
+  retention remain absent. Neither quarantine authorization version 1 nor a
+  restore artifact authorizes deletion.
+- Bounded internal reports distinguish conclusive terminal receipts from
+  receipt-less or unresolved state without turning diagnostics into mutation
+  authority.
 
 Gate: adversarial tests cover symlink swaps, path races, mounts, partial
 failures, cancellation on both sides of the rename linearization point, crash-
@@ -631,6 +636,9 @@ boundary integrity. A focused security review is required. Revalidation must
 reopen the target and establish fresh containment, kind, identity, and policy
 evidence immediately before any mutation; scan-time inode identity alone is
 never sufficient.
+
+The eleventh increment's repository-internal focused review is recorded in
+[MANUAL_RESTORE_SECURITY_REVIEW.md](MANUAL_RESTORE_SECURITY_REVIEW.md).
 
 Milestone: `v0.3.0-alpha.1` -- quarantine-based cleanup. Permanent removal is a
 later, separately reviewed milestone.

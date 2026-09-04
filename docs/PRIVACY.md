@@ -10,11 +10,11 @@ DevSift is designed to work locally and reveal as little as possible.
 - No network access required for scanning.
 - No background or automatic scanning.
 - No scan outside roots explicitly selected by the user.
-- The Core-internal npm quarantine kernel reads only metadata needed for its
-  descriptor-held validation and issues mutations only at the approved
-  `_cacache` source name and fixed quarantine namespace. It does not read cached
-  file contents, invoke npm, inspect processes, use the network, or emit
-  telemetry.
+- The Core-internal npm quarantine and manual-restore kernels read only metadata
+  and canonical journal records needed for descriptor-held validation. They
+  issue mutations only between the exact `_cacache` source name and fixed
+  quarantine namespace. They do not read cached file contents, invoke npm,
+  inspect processes, use the network, or emit telemetry.
 - Scanning reads POSIX inode modification times but retains only one maximum
   aggregate per root or top-level summary, not a timestamp for every
   descendant. It does not read file contents.
@@ -67,12 +67,20 @@ DevSift is designed to work locally and reveal as little as possible.
   unobserved-risk assertion. No frontend invokes this API. It performs no
   process inspection, npm invocation, clock read, network request, or
   filesystem I/O and exposes no persistence or public consume operation.
+- Core restore preparation retains the canonical intent and receipt bytes for
+  one exact quarantine transaction and exposes a separate process-local
+  confirmation subject containing transaction identifiers, exact relative
+  paths, and npm attribution; the retained evidence also contains policy
+  revisions. Restore authorization and its internal claim are single-use,
+  non-`Codable`, unpersisted, and unavailable to both frontends. They are not
+  authentication, proof of human action, or standalone filesystem authority.
 - The internal durability layer necessarily persists canonical intent and
-  receipt records inside the account-owned `.devsift-quarantine-v1` directory.
-  Records contain exact raw relative paths, filesystem bindings, policy
-  revisions, and transaction metadata. They remain local, are not telemetry or
-  exports, and are accessed only by the internal executor and recovery engine.
-  No app-launch wiring or frontend inventory exposes them.
+  receipt records for both quarantine and restore inside the account-owned
+  `.devsift-quarantine-v1` directory. Records contain exact raw relative paths,
+  filesystem bindings, policy revisions, transaction links, digests, and
+  outcome metadata. They remain local, are not telemetry or exports, and are
+  accessed only by the internal executors and recovery engine. No app-launch
+  wiring or frontend inventory exposes them.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
@@ -168,6 +176,17 @@ still discard their own copies. The request, attestation, session,
 authorization, and internal claim are non-`Codable`, unpersisted, unlogged, and
 unuploaded. No clock or timestamp is stored, and no TTL reconstructs freshness.
 
+A `CleanupQuarantineRestoreAuthorizationSession` retains canonical quarantine
+intent and receipt bytes plus the Core-derived restore intent for one exact
+transaction. Its confirmation request repeats both transaction identifiers,
+the exact `_cacache` and quarantine-item relative paths, and npm attribution.
+The session, confirmation, authorization, internal claim, and version-1 restore
+report are process-local and non-`Codable`; callers must still discard their
+copies. The report can retain a raw relative path, historical rule revision,
+bounded outcome, durability state, and an optional quarantine location with an
+observed identity. None is persisted, logged, uploaded, exported, or exposed by
+the app or CLI.
+
 Trusted-location observation resolves the current account home from the local
 operating-system account record and compares only bounded raw path components
 and directory metadata. It does not use the `$HOME` environment variable,
@@ -243,14 +262,22 @@ revalidation report may not. Its process-local, non-`Codable` execution report
 can retain a raw relative path, rule revision, bounded outcome, and quarantine
 location whose optional evidence includes an observed filesystem identity, but
 it is not itself persisted or exported. The private journal now persists
-canonical intent and receipt DTOs, not Core domain reports or authorization
-values. Final receipts are immutable historical transaction evidence; live
-namespace truth is consulted for receipt-less intent recovery and receipt-stage
-promotion, not to rewrite a valid final receipt. Restore, manual-recovery UI,
-frontend launch wiring, and purge require separate privacy and security review.
-Adding those features must not silently make Core domain models `Codable`. See the
-[authorization contract](AUTHORIZATION.md) and [quarantine execution
-contract](QUARANTINE.md), plus the [durability contract](DURABILITY.md).
+canonical quarantine and restore intent/receipt DTOs, not Core domain reports
+or authorization values. Final receipts are immutable historical transaction
+evidence; live namespace truth is consulted for receipt-less intent recovery
+and receipt-stage promotion, not to rewrite a valid final receipt.
+
+The implemented restore path is Core-internal, manual, npm-only, and limited to
+one exact receipt-bound item. Its separate confirmation and authorization do
+not broaden quarantine authorization or create purge authority. A restore UI,
+public API, CLI command, automatic or launch-time restore, frontend recovery
+wiring, and purge remain outside the current privacy boundary. Adding any of
+those surfaces must receive separate privacy and security review and must not
+silently make Core domain models `Codable`. See the
+[authorization contract](AUTHORIZATION.md),
+[quarantine execution contract](QUARANTINE.md),
+[durability contract](DURABILITY.md), and
+[manual restore contract](RESTORE.md).
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

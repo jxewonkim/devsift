@@ -1,6 +1,6 @@
 # Manual quarantine restore contract
 
-This document defines the proposed eleventh Phase 7 increment: a Core-internal,
+This document defines the implemented eleventh Phase 7 increment: a Core-internal,
 npm-only workflow for manually restoring one item that DevSift previously moved
 into its private quarantine namespace. It extends the
 [quarantine execution contract](QUARANTINE.md) and the
@@ -12,7 +12,7 @@ recovery reachable from either frontend or runs it automatically at launch.
 
 ## Scope
 
-The restore increment may:
+The restore increment can:
 
 - inspect the bounded private journal under its existing validated exclusive
   lock and report each transaction separately;
@@ -196,9 +196,10 @@ barrier have been validated successfully.
 
 ## Interrupted-restore recovery
 
-Startup and admission recovery are observational. They may finish a receipt for
-a previously authorized restore intent, but never invoke or retry the reverse
-rename. Let `expected` mean the candidate binding sealed by the restore intent:
+The internal recovery entry point and admission recovery are observational.
+They may finish a receipt for a previously authorized restore intent, but never
+invoke or retry the reverse rename. Let `expected` mean the candidate binding
+sealed by the restore intent:
 
 | Current quarantine item | Current `_cacache` | Recovery result |
 | --- | --- | --- |
@@ -212,8 +213,9 @@ An unavailable observation, changed parent, expected object at both names,
 missing expected object at both names, malformed link to the source transaction,
 or any unrelated occupant that the table cannot classify remains unresolved.
 Recovery never adopts an occupant, edits a record, chooses another destination,
-removes a conflicting `_cacache`, or claims that a manual external move was a
-DevSift restore.
+or removes a conflicting `_cacache`. A recovered `restored` receipt records
+only conclusive namespace truth for the expected object; it does not prove
+which process performed the move.
 
 ## Cancellation and reporting
 
@@ -223,8 +225,8 @@ durable `not-restored` receipt after revalidation. Once rename is invoked,
 cancellation is only latched into the process-local report; reconciliation,
 namespace barriers, and terminal receipt publication continue when safe.
 
-The manual inventory and execution reports are bounded, deterministically
-ordered, process-local, and non-`Codable`. They distinguish, per transaction:
+The recovery and execution reports are bounded, deterministically ordered,
+process-local, and non-`Codable`. They distinguish, per transaction:
 
 - completed terminal journal state;
 - failed system or durability work;
@@ -239,14 +241,14 @@ managed-looking name, is represented by one bounded global blocker rather than
 being attached to an unrelated transaction.
 
 A transaction identifier is diagnostic, not proof of a valid intent. An
-unresolved result is neither completed nor crash-recoverable unless canonical
-reachable evidence establishes that claim. Every report states that permanent
-deletion was not performed.
+unresolved result is neither completed nor crash-recoverable; a transaction
+identifier alone cannot establish either claim. Every report states that
+permanent deletion was not performed.
 
-The bounded manual-recovery workflow may inspect and explain ambiguous state,
-refresh the inventory, and create a restore claim only for a newly proven
-eligible item. It cannot mark unsafe state resolved, suppress a blocker, edit or
-delete a journal record, rename an arbitrary object, or turn a diagnostic into
+Core's bounded recovery diagnostics may inspect and explain ambiguous state and
+refresh the inventory. A restore claim is created only for a newly proven
+eligible item. Diagnostics cannot mark unsafe state resolved, suppress a
+blocker, edit or delete a journal record, rename an arbitrary object, or become
 authority.
 
 ## Privacy and non-goals
@@ -279,7 +281,7 @@ as purge authority.
 
 ## Verification gate
 
-Tests use only synthetic temporary fixtures and must cover:
+Tests use only synthetic temporary fixtures. The implementation gate covers:
 
 - canonical restore intent and receipt bytes, exact digests, historical
   quarantine-policy compatibility, current restore-policy admission, and every
@@ -299,10 +301,13 @@ Tests use only synthetic temporary fixtures and must cover:
   linearization point;
 - deterministic bounded per-item diagnostics and preservation of every fixture
   outside the exact journal namespace; and
-- public-symbol, app, and CLI negative tests proving that restore, recovery, and
-  mutation remain unreachable from public and frontend surfaces.
+- source-visibility inspection, scan-only status tests, and CLI negative tests
+  showing that restore, recovery, and mutation remain unreachable from public
+  and frontend surfaces.
 
-A focused filesystem-security and privacy review is required before the
-increment is described as implemented. Every code commit must also satisfy the
+A focused filesystem-security and privacy review remains part of this
+implemented boundary's acceptance gate. Every code commit must also satisfy the
 repository-wide definition of done in
 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#definition-of-done-for-every-code-commit).
+The completed repository-internal review and its closed findings are recorded
+in [MANUAL_RESTORE_SECURITY_REVIEW.md](MANUAL_RESTORE_SECURITY_REVIEW.md).
