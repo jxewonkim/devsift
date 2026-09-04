@@ -67,6 +67,12 @@ DevSift is designed to work locally and reveal as little as possible.
   unobserved-risk assertion. No frontend invokes this API. It performs no
   process inspection, npm invocation, clock read, network request, or
   filesystem I/O and exposes no persistence or public consume operation.
+- The internal durability layer necessarily persists canonical intent and
+  receipt records inside the account-owned `.devsift-quarantine-v1` directory.
+  Records contain exact raw relative paths, filesystem bindings, policy
+  revisions, and transaction metadata. They remain local, are not telemetry or
+  exports, and are accessed only by the internal executor and recovery engine.
+  No app-launch wiring or frontend inventory exposes them.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
@@ -236,11 +242,15 @@ the Core-internal npm executor; a bare approval, review acknowledgement, or
 revalidation report may not. Its process-local, non-`Codable` execution report
 can retain a raw relative path, rule revision, bounded outcome, and quarantine
 location whose optional evidence includes an observed filesystem identity, but
-it is not persisted or exported. Durable intent, receipts, recovery, restore,
-UI wording, and purge require separate privacy and security review. Adding
-those features must not silently make Core domain models `Codable`. See the
+it is not itself persisted or exported. The private journal now persists
+canonical intent and receipt DTOs, not Core domain reports or authorization
+values. Final receipts are immutable historical transaction evidence; live
+namespace truth is consulted for receipt-less intent recovery and receipt-stage
+promotion, not to rewrite a valid final receipt. Restore, manual-recovery UI,
+frontend launch wiring, and purge require separate privacy and security review.
+Adding those features must not silently make Core domain models `Codable`. See the
 [authorization contract](AUTHORIZATION.md) and [quarantine execution
-contract](QUARANTINE.md).
+contract](QUARANTINE.md), plus the [durability contract](DURABILITY.md).
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

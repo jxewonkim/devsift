@@ -25,11 +25,14 @@ evidence nor operation authority.
 
 Cleanup functionality must preserve this ordering:
 
-`scan -> classify -> plan -> approve -> revalidate -> authorize attempt -> quarantine -> report`
+```text
+scan -> classify -> plan -> approve -> revalidate -> authorize attempt
+  -> durable quarantine -> recover/report
+```
 
 Current versions are classifier contract 3, cleanup manifest 3, manifest diff
 2, approval 2, revalidation 2, quarantine authorization 1, internal execution
-report 1, classification JSON 2, and internal manifest-review JSON 2 over
+report 2, classification JSON 2, and internal manifest-review JSON 2 over
 source manifest 3. npm is rule
 revision 5 in built-in catalog 6. Scan JSON remains version 2. Old manifests,
 approvals, and exports are regenerated rather than imported or migrated.
@@ -46,9 +49,11 @@ rule revision, but selection and diff output are not approval. Core can now
 record explicit intent for one fully confirmed reviewed manifest and its
 pending execution conditions. Core now has an approval-only, read-only
 revalidation diagnostic, a Core-only in-memory quarantine-attempt authorizer,
-and an internal npm-only atomic quarantine kernel. A verified move is only
-`quarantinedAwaitingReceipt`: durable intent, receipt, sync, recovery, restore,
-purge, deletion, public API, and frontend actions do not exist in this phase.
+and an internal npm-only atomic quarantine kernel. The kernel now surrounds its
+rename with canonical immutable intent/receipt publication, required
+`F_FULLFSYNC` barriers, and descriptor-bound recovery. Restore, manual-recovery
+UI, purge, deletion, public API, frontend actions, and automatic app-launch
+recovery do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -229,6 +234,23 @@ the sole consumer. See the [authorization contract](AUTHORIZATION.md) and
   it can redirect the move only within the held root and does not yield a
   success report when reconciliation observes the quarantine-root binding
   change.
+- A candidate rename cannot be invoked until a canonical immutable intent and
+  its quarantine-directory publication barrier exist. Cooperating transactions
+  hold a validated nonblocking exclusive journal lock through reconciliation
+  and terminal receipt publication.
+- Record and namespace durability requires every specified `F_FULLFSYNC` call
+  to succeed; Core does not downgrade to `fsync` or report durable success after
+  a failed barrier. An inconclusive post-intent state remains receipt-less and
+  blocks later mutation.
+- Recovery treats a valid final receipt as immutable historical evidence. It
+  consults current source and destination truth only for a receipt-less intent
+  or canonical receipt-stage promotion, and never resumes, reverses, restores,
+  overwrites, compacts, or deletes an interrupted transaction.
+- Report contract version 2 declares only a terminal receipt durably recorded.
+  A validated, canonically reachable intent or receipt is crash-recoverable;
+  unresolved state is not, even when it carries a transaction identifier. This
+  evidence lets restart recovery inspect and safely complete, preserve, or
+  block state; it does not promise automatic receipt publication.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
 - Scan, classification, planning, approval, revalidation, and authorization code
@@ -437,6 +459,12 @@ substitution, retryable statement mismatch, atomic concurrent issuance and
 internal consumption across copies, terminal cancellation, non-`Codable`
 values, and the absence of process, npm, clock, filesystem, persistence,
 frontend, and CLI operations.
+
+Durability tests use only synthetic temporary journal namespaces. They cover
+canonical intent and receipt bytes, exclusive publication, lock contention,
+sync failures, staged and orphan records, bounded inventory, destination-plan
+collisions, the complete receipt-less recovery table, and preservation outside
+the exact journal namespace.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

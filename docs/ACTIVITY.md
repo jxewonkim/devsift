@@ -158,12 +158,17 @@ Under the selected narrow policy, the current executor must:
   name is absent, the destination still names the held candidate, and an
   exclusive reverse rename succeeds; never overwrite a newly recreated source,
   and report manual recovery when those conditions do not hold;
-- report bounded not-moved, `quarantinedAwaitingReceipt`, rolled-back, or
-  manual-recovery-required outcomes without calling a move completed.
+- durably publish a canonical intent before rename, synchronize both namespace
+  parents after any possible rename, and publish an immutable terminal receipt
+  only for a conclusive not-moved, quarantined, or rolled-back outcome; and
+- report bounded not-moved, quarantined, rolled-back, or manual-recovery-required
+  outcomes with a separate contract-version-2 durability state.
 
-The next increment must write and sync crash-consistent intent and receipt
-metadata and provide startup recovery. Restore must exist before any separately
-reviewed permanent purge.
+The internal journal and recovery engine now reconcile receipt-less intents
+without resuming, reversing, restoring, overwriting, or deleting the authorized
+object. A root-only recovery entry point exists when `_cacache` is absent, but
+automatic app-launch recovery and all frontend execution remain unwired. Restore
+must exist before any separately reviewed permanent purge.
 
 The operation and its immediate revalidation must share one non-escaping
 descriptor-held scope. Returning a Boolean and performing the rename later is
@@ -175,8 +180,8 @@ Current authorization tests use synthetic approvals and cover complete
 canonical subjects, unsupported policy, the exact required statement policy,
 attestation substitution, cross-attempt replay, concurrent issuance, shared-
 copy double consumption, terminal cancellation, and fixture-boundary integrity.
-Any future activity observer, public activation, or durability layer still
-requires adversarial tests for
+Any future activity observer, public activation, or further recovery surface
+still requires adversarial tests for
 positive-use detection, negative-result fail-closure, permissions, PID and
 descriptor churn, enumeration limits, pre-existing references, event coverage
 and gaps,
@@ -195,12 +200,12 @@ This decision adds policy behavior but no runtime activity evidence. The
 explainable-classification contract is revision 3, npm is rule revision 5, and
 the built-in catalog is version 6. Cleanup manifest is version 3, manifest diff
 is version 2, approval is version 2, revalidation is version 2, and quarantine
-authorization and internal execution report are version 1. Scan JSON remains
-version 2; classification JSON
+authorization is version 1 while the internal execution report is version 2.
+Scan JSON remains version 2; classification JSON
 and internal manifest-review JSON are version 2, with the latter pinned to
 source manifest version 3.
 
 Older manifests, approvals, and exports are regenerated rather than migrated;
-there is no import path. The executor and atomic quarantine kernel are internal;
-durable receipt, recovery, restore, purge, deletion, public API, and frontend
-actions remain unimplemented.
+there is no import path. The executor, atomic quarantine kernel, journal, and
+recovery engine are internal. Restore, purge, deletion, public API, frontend
+actions, and automatic app-launch recovery remain unimplemented.

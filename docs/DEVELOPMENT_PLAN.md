@@ -301,7 +301,7 @@ Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 ## Phase 7: recoverable cleanup
 
 Each implemented-increment block below is a historical snapshot of the
-contract at that increment. The ninth block records the current contracts and
+contract at that increment. The tenth block records the current contracts and
 supersedes the earlier version numbers, npm disposition statements, and future-
 authorization language.
 
@@ -527,25 +527,54 @@ Implemented ninth increment:
   deletion, copy, unlink, public API, app action, or CLI action. Record the
   boundary in the [quarantine execution contract](QUARANTINE.md).
 
-Current boundary before later Phase 7 durability work:
+Implemented tenth increment:
+`feat(core): add durable quarantine journal and recovery`.
 
-- The activity-policy choice is complete only for recoverable quarantine; the
-  internal kernel can perform one exact npm quarantine move.
-- Preserve the distinction between review acknowledgement, explicit user
-  attestation, and execution authorization. Activity that is positive or
-  unavailable for any non-deferred reason remains blocking.
-- Authorization is a process-local single-use intent handoff, not observed
-  inactivity, a safety verdict, or standalone filesystem mutation authority.
-- A reconciled move remains `quarantinedAwaitingReceipt`; it is not durably
-  recorded, crash-recoverable, restorable, or complete.
-
-Later Phase 7 work, after the implemented execution kernel:
-
-- Add crash-consistent pre-mutation intent, post-move receipt, required file and
-  directory synchronization, and startup recovery. Reconcile any interrupted
-  transaction before allowing another operation. The normative design is the
+- Add a private, canonical version-1 journal for one already-authorized npm
+  transaction. Publish an immutable intent before rename and an immutable
+  terminal `quarantined`, `not-moved`, or `rolled-back` receipt only after the
+  required namespace barriers.
+- Preplan exactly 16 distinct destination names in the intent. Bind the exact
+  raw source path, root, quarantine root, candidate, policy revisions, and
+  destination set; bind a receipt to the exact intent bytes with SHA-256.
+- Serialize cooperating processes through a validated mode-`0600`, nonblocking
+  exclusive lock. Publish records with exclusive staged renames and require
+  `F_FULLFSYNC` for record files plus the npm-root and quarantine-root namespace
+  parents, with no weaker durability fallback.
+- Reconcile journal state under the same lock before admitting a new intent.
+  Validate bounded inventory and canonical record pairing. For a receipt-less
+  intent, observe all planned destinations and record only namespace truth that
+  proves `not-moved` or `quarantined`; never resume, automatically reverse,
+  overwrite, compact, or delete an interrupted transaction.
+- Add a root-only internal recovery entry point that can reopen an existing npm
+  quarantine namespace even when the source `_cacache` name is absent. It is
+  not yet wired to app launch or either frontend.
+- Advance the internal, process-local, non-`Codable`
+  `CleanupQuarantineExecutionReport` to contract version 2. Distinguish no
+  durability record, intent recorded, terminal receipt recorded, and unresolved
+  state. Only a terminal receipt is durably recorded; only validated intent or
+  receipt state is declared crash-recoverable. An unresolved transaction ID
+  alone is not enough. Crash-recoverable means canonical restart recovery has
+  authoritative evidence to inspect and safely complete, preserve, or block;
+  it does not guarantee automatic receipt publication for ambiguous live state.
+- Require exact current policy revisions for every new intent while retaining
+  canonical read compatibility for supported earlier revisions. Unknown, zero,
+  and future revisions still fail closed, so normal policy upgrades do not
+  poison completed journal history or inert stages.
+- Keep final receipts immutable as historical transaction evidence. Current
+  live source/destination truth is required when recovering receipt-less intents
+  or promoting a receipt stage, not to reinterpret a valid final receipt.
+- Add no restore, manual-recovery user flow, purge, permanent deletion, public
+  API, app action, or CLI action. Record the contract in the
   [quarantine durability contract](DURABILITY.md).
-- Add restore and manual-recovery flows before any permanent-removal work.
+
+Current boundary after the durability increment:
+
+- Add restore and a bounded manual-recovery workflow before any permanent-
+  removal work.
+- Wire recovery and execution into the app only after the frontend transaction
+  flow, security review, failure presentation, and release checks are complete.
+  The CLI remains without a mutation command.
 - Design purge as a later, separately reviewed policy, authorization, and user
   action. Quarantine authorization version 1 never authorizes deletion.
 - Report completed, failed, changed, recovered, restored, and skipped items

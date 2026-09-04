@@ -224,6 +224,21 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   A verified move is `quarantinedAwaitingReceipt`, not completed: durable
   intent, receipt, sync, startup recovery, restore, public API, app action, and
   CLI action remain absent.
+- A Core-internal durable quarantine journal with canonical version-1 intent
+  and receipt records. It preplans all 16 exclusive destination names, publishes
+  immutable records through exclusive staged renames, and requires
+  `F_FULLFSYNC` barriers for records, the npm root, and the quarantine root.
+- A descriptor-bound recovery engine that runs under a validated nonblocking
+  account-owned lock before new intent creation and can also reopen an existing
+  npm quarantine namespace without requiring `_cacache` to exist. It validates
+  bounded inventory, record pairing, and current namespace truth for
+  receipt-less intents, then records only a provable `not-moved` or
+  `quarantined` outcome. It never resumes, restores, rolls back, unlinks, or
+  overwrites an interrupted transaction.
+- Internal `CleanupQuarantineExecutionReport` contract version 2. It separates
+  no record, durable intent, durable terminal receipt, and unresolved state;
+  only a receipt is durably recorded, and unresolved state is not declared
+  crash-recoverable even when it carries a transaction identifier.
 
 ### Changed
 
@@ -243,7 +258,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   with an explicit attempt-scoped caller assertion and process-local
   single-use lifecycle. It authorizes no permanent deletion, still requires
   inline filesystem revalidation, and grants no standalone mutation authority.
-  The Core-internal npm executor can now consume that handoff for one atomic
-  quarantine move. Its process-local report is contract version 1 and is never
-  durable or crash-recoverable; receipt, sync, recovery, restore, purge,
-  deletion, public API, and frontend actions remain absent.
+  The Core-internal npm executor can consume that handoff for one atomic
+  quarantine move. The later durability increment advances its process-local
+  report to contract version 2 and adds private durable intent, receipt, sync,
+  and recovery. Restore, purge, deletion, public API, frontend actions, and
+  automatic app-launch recovery remain absent.
+- New journal intents require the exact current policy tuple, while canonical
+  records carrying supported earlier revisions remain readable. Unknown, zero,
+  and future revisions fail closed, preventing routine policy upgrades from
+  poisoning completed history or inert intent stages.
+- Crash-recoverable report state now requires canonical, reachable journal
+  evidence with structurally admissible inventory. Detached, malformed,
+  orphaned, or conflicting state is reported as unresolved; a valid pending
+  intent may still require manual resolution when live namespace truth is
+  ambiguous.

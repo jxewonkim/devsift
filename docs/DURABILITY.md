@@ -74,8 +74,12 @@ all agree; recovery then completes the directory synchronization and final
 record revalidation. Malformed, conflicting, or unverifiable staged state
 blocks new mutation and requires manual recovery.
 
-The directory is bounded to 4,096 non-dot entries and 4 MiB of raw entry-name
-bytes during recovery. Exceeding either limit blocks new mutation.
+The directory is bounded to 4,096 entries other than `.` and `..`, and 4 MiB
+of raw entry-name bytes during recovery. Admission reserves the worst-case
+intent, item, and receipt-stage peak before publishing a new intent. Exceeding
+either limit blocks new mutation. Current macOS `NAME_MAX` makes the entry-count
+limit tighter in ordinary filesystems; the aggregate byte cap remains a
+defense-in-depth bound for enumeration and future filesystem behavior.
 
 ## Intent version 1
 
@@ -93,12 +97,22 @@ One intent binds:
 - the exact classifier, built-in catalog, and npm rule revisions; and
 - the current intent format and bounded codec rules.
 
-All raw components and identifiers are losslessly Base64 encoded. Integer
-fields are canonical decimal strings rather than JSON numbers. Encoding uses
-sorted keys and a fixed maximum size. Decoding rejects noncanonical bytes,
-unknown fields, duplicate fields, invalid Base64, noncanonical integers,
-unsupported versions, unsafe paths, duplicate destinations, and policy drift
-by decoding, validating, re-encoding, and requiring byte-for-byte equality.
+All raw path components are losslessly Base64 encoded. The transaction
+identifier is the same canonical 32-character lowercase hexadecimal value used
+in record names. Integer fields are canonical decimal strings rather than JSON
+numbers. Encoding uses sorted keys and a fixed maximum size. Decoding rejects
+noncanonical bytes, unknown fields, duplicate fields, invalid Base64,
+noncanonical integers, unsupported versions, unsafe paths, duplicate
+destinations, unknown policy identifiers, zero revisions, and revisions newer
+than this build by decoding, validating, re-encoding, and requiring
+byte-for-byte equality.
+
+Publishing a new intent additionally requires the exact current classifier,
+catalog, and npm-rule revisions. Existing canonical records with supported
+earlier revisions remain readable, so an ordinary policy update does not poison
+completed history or an inert stage. This compatibility grants no old policy
+new mutation authority: recovery never repeats a candidate rename, and every
+new attempt must use the current policy tuple.
 
 The destination plan is complete before intent publication. After a crash,
 recovery observes those destinations but never continues to the next one.
@@ -114,7 +128,12 @@ binds:
 - the selected destination ordinal and expected destination binding when the
   outcome is `quarantined`;
 - whether the source name was recreated; and
-- whether startup reconciliation produced the receipt.
+- whether startup reconciliation inferred the terminal outcome and constructed
+  the receipt bytes.
+
+Recovery may finish publishing a canonical receipt stage that the original
+execution already constructed. In that case `producedByRecovery` remains
+`false`; promotion does not rewrite the immutable payload.
 
 The digest detects accidental corruption and mismatched records. It is not a
 secret, signature, authentication mechanism, or defense against a process
@@ -181,6 +200,11 @@ It strictly validates and pairs every final intent and receipt, rejects orphan
 receipts and unmanaged `item-v1-*` entries, and rejects destination reuse
 across intents. It applies the staged-record rules above before reconciling
 receipt-less intents. A valid existing terminal receipt is never rewritten.
+It is immutable historical evidence, not a claim that the same source or
+destination names still exist later. Validating a final receipt requires its
+record metadata, canonical bytes, filename, transaction pairing, and digest;
+live namespace truth is required only for a receipt-less intent or receipt-stage
+promotion.
 
 For each receipt-less intent, all root, quarantine-root, record, source, and
 planned-destination observations must be available and safe. Let `expected`
@@ -195,8 +219,8 @@ mean the complete stable candidate binding sealed by the intent:
 
 An unrelated occupant at a planned destination is never adopted. An
 unavailable observation, multiple expected destinations, an expected object at
-both source and destination, root replacement, record corruption, or a policy
-mismatch is ambiguous and blocks.
+both source and destination, root replacement, record corruption, or an
+unknown, zero, or future policy revision is ambiguous and blocks.
 
 Recovery records only what the current namespace proves. It never repeats the
 authorized rename, chooses another destination, removes an occupant, or
@@ -212,9 +236,17 @@ Execution-report contract version 2 distinguishes:
 - an unresolved manual-recovery result.
 
 `isDurablyRecorded` is true only for a validated, synchronized terminal
-receipt. `isCrashRecoverable` is true once a validated intent has crossed its
-publication barrier. `performedPermanentDeletion` remains unconditionally
-false.
+receipt. `isCrashRecoverable` is true only when the report carries validated
+`intentRecorded` or `receiptRecorded` evidence. An `unresolved` state is false
+even when it includes a transaction identifier; that identifier is diagnostic,
+not proof that a valid intent crossed its publication barrier.
+`performedPermanentDeletion` remains unconditionally false.
+
+`isCrashRecoverable` does not promise that startup reconciliation can always
+publish a receipt. It means the canonical journal contains authoritative
+evidence that restart recovery can safely inspect and then either complete,
+preserve, or block. A detached journal, malformed or conflicting inventory, or
+another state whose canonical evidence cannot be validated is `unresolved`.
 
 Cancellation before rename may produce a durable `not-moved` receipt. Once a
 rename is invoked, cancellation is only latched into the report; it cannot skip
@@ -229,7 +261,9 @@ quarantine directory and are not logs, exports, credentials, or authentication.
 This increment adds no restore, purge, permanent deletion, journal compaction,
 record deletion, automatic rollback during startup, approval or attestation
 persistence, custom-root support, multi-rule execution, frontend action, CLI
-command, analytics, or network access.
+command, analytics, or network access. Core has an internal root-only recovery
+entry point, and journal admission reconciles earlier state, but neither app nor
+CLI automatically invokes recovery at launch in this increment.
 
 ## Verification gate
 
