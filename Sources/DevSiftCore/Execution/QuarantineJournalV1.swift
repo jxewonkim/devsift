@@ -171,16 +171,19 @@ enum QuarantineJournalV1Codec {
   static let maximumEncodedByteCount = 32 * 1_024
 
   static func encode(_ intent: QuarantineJournalIntentV1) throws -> Data {
-    try validate(intent)
-    return try encodeBounded(IntentWire(intent))
+    try validateIntentStructure(intent)
+    guard intent.policy == .current else {
+      throw QuarantineJournalCodecError.policyDrift
+    }
+    return try encodeCanonicalIntent(intent)
   }
 
   static func decodeIntent(_ bytes: Data) throws -> QuarantineJournalIntentV1 {
     try validateInputSize(bytes)
     let wire: IntentWire = try decode(bytes)
     let intent = try wire.domainValue()
-    try validate(intent)
-    guard try encode(intent) == bytes else {
+    try validateIntentStructure(intent)
+    guard try encodeCanonicalIntent(intent) == bytes else {
       throw QuarantineJournalCodecError.nonCanonicalDocument
     }
     return intent
@@ -189,6 +192,15 @@ enum QuarantineJournalV1Codec {
   static func encode(_ receipt: QuarantineJournalReceiptV1) throws -> Data {
     try validate(receipt)
     return try encodeBounded(ReceiptWire(receipt))
+  }
+
+  static func encode(
+    _ receipt: QuarantineJournalReceiptV1,
+    matchingIntentBytes intentBytes: Data
+  ) throws -> Data {
+    let intent = try decodeIntent(intentBytes)
+    try validate(receipt, matching: intent, canonicalIntentBytes: intentBytes)
+    return try encode(receipt)
   }
 
   static func decodeReceipt(_ bytes: Data) throws -> QuarantineJournalReceiptV1 {
@@ -261,7 +273,7 @@ enum QuarantineJournalV1Codec {
     }
   }
 
-  private static func validate(_ intent: QuarantineJournalIntentV1) throws {
+  private static func validateIntentStructure(_ intent: QuarantineJournalIntentV1) throws {
     guard isLowercaseHexIdentifier(intent.transactionID) else {
       throw QuarantineJournalCodecError.invalidTransactionID
     }
@@ -299,9 +311,31 @@ enum QuarantineJournalV1Codec {
     else {
       throw QuarantineJournalCodecError.invalidDestinationPlan
     }
-    guard intent.policy == .current else {
+    guard
+      isSupportedHistoricalRevision(
+        intent.policy.classification,
+        current: QuarantineJournalPolicyV1.current.classification
+      ),
+      isSupportedHistoricalRevision(
+        intent.policy.catalog,
+        current: QuarantineJournalPolicyV1.current.catalog
+      ),
+      isSupportedHistoricalRevision(
+        intent.policy.npmRule,
+        current: QuarantineJournalPolicyV1.current.npmRule
+      )
+    else {
       throw QuarantineJournalCodecError.policyDrift
     }
+  }
+
+  private static func isSupportedHistoricalRevision(
+    _ revision: QuarantineJournalPolicyRevisionV1,
+    current: QuarantineJournalPolicyRevisionV1
+  ) -> Bool {
+    revision.identifier == current.identifier
+      && revision.version > 0
+      && revision.version <= current.version
   }
 
   private static func validate(_ receipt: QuarantineJournalReceiptV1) throws {
@@ -387,6 +421,12 @@ enum QuarantineJournalV1Codec {
       throw QuarantineJournalCodecError.documentTooLarge
     }
     return bytes
+  }
+
+  private static func encodeCanonicalIntent(
+    _ intent: QuarantineJournalIntentV1
+  ) throws -> Data {
+    try encodeBounded(IntentWire(intent))
   }
 
   private static func decode<Value: Decodable>(_ bytes: Data) throws -> Value {

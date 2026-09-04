@@ -156,7 +156,7 @@ struct QuarantineJournalV1Tests {
     }
   }
 
-  @Test("Intent rejects any policy revision drift")
+  @Test("New intent rejects non-current policy and decode rejects unsupported policy")
   func intentRejectsPolicyDrift() throws {
     let baseline = validIntent()
     let driftedPolicy = QuarantineJournalPolicyV1(
@@ -214,8 +214,14 @@ struct QuarantineJournalV1Tests {
       canonicalIntentBytes: intentBytes
     )
 
-    let first = try QuarantineJournalV1Codec.encode(receipt)
-    let second = try QuarantineJournalV1Codec.encode(receipt)
+    let first = try QuarantineJournalV1Codec.encode(
+      receipt,
+      matchingIntentBytes: intentBytes
+    )
+    let second = try QuarantineJournalV1Codec.encode(
+      receipt,
+      matchingIntentBytes: intentBytes
+    )
 
     #expect(first == second)
     #expect(
