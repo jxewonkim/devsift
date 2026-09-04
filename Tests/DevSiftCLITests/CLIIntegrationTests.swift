@@ -321,7 +321,8 @@ struct CLIIntegrationTests {
 
     let beforeCommand = try fixture.snapshot()
     for command in [
-      "clean", "cleanup", "delete", "erase", "prune", "remove", "purge", "quarantine",
+      "clean", "cleanup", "delete", "erase", "prune", "recover", "remove", "restore",
+      "rollback", "purge", "quarantine",
     ] {
       let result = try await runDevSift(
         [command, fixture.root.path],
