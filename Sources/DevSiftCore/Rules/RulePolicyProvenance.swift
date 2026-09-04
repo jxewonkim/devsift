@@ -39,3 +39,17 @@ public enum RulePolicyProvenanceValidationError: Error, Equatable, Sendable {
   case tooManyRuleRevisions(maximum: Int, actual: Int)
   case duplicateRuleIdentifier(RuleIdentifier)
 }
+
+extension RulePolicyProvenance {
+  static let currentBuiltIn: RulePolicyProvenance = {
+    do {
+      return try RulePolicyProvenance(
+        classificationContractRevision: ExplainableRuleClassifier.classificationContractRevision,
+        catalogRevision: BuiltInRuleCatalog.revision,
+        ruleRevisions: BuiltInRuleCatalog.rules.map { $0.definition.revision }
+      )
+    } catch {
+      preconditionFailure("The built-in rule policy provenance is invalid")
+    }
+  }()
+}
