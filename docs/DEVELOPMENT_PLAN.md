@@ -279,13 +279,13 @@ condition bindings. The final approval drops the larger source request and
 retains the root, manifest, and review acknowledgements. It is accepted by the
 read-only revalidator but grants no execution authority. The current Core
 authorizer separately binds it to an explicit attempt-scoped caller assertion
-and process-local single-use lifecycle before a future executor can receive an
-internal handoff.
+and process-local single-use lifecycle before the internal executor can receive
+its handoff.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
 produce a partial diff, and a substituted review value must invalidate approval.
-A stale candidate must be rejected by future execution-time revalidation. The
+A stale candidate must be rejected by execution-time revalidation. The
 review projection must not expose filesystem identities or create import,
 approval, attestation, authorization, execution, or user-facing export
 authority. App selection must default to zero, remain independent from row
@@ -301,7 +301,7 @@ Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 ## Phase 7: recoverable cleanup
 
 Each implemented-increment block below is a historical snapshot of the
-contract at that increment. The eighth block records the current contracts and
+contract at that increment. The ninth block records the current contracts and
 supersedes the earlier version numbers, npm disposition statements, and future-
 authorization language.
 
@@ -492,31 +492,58 @@ Implemented eighth increment:
 - Record the complete contract in the
   [authorization contract](AUTHORIZATION.md).
 
-Current boundary before later Phase 7 execution work:
+Implemented ninth increment:
+`feat(core): add atomic npm quarantine executor`.
+
+- Add a Core-internal `CleanupQuarantineExecutor` that can enter only by
+  atomically consuming an authorization's internal execution claim.
+- Independently validate the exact classifier-3/catalog-6/npm-5 approval,
+  single `_cacache` entry, review-required conditional policy, npm tool,
+  deferred precondition, acknowledgement, and version-1 attestation.
+- Reopen the real account's exact passwd-home `~/.npm` root and approved
+  candidate through held descriptors. Recheck current UID ownership, same
+  device, identities, mutation state, the complete pinned cacache grammar,
+  no non-owner POSIX write access, safe flags, no extended ACL below the home,
+  traversal limits, single-link regular files, and the inclusive seven-day age
+  requirement.
+- Create or reopen only `.devsift-quarantine-v1` under the held root and require
+  mode `0700`, current UID, same volume, no ACL, safe flags, and the required
+  volume capabilities.
+- Make each candidate-move attempt through one `renameatx_np` call with
+  `RENAME_EXCL`, `RENAME_NOFOLLOW_ANY`, and `RENAME_RESOLVE_BENEATH`. Retry only
+  a reconciled destination collision, within a bounded random-name budget, and
+  never overwrite or pre-create a destination leaf.
+- Require macOS 26 or newer for the mutation kernel because older kernels lack
+  `RENAME_RESOLVE_BENEATH`; reject before quarantine-root creation or rename on
+  older supported systems while retaining macOS 14 read-only surfaces.
+- Reconcile source, destination, and parent bindings after every rename result.
+  Attempt only a non-overwriting reverse rename when rollback is safe;
+  otherwise return a bounded manual-recovery outcome. Once rename is invoked,
+  continue reconciliation despite cancellation and record late cancellation.
+- Define internal process-local, non-`Codable`
+  `CleanupQuarantineExecutionReport` contract version 1. Report a verified
+  move as `quarantinedAwaitingReceipt`, never completed or crash-recoverable.
+- Add no durable intent, receipt, sync, startup recovery, restore, purge,
+  deletion, copy, unlink, public API, app action, or CLI action. Record the
+  boundary in the [quarantine execution contract](QUARANTINE.md).
+
+Current boundary before later Phase 7 durability work:
 
 - The activity-policy choice is complete only for recoverable quarantine; the
-  current milestone still performs no execution.
+  internal kernel can perform one exact npm quarantine move.
 - Preserve the distinction between review acknowledgement, explicit user
   attestation, and execution authorization. Activity that is positive or
   unavailable for any non-deferred reason remains blocking.
 - Authorization is a process-local single-use intent handoff, not observed
   inactivity, a safety verdict, or standalone filesystem mutation authority.
-- Complete a focused threat model and security review before adding mutation.
+- A reconciled move remains `quarantinedAwaitingReceipt`; it is not durably
+  recorded, crash-recoverable, restorable, or complete.
 
-Later Phase 7 work, after the implemented authorization boundary:
+Later Phase 7 work, after the implemented execution kernel:
 
-- Implement a descriptor-held executor that accepts only the authorization's
-  internal claim, never a bare approval, separately supplied root, manifest,
-  diff, revalidation report, or presentation. Revalidate identity, containment,
-  activity policy, rule revision, and every required policy fact within one
-  non-escaping descriptor scope.
-- Implement recoverable quarantine by validating and holding a trusted same-
-  device parent, then atomically claiming an absent bounded destination leaf
-  with an exclusive descriptor-relative rename. Never pre-create the
-  destination entry.
-- Add crash-consistent receipt and recovery. After rename linearization, finish
-  post-validation and sync the restore receipt even if cancellation arrives;
-  rollback remains best-effort and non-overwriting.
+- Add crash-consistent pre-mutation intent, post-move receipt, required file and
+  directory synchronization, and startup recovery. Reconcile any interrupted
+  transaction before allowing another operation.
 - Add restore and manual-recovery flows before any permanent-removal work.
 - Design purge as a later, separately reviewed policy, authorization, and user
   action. Quarantine authorization version 1 never authorizes deletion.

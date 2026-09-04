@@ -91,11 +91,11 @@ while bounded entry work is processed, but an in-progress scanner or classifier
 operation may finish before its next checkpoint. Cancellation returns no partial
 report.
 
-## Authorization is separate; execution remains later
+## Authorization and execution remain separate from this report
 
-This contract does not close time-of-check/time-of-use gaps. A later phase must
-still implement the executor, but Core now creates an in-memory authorization
-attempt separately from revalidation. `CleanupQuarantineAuthorizer` accepts the
+This contract does not close time-of-check/time-of-use gaps. Core creates an
+in-memory authorization attempt separately from revalidation.
+`CleanupQuarantineAuthorizer` accepts the
 exact `CleanupApproval`, not this report, and exposes one canonical request for
 an explicit caller assertion over the complete npm pending set. A precondition
 review acknowledgement is not that assertion. The attestation is not observed
@@ -105,16 +105,17 @@ The authorization attempt uses process-local identity rather than a clock or
 TTL. Issuance succeeds at most once, and all authorization copies share one
 atomic internal handoff. Cancellation is terminal. Authorization contract
 version 1 is recoverable-quarantine-only, requires inline filesystem
-revalidation, and grants no standalone mutation authority. The public API has
-no consumer or executor. See the [authorization contract](AUTHORIZATION.md).
+revalidation, and grants no standalone mutation authority. The public API
+exposes neither consumer nor executor; both are Core-internal. See
+the [authorization contract](AUTHORIZATION.md).
 
-A future executor must enter only through that authorization's internal
-handoff, not a bare approval or this report, and revalidate each item inline
-while holding verified descriptors immediately before a recoverable operation.
-It must independently establish
-containment, kind, identity, device, the selected activity policy, and current
-policy evidence; it must not treat this report as a capability or proof that a
-later path lookup is safe.
+The Core-internal npm executor enters only through that authorization handoff,
+not a bare approval or this report, and revalidates the sole item inline while
+holding verified descriptors through its atomic namespace operation. It
+independently establishes containment, kind, identity, device, age, selected
+activity policy, full layout grammar, ownership, and destination safety; it
+does not treat this report as a capability or path-lookup proof. See the
+[quarantine execution contract](QUARANTINE.md).
 
 Activity is the remaining npm execution fact. The
 [activity safety contract](ACTIVITY.md) establishes that the current
@@ -123,5 +124,5 @@ inactivity or preventing access after a check. Revalidation therefore keeps npm
 activity unknown and cannot emit execution authority. The selected narrow
 recoverable-quarantine policy can now bind an explicit attempt assertion
 without changing that observation. The authorization remains only an in-memory,
-single-use handoff boundary; immediate descriptor-held revalidation by a future
-executor remains mandatory.
+single-use handoff boundary; the internal executor's immediate descriptor-held
+revalidation remains mandatory.

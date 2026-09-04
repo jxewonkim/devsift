@@ -15,11 +15,11 @@ review over Core planning. It does not expose Core diffing. The CLI target has
 an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
 persistence, saved drafts, user-facing export, import, frontend diffing,
-frontend approval, attestation, authorization, execution, execution-time
-filesystem revalidation, and cleanup remain separate later increments. Core-
-only approval revalidation and attempt authorization are now available; neither
-is an app or CLI surface, and neither provides standalone execution-time
-authority.
+frontend approval, attestation, authorization, execution, durable recovery,
+and cleanup remain separate later increments. Core-only approval revalidation,
+attempt authorization, and npm execution-time filesystem validation now exist;
+none is an app, CLI, or public execution surface, and no individual value grants
+standalone mutation authority.
 
 ## Inputs and selection
 
@@ -253,7 +253,7 @@ cancellation is cooperative rather than instantaneous. Failure is atomic and
 produces no partial approval. `CleanupRevalidator` now accepts only
 `CleanupApproval`—not a separately supplied root, unapproved manifest, diff,
 or review projection—and rescans the root stored within it. It remains a
-diagnostic rather than the future descriptor-relative execution check.
+diagnostic rather than the separate descriptor-relative execution check.
 
 ## Internal manifest-review projection
 
@@ -373,7 +373,7 @@ Access control is not encryption: callers must still treat in-memory reports,
 manifests, review sessions, approvals, and diffs as sensitive and discard them
 with the analysis session.
 
-## Staleness, attempt authorization, and future execution
+## Staleness, attempt authorization, and execution
 
 A manifest can become stale immediately after its source scan, and approval
 does not refresh it. Matching a recorded `(device, inode)` pair is not enough
@@ -418,16 +418,18 @@ sets `grantsStandaloneFilesystemMutationAuthority` to `false`. Its consume
 method and execution claim are internal. See the
 [authorization contract](AUTHORIZATION.md).
 
-A future executor must enter only through that authorization's internal
-handoff, reopen the approval's stored root and each candidate descriptor-
-relatively, and revalidate
-containment, kind, device, identity, the selected activity policy, rule
-revision, and all required policy evidence inline while holding descriptors
-immediately before any mutation. Changed or unavailable candidates must be
-skipped. A bare approval, caller-selected root, standalone manifest, diff,
-presentation, or revalidation report must never be an executor input.
+The internal npm executor enters only through that authorization handoff,
+reopens the exact passwd-home `~/.npm` root and sole candidate descriptor-
+relatively, and revalidates containment, kind, device, identity, age, the
+selected activity policy, rule revision, and complete cacache grammar while
+holding descriptors through the atomic move. A changed or unavailable candidate
+observed before rename fails closed without moving; a last-instant source-name
+race is reconciled as a non-success manual-recovery outcome. A bare approval,
+caller-selected root, standalone manifest, diff, presentation, or revalidation
+report is never executor input. See the [quarantine execution
+contract](QUARANTINE.md).
 
-Before executor work, npm activity remains the unresolved execution fact.
+At execution, npm activity remains the unresolved observed fact.
 The [activity safety contract](ACTIVITY.md) records why the current
 unprivileged product cannot prove a subtree-wide negative observation and must
 not convert a quiet tree or empty process result into `inactive`. The selected

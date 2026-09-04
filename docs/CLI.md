@@ -4,6 +4,8 @@ The `devsift` command exposes DevSiftCore's read-only scanner and rule
 classifier without adding a second filesystem or policy implementation. It
 reads metadata under one explicitly named directory. It has no cleanup, move,
 quarantine, delete, plan-review, manifest-import, or manifest-export command.
+Core's internal npm quarantine kernel and process-local execution report have
+no CLI command or JSON schema.
 The CLI target contains an internal manifest-review JSON encoder described
 below, but no command invokes it and it performs no stream or file output by
 itself.
@@ -385,8 +387,10 @@ Core authorization contract version 1 now provides a separate process-local
 API over one exact approval and one explicit caller assertion. It is not a CLI
 schema or command: neither classification JSON nor manifest-review JSON can
 construct its attempt-bound request, attestation, shared single-use state, or
-internal executor handoff. It grants no standalone mutation authority, and no
-executor exists. See the [authorization contract](AUTHORIZATION.md).
+internal executor handoff. It grants no standalone mutation authority. The
+Core-internal npm executor is the sole consumer, but the CLI cannot invoke or
+render it. See the [authorization contract](AUTHORIZATION.md) and
+[quarantine execution contract](QUARANTINE.md).
 
 Every invocation requires one explicit privacy profile:
 

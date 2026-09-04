@@ -1,17 +1,18 @@
 # Quarantine attempt authorization contract
 
 `CleanupQuarantineAuthorizer` is the Core-only, in-memory boundary that binds
-one exact `CleanupApproval` to one explicit caller assertion for one future
+one exact `CleanupApproval` to one explicit caller assertion for one
 recoverable-quarantine attempt. `CleanupQuarantineAuthorization` contract
-version 1 is implemented, but no executor, quarantine, receipt, recovery,
-restore, purge, deletion, app action, or CLI action exists.
+version 1 is implemented. A Core-internal npm-only executor now consumes its
+single-use handoff, but receipt, recovery, restore, purge, deletion, public API,
+app action, and CLI action do not exist.
 
 Authorization is not filesystem access. The public contract performs no scan,
 process inspection, npm invocation, clock read, network request, or filesystem
 I/O. In particular, `grantsStandaloneFilesystemMutationAuthority == false`.
-A future executor must
-use the internal single-use handoff and still revalidate every filesystem fact
-descriptor-relatively immediately before an operation.
+A consuming executor must use the internal single-use handoff and establish all
+required filesystem facts inline in the same descriptor-held attempt, with
+final root and candidate binding checks immediately before rename.
 
 ## Four distinct meanings
 
@@ -20,7 +21,7 @@ descriptor-relatively immediately before an operation.
 | `CleanupApprovalPreconditionReviewAcknowledgement` | A pending condition and its risk were included in approval review. | It is copyable, replayable review intent—not an assertion that npm stopped, freshness, or authority. |
 | `CleanupQuarantineUserAttestation` | The caller explicitly supplies the required statement for one exact authorization attempt and its complete canonical subject set. | It is not observed inactivity, proof that a human acted or understood, caller authentication, or standalone mutation authority. |
 | `CleanupQuarantineAuthorization` | The exact approval and accepted attempt-scoped assertion passed the version-1 authorization policy, and one internal executor handoff may be attempted. | It is not a filesystem capability, a safety verdict, proof that npm remains stopped, or permission for permanent deletion. |
-| Internal executor claim | One internal consumer atomically obtains the retained approval and attestation. | The claim itself performs no I/O; no public consumer, executor, inline filesystem check, or mutation exists. |
+| Internal executor claim | One internal consumer atomically obtains the retained approval and attestation. | The claim itself performs no I/O; only the Core-internal npm executor consumes it, and no public consumer exists. |
 
 The names are intentionally not interchangeable. Approval review
 acknowledgement must never be presented as the separate attestation. The caller's
@@ -114,8 +115,8 @@ open --authorize once--> issued --internal consume once--> consumed
   authorization is needed.
 
 The public package intentionally exposes no consume method or execution claim.
-`consumeForExecution()` and `CleanupQuarantineExecutionClaim` are internal,
-reserved for a future descriptor-held executor.
+`consumeForExecution()` and `CleanupQuarantineExecutionClaim` remain internal;
+the Core-internal npm executor is their sole consumer.
 
 ## Authorization properties and limits
 
@@ -128,12 +129,13 @@ Every valid version-1 `CleanupQuarantineAuthorization` reports:
 - `grantsStandaloneFilesystemMutationAuthority == false`; and
 - `usesWallClockFreshness == false`.
 
-Those properties describe the boundary, not an implemented operation. The
+Those properties describe the boundary, not standalone authority. The
 authorization neither consumes `CleanupRevalidationReport` nor turns one into
-authority. A future executor must consume only the internal authorization
-handoff, reopen the approval-bound root, and establish current containment,
-kind, device, identity, rule, activity policy, descendant, ownership, and
-quarantine-destination facts while verified descriptors remain held.
+authority. The internal executor consumes only the authorization handoff,
+reopens the approval-bound root, and establishes current containment, kind,
+device, identity, rule, activity policy, descendant, ownership, age, and
+quarantine-destination facts while verified descriptors remain held. See the
+[quarantine execution contract](QUARANTINE.md).
 
 The scope is recoverable quarantine only. Permanent deletion and purge require
 a later, separate policy and authorization design even after quarantine,
