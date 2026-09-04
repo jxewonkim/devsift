@@ -14,7 +14,7 @@ struct CleanupQuarantineExecutorTests {
     let executor = CleanupQuarantineExecutor(
       preflight: fixture.preflight(),
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x55, count: 16) }
+        nonceBytes: { seededDeterministicNonce(0x55, attempt: $0) }
       )
     )
 
@@ -58,7 +58,8 @@ struct CleanupQuarantineExecutorTests {
         atPath: try executorLocationURL(location, root: fixture.root).path
       )
     )
-    #expect(!report.isDurablyRecorded)
+    #expect(report.isDurablyRecorded)
+    #expect(report.isCrashRecoverable)
     #expect(!report.performedPermanentDeletion)
   }
 
@@ -82,7 +83,7 @@ struct CleanupQuarantineExecutorTests {
     let secondClaim = try await secondAuthorization.consumeForExecution()
     let preflight = fixture.preflight()
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x56, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x56, attempt: $0) },
       hooks: DescriptorExclusiveQuarantineMoverHooks(
         afterFinalSourceValidationBeforeRename: { _ in
           barrier.arriveAndWait()
@@ -100,7 +101,7 @@ struct CleanupQuarantineExecutorTests {
     )
     let reports = try results.map { try $0.get() }
     let moved = reports.count { report in
-      guard case .quarantinedAwaitingReceipt = report.status else { return false }
+      guard case .quarantined = report.status else { return false }
       return true
     }
     let indeterminate = reports.count { report in
@@ -194,7 +195,7 @@ struct CleanupQuarantineExecutorTests {
     let executor = CleanupQuarantineExecutor(
       preflight: fixture.preflight(),
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x99, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0x99, attempt: $0) },
         cancellationIsRequested: { Task.isCancelled },
         hooks: hooks
       )
@@ -266,7 +267,7 @@ private final class ExecutorConcurrentMoveResults: @unchecked Sendable {
 private func executorQuarantinedLocation(
   from report: CleanupQuarantineExecutionReport
 ) throws -> CleanupQuarantineLocation {
-  guard case .quarantinedAwaitingReceipt(let location, false) = report.status else {
+  guard case .quarantined(let location, false) = report.status else {
     throw ExecutorTestError.unexpectedStatus
   }
   return location

@@ -25,7 +25,9 @@ struct DescriptorExclusiveQuarantineMoverTests {
     let report = try move(
       claim,
       fixture: fixture,
-      mover: supportedExecutionTestMover(nonceBytes: { _ in [UInt8](repeating: 0x11, count: 16) })
+      mover: supportedExecutionTestMover(
+        nonceBytes: { seededDeterministicNonce(0x11, attempt: $0) }
+      )
     )
     let location = try quarantinedLocation(from: report, sourceNameWasRecreated: false)
     let destination = try locationURL(location, root: fixture.root)
@@ -46,8 +48,8 @@ struct DescriptorExclusiveQuarantineMoverTests {
     #expect(try treeSnapshot(at: fixture.scannerFixture.outside) == outsideBefore)
     #expect(report.quarantineRootMutation == .created)
     #expect(!report.cancellationWasObservedAfterRename)
-    #expect(!report.isDurablyRecorded)
-    #expect(!report.isCrashRecoverable)
+    #expect(report.isDurablyRecorded)
+    #expect(report.isCrashRecoverable)
     #expect(!report.performedPermanentDeletion)
   }
 
@@ -77,11 +79,154 @@ struct DescriptorExclusiveQuarantineMoverTests {
       return
     }
 
-    let location = try quarantinedLocation(from: report, sourceNameWasRecreated: false)
+    guard case .quarantined(let location, false) = report.status else {
+      let journalNames =
+        (try? FileManager.default.contentsOfDirectory(
+          atPath: fixture.root.appendingPathComponent(".devsift-quarantine-v1").path
+        )) ?? []
+      let details =
+        "Expected durable quarantine: \(report.status), \(report.durabilityState), entries: \(journalNames.sorted())"
+      Issue.record(Comment(rawValue: details))
+      return
+    }
+
+    guard
+      case .receiptRecorded(let transactionID, false) = report.durabilityState
+    else {
+      Issue.record("Expected a production receipt, received \(report.durabilityState)")
+      return
+    }
 
     #expect(!FileManager.default.fileExists(atPath: fixture.candidate.path))
     #expect(
       FileManager.default.fileExists(atPath: try locationURL(location, root: fixture.root).path))
+    let quarantineRoot = fixture.root.appendingPathComponent(".devsift-quarantine-v1")
+    #expect(
+      FileManager.default.fileExists(
+        atPath: quarantineRoot.appendingPathComponent(".intent-v1-\(transactionID)").path
+      )
+    )
+    #expect(
+      FileManager.default.fileExists(
+        atPath: quarantineRoot.appendingPathComponent(".receipt-v1-\(transactionID)").path
+      )
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: quarantineRoot.appendingPathComponent(".intent-stage-v1-\(transactionID)").path
+      )
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: quarantineRoot.appendingPathComponent(".receipt-stage-v1-\(transactionID)").path
+      )
+    )
+  }
+
+  @Test("A production receipt write failure is reported as unresolved")
+  func productionReceiptWriteFailureIsNotCrashRecoverable() async throws {
+    let fixture = try NPMQuarantinePreflightFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.makeClaim()
+    let writer = DescriptorJournalTestWriter(failingCall: 2)
+    var journalDependencies = descriptorJournalTestDependencies()
+    journalDependencies.writeAll = { descriptor, bytes in
+      writer.write(descriptor: descriptor, bytes: bytes)
+    }
+    let report = try move(
+      claim,
+      fixture: fixture,
+      mover: supportedExecutionTestMover(
+        journal: DescriptorQuarantineJournal(dependencies: journalDependencies)
+      )
+    )
+    let recovery = try manualRecovery(from: report)
+    let transactionID: String
+    if case .unresolved(let value?) = report.durabilityState {
+      transactionID = value
+    } else {
+      Issue.record("Expected unresolved journal evidence, received \(report.durabilityState)")
+      return
+    }
+    let quarantineRoot = fixture.root.appendingPathComponent(".devsift-quarantine-v1")
+
+    #expect(recovery.reason == .durabilityRecordingFailed)
+    #expect(recovery.location != nil)
+    #expect(!report.isCrashRecoverable)
+    #expect(!report.isDurablyRecorded)
+    #expect(writer.callCount == 2)
+    #expect(
+      FileManager.default.fileExists(
+        atPath: quarantineRoot.appendingPathComponent(".intent-v1-\(transactionID)").path
+      )
+    )
+    #expect(
+      try Data(
+        contentsOf: quarantineRoot.appendingPathComponent(
+          ".receipt-stage-v1-\(transactionID)"
+        )
+      ).isEmpty
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: quarantineRoot.appendingPathComponent(".receipt-v1-\(transactionID)").path
+      )
+    )
+  }
+
+  @Test("A detached production journal is reported as unresolved")
+  func productionJournalDetachmentIsNotCrashRecoverable() async throws {
+    let fixture = try NPMQuarantinePreflightFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.makeClaim()
+    let quarantineRoot = fixture.root.appendingPathComponent(".devsift-quarantine-v1")
+    let detachedRoot = fixture.scannerFixture.outside.appendingPathComponent(
+      "detached-production-journal"
+    )
+    let state = MoverTestState()
+    let hooks = DescriptorExclusiveQuarantineMoverHooks(
+      afterRenameReturn: { _, result in
+        guard result == .succeeded else { return }
+        do {
+          try FileManager.default.moveItem(at: quarantineRoot, to: detachedRoot)
+        } catch {
+          state.record(error)
+        }
+      }
+    )
+    let report = try move(
+      claim,
+      fixture: fixture,
+      mover: supportedExecutionTestMover(
+        journal: DescriptorQuarantineJournal(
+          dependencies: descriptorJournalTestDependencies()
+        ),
+        hooks: hooks
+      )
+    )
+    try #require(state.errorDescription == nil)
+    let recovery = try manualRecovery(from: report)
+    let transactionID: String
+    if case .unresolved(let value?) = report.durabilityState {
+      transactionID = value
+    } else {
+      Issue.record("Expected unresolved journal evidence, received \(report.durabilityState)")
+      return
+    }
+
+    #expect(recovery.reason == .parentBindingChanged)
+    #expect(!report.isCrashRecoverable)
+    #expect(!report.isDurablyRecorded)
+    #expect(
+      FileManager.default.fileExists(
+        atPath: detachedRoot.appendingPathComponent(".intent-v1-\(transactionID)").path
+      )
+    )
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: detachedRoot.appendingPathComponent(".receipt-v1-\(transactionID)").path
+      )
+    )
   }
 
   @Test("Missing beneath-root rename support blocks every namespace mutation")
@@ -140,6 +285,8 @@ struct DescriptorExclusiveQuarantineMoverTests {
     #expect(report.status == .notMoved(.cancelled))
     #expect(state.callCount == 0)
     #expect(FileManager.default.fileExists(atPath: fixture.candidate.path))
+    #expect(report.isDurablyRecorded)
+    #expect(report.isCrashRecoverable)
     #expect(!report.performedPermanentDeletion)
   }
 
@@ -155,7 +302,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x22, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x22, attempt: $0) },
       cancellationIsRequested: { state.flag },
       hooks: hooks
     )
@@ -207,6 +354,113 @@ struct DescriptorExclusiveQuarantineMoverTests {
     }
     #expect(report.quarantineRootMutation == .none)
     #expect(!report.performedPermanentDeletion)
+  }
+
+  @Test("A duplicate destination plan is rejected before durable intent or rename")
+  func duplicateDestinationPlan() async throws {
+    let fixture = try NPMQuarantinePreflightFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.makeClaim()
+    let journalState = MoverTestState()
+    let renameState = MoverTestState()
+    let journal = DescriptorQuarantineJournal(
+      begin: { _ in
+        journalState.incrementCallCount()
+        return .failure(.unsafe)
+      },
+      finish: { _, _, _ in .invalidSession }
+    )
+    let mover = supportedExecutionTestMover(
+      nonceBytes: { _ in [UInt8](repeating: 0xEF, count: 16) },
+      renameExclusive: { _, _, _, _, _ in
+        renameState.incrementCallCount()
+        return .succeeded
+      },
+      journal: journal
+    )
+
+    let report = try move(claim, fixture: fixture, mover: mover)
+
+    #expect(report.status == .notMoved(.invalidDestinationName))
+    #expect(journalState.callCount == 0)
+    #expect(renameState.callCount == 0)
+    #expect(!report.isDurablyRecorded)
+    #expect(!report.isCrashRecoverable)
+    #expect(FileManager.default.fileExists(atPath: fixture.candidate.path))
+  }
+
+  @Test("An indeterminate intent publication never claims crash recovery")
+  func indeterminateIntentPublication() async throws {
+    let fixture = try NPMQuarantinePreflightFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.makeClaim()
+    let transactionID = String(repeating: "d", count: 32)
+    let renameState = MoverTestState()
+    let journal = DescriptorQuarantineJournal(
+      begin: { _ in .failure(.recoveryRequired(transactionID: transactionID)) },
+      finish: { _, _, _ in .invalidSession }
+    )
+    let mover = supportedExecutionTestMover(
+      renameExclusive: { _, _, _, _, _ in
+        renameState.incrementCallCount()
+        return .succeeded
+      },
+      journal: journal
+    )
+
+    let report = try move(claim, fixture: fixture, mover: mover)
+
+    #expect(
+      report.status
+        == .manualRecoveryRequired(location: nil, reason: .quarantineJournalUnsafe)
+    )
+    #expect(report.durabilityState == .unresolved(transactionID: transactionID))
+    #expect(!report.isDurablyRecorded)
+    #expect(!report.isCrashRecoverable)
+    #expect(renameState.callCount == 0)
+    #expect(FileManager.default.fileExists(atPath: fixture.candidate.path))
+  }
+
+  @Test("An invalid journal session cannot retain crash-recoverable evidence")
+  func invalidJournalSessionIsUnresolved() async throws {
+    let fixture = try NPMQuarantinePreflightFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.makeClaim()
+    let journal = DescriptorQuarantineJournal(
+      begin: { request in
+        do {
+          return .success(
+            DescriptorQuarantineJournalSession.testing(
+              intent: request.intent,
+              canonicalIntentBytes: try QuarantineJournalV1Codec.encode(request.intent),
+              quarantineRootSnapshotAfterIntent: try DescriptorStatSnapshot.read(
+                from: request.quarantineRootDescriptor,
+                cancellationPolicy: .ignoreTaskCancellation
+              )
+            )
+          )
+        } catch {
+          return .failure(.unsafe)
+        }
+      },
+      finish: { _, _, _ in .invalidSession }
+    )
+
+    let report = try move(
+      claim,
+      fixture: fixture,
+      mover: supportedExecutionTestMover(journal: journal)
+    )
+    let recovery = try manualRecovery(from: report)
+
+    #expect(recovery.reason == .durabilityRecordingFailed)
+    guard case .unresolved(let transactionID?) = report.durabilityState else {
+      Issue.record("Expected unresolved durability, received \(report.durabilityState)")
+      return
+    }
+    #expect(transactionID.count == 32)
+    #expect(!report.isCrashRecoverable)
+    #expect(!report.isDurablyRecorded)
   }
 
   @Test(
@@ -478,7 +732,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x33, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x33, attempt: $0) },
       hooks: hooks
     )
 
@@ -500,6 +754,8 @@ struct DescriptorExclusiveQuarantineMoverTests {
         == Data([0xDE, 0xAD]))
     #expect(try Data(contentsOf: unrelated) == Data([0x31]))
     #expect(try treeSnapshot(at: fixture.scannerFixture.outside) == outsideBefore)
+    #expect(!report.isDurablyRecorded)
+    #expect(report.isCrashRecoverable)
     #expect(!report.performedPermanentDeletion)
   }
 
@@ -527,7 +783,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       claim,
       fixture: fixture,
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x3A, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0x3A, attempt: $0) },
         hooks: hooks
       )
     )
@@ -576,7 +832,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       claim,
       fixture: fixture,
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x3B, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0x3B, attempt: $0) },
         hooks: hooks
       )
     )
@@ -621,7 +877,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       claim,
       fixture: fixture,
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x44, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0x44, attempt: $0) },
         hooks: hooks
       )
     )
@@ -673,7 +929,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       claim,
       fixture: fixture,
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x66, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0x66, attempt: $0) },
         hooks: hooks
       )
     )
@@ -720,7 +976,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       claim,
       fixture: fixture,
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x67, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0x67, attempt: $0) },
         hooks: hooks
       )
     )
@@ -767,7 +1023,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x68, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x68, attempt: $0) },
       hasExtendedACL: {
         if state.nextCallCount() == 4 { state.setFlag(true) }
         return .success(false)
@@ -822,7 +1078,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x6A, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x6A, attempt: $0) },
       renameExclusive: { from, fromName, to, toName, flags in
         let call = state.nextCallCount()
         guard call > 1 else {
@@ -869,7 +1125,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x77, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x77, attempt: $0) },
       renameExclusive: { from, fromName, to, toName, flags in
         let call = state.nextCallCount()
         if flags != DescriptorExclusiveQuarantineMover.renameFlags {
@@ -932,7 +1188,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0x88, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0x88, attempt: $0) },
       renameExclusive: { from, fromName, to, toName, flags in
         _ = state.nextCallCount()
         if flags != DescriptorExclusiveQuarantineMover.renameFlags {
@@ -997,7 +1253,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       }
     )
     let mover = supportedExecutionTestMover(
-      nonceBytes: { _ in [UInt8](repeating: 0xAA, count: 16) },
+      nonceBytes: { seededDeterministicNonce(0xAA, attempt: $0) },
       renameExclusive: { from, fromName, to, toName, flags in
         _ = state.nextCallCount()
         if flags != DescriptorExclusiveQuarantineMover.renameFlags {
@@ -1063,7 +1319,7 @@ struct DescriptorExclusiveQuarantineMoverTests {
       claim,
       fixture: fixture,
       mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0xAB, count: 16) },
+        nonceBytes: { seededDeterministicNonce(0xAB, attempt: $0) },
         hooks: hooks
       )
     )
@@ -1093,6 +1349,9 @@ func supportedExecutionTestMover(
       Int32,
       DescriptorPathComponent
     ) -> DescriptorQuarantineMkdirResult = testMakeQuarantineRoot,
+  transactionNonceBytes: @escaping @Sendable () -> [UInt8]? = {
+    [UInt8](repeating: 0xD5, count: 16)
+  },
   nonceBytes: @escaping @Sendable (Int) -> [UInt8]? = deterministicNonce,
   volumeCapabilities:
     @escaping @Sendable () -> DescriptorQuarantineDependencyResult<
@@ -1117,6 +1376,7 @@ func supportedExecutionTestMover(
       UInt32
     ) -> DescriptorExclusiveRenameResult
   )? = nil,
+  journal: DescriptorQuarantineJournal = successfulExecutionTestJournal(),
   cancellationIsRequested: @escaping @Sendable () -> Bool = { false },
   hooks: DescriptorExclusiveQuarantineMoverHooks = DescriptorExclusiveQuarantineMoverHooks()
 ) -> DescriptorExclusiveQuarantineMover {
@@ -1125,10 +1385,12 @@ func supportedExecutionTestMover(
       dependencies: DescriptorExclusiveQuarantineMoverDependencies(
         supportsResolveBeneathRename: supportsResolveBeneathRename,
         makeQuarantineRoot: makeQuarantineRoot,
+        transactionNonceBytes: transactionNonceBytes,
         nonceBytes: nonceBytes,
         volumeCapabilities: { _ in volumeCapabilities() },
         hasExtendedACL: { _ in hasExtendedACL() },
         renameExclusive: renameExclusive,
+        journal: journal,
         cancellationIsRequested: cancellationIsRequested,
         hooks: hooks
       )
@@ -1138,13 +1400,69 @@ func supportedExecutionTestMover(
     dependencies: DescriptorExclusiveQuarantineMoverDependencies(
       supportsResolveBeneathRename: supportsResolveBeneathRename,
       makeQuarantineRoot: makeQuarantineRoot,
+      transactionNonceBytes: transactionNonceBytes,
       nonceBytes: nonceBytes,
       volumeCapabilities: { _ in volumeCapabilities() },
       hasExtendedACL: { _ in hasExtendedACL() },
       renameExclusive: testRenameExclusive,
+      journal: journal,
       cancellationIsRequested: cancellationIsRequested,
       hooks: hooks
     )
+  )
+}
+
+private func successfulExecutionTestJournal() -> DescriptorQuarantineJournal {
+  DescriptorQuarantineJournal(
+    begin: { request in
+      do {
+        let intentBytes = try QuarantineJournalV1Codec.encode(request.intent)
+        let snapshot = try DescriptorStatSnapshot.read(
+          from: request.quarantineRootDescriptor,
+          cancellationPolicy: .ignoreTaskCancellation
+        )
+        return .success(
+          DescriptorQuarantineJournalSession.testing(
+            intent: request.intent,
+            canonicalIntentBytes: intentBytes,
+            quarantineRootSnapshotAfterIntent: snapshot
+          ))
+      } catch {
+        return .failure(.unsafe)
+      }
+    },
+    finish: { session, outcome, _ in
+      do {
+        let receipt: QuarantineJournalReceiptV1
+        switch outcome {
+        case .notMoved:
+          receipt = try QuarantineJournalV1Codec.makeReceipt(
+            outcome: .notMoved,
+            producedByRecovery: false,
+            canonicalIntentBytes: session.canonicalIntentBytes
+          )
+        case .quarantined(let ordinal, let recreated):
+          receipt = try QuarantineJournalV1Codec.makeReceipt(
+            outcome: .quarantined,
+            selectedDestinationOrdinal: ordinal,
+            sourceNameWasRecreated: recreated,
+            producedByRecovery: false,
+            canonicalIntentBytes: session.canonicalIntentBytes
+          )
+        case .rolledBack:
+          receipt = try QuarantineJournalV1Codec.makeReceipt(
+            outcome: .rolledBack,
+            producedByRecovery: false,
+            canonicalIntentBytes: session.canonicalIntentBytes
+          )
+        case .unresolved:
+          return .recoveryRequired(transactionID: session.transactionID)
+        }
+        return .receiptRecorded(receipt)
+      } catch {
+        return .recoveryRequired(transactionID: session.transactionID)
+      }
+    }
   )
 }
 
@@ -1181,7 +1499,7 @@ private func quarantinedLocation(
   sourceNameWasRecreated: Bool
 ) throws -> CleanupQuarantineLocation {
   guard
-    case .quarantinedAwaitingReceipt(let location, let recreated) = report.status,
+    case .quarantined(let location, let recreated) = report.status,
     recreated == sourceNameWasRecreated
   else {
     throw MoverTestError.unexpectedStatus
@@ -1210,6 +1528,16 @@ private func locationURL(_ location: CleanupQuarantineLocation, root: URL) throw
 private func deterministicNonce(_ attempt: Int) -> [UInt8]? {
   guard (0...255).contains(attempt) else { return nil }
   return [UInt8](repeating: UInt8(attempt), count: 16)
+}
+
+func seededDeterministicNonce(_ seed: UInt8, attempt: Int) -> [UInt8]? {
+  guard (0..<DescriptorExclusiveQuarantineMover.maximumDestinationAttempts).contains(attempt)
+  else {
+    return nil
+  }
+  var bytes = [UInt8](repeating: seed, count: 16)
+  bytes[bytes.count - 1] = seed &+ UInt8(attempt)
+  return bytes
 }
 
 private func destinationName(nonce: [UInt8]) -> String {

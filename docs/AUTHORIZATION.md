@@ -4,8 +4,9 @@
 one exact `CleanupApproval` to one explicit caller assertion for one
 recoverable-quarantine attempt. `CleanupQuarantineAuthorization` contract
 version 1 is implemented. A Core-internal npm-only executor now consumes its
-single-use handoff, but receipt, recovery, restore, purge, deletion, public API,
-app action, and CLI action do not exist.
+single-use handoff and surrounds its atomic move with an internal durable
+intent/receipt journal and recovery engine. Restore, purge, deletion, public
+execution API, app action, and CLI action do not exist.
 
 Authorization is not filesystem access. The public contract performs no scan,
 process inspection, npm invocation, clock read, network request, or filesystem
@@ -137,9 +138,10 @@ device, identity, rule, activity policy, descendant, ownership, age, and
 quarantine-destination facts while verified descriptors remain held. See the
 [quarantine execution contract](QUARANTINE.md).
 
-The scope is recoverable quarantine only. Permanent deletion and purge require
-a later, separate policy and authorization design even after quarantine,
-receipt, recovery, and restore exist.
+The scope is recoverable quarantine only. Durable quarantine intent, receipt,
+and recovery do not broaden it. Restore remains separate work, and permanent
+deletion and purge require a later policy, authorization design, and explicit
+user action.
 
 ## Privacy, persistence, and failures
 
@@ -174,7 +176,9 @@ clears the retained attempt state and returns no partial authorization.
 Authorization is contract version 1. Existing contracts remain unchanged:
 explainable classification 3, cleanup manifest 3, manifest diff 2, approval 2,
 revalidation 2, built-in catalog 6, npm rule 5, scan JSON 2, classification JSON
-2, and internal manifest-review JSON 2 over source manifest 3.
+2, and internal manifest-review JSON 2 over source manifest 3. The internal
+execution report is contract version 2; private quarantine intent and receipt
+wire records are version 1.
 
 The authorization contract has no wire format or migration path. If any
 supported rule, responsible-tool identity, precondition policy, statement

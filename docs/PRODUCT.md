@@ -29,11 +29,12 @@ review before Core issues approval. That acknowledgement is not an activity
 attestation. Core can separately bind that exact approval to one explicit
 caller assertion in a process-local, single-use quarantine authorization
 attempt. A Core-internal npm-only kernel can consume that authorization and
-atomically quarantine one exact `_cacache`, but its result is not durable or
-crash-recoverable. The CLI target can internally project one draft into a privacy-
-profiled, review-only JSON schema, but no command or file export exposes it. No
-frontend exposes approval, attestation, authorization, or execution, and job 5
-remains later product direction.
+atomically quarantine one exact `_cacache` behind a durable intent/receipt
+journal and recovery engine. The CLI target can internally project one draft
+into a privacy-profiled, review-only JSON schema, but no command or file export
+exposes it. No frontend exposes approval, attestation, authorization, execution,
+or recovery; automatic app-launch recovery is not wired, restore is absent, and
+job 5 remains later product direction.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -73,7 +74,7 @@ remain Protected.
 
 The corresponding current contracts are explainable classification revision 3,
 cleanup manifest 3, manifest diff 2, approval 2, revalidation 2, quarantine
-authorization 1, and internal execution report 1. Scan JSON remains version 2;
+authorization 1, and internal execution report 2. Scan JSON remains version 2;
 classification JSON and the
 internal manifest-review JSON are version 2, with the latter pinned to source
 manifest 3.
@@ -181,10 +182,15 @@ consumer nor executor is public; the sole executor is Core-internal. See the
 The internal npm executor takes only the authorization handoff, not a bare
 approval or revalidation report. It validates the exact policy and cacache
 grammar inline while holding descriptors through one exclusive same-volume
-rename into `.devsift-quarantine-v1`. A reconciled move is
-`quarantinedAwaitingReceipt`, not completed; durable intent, receipt, sync,
-recovery, and restore remain later work. See the
-[quarantine execution contract](QUARANTINE.md).
+rename into `.devsift-quarantine-v1`. It publishes a canonical immutable intent
+before rename, synchronizes both namespace parents after a possible rename, and
+records a canonical terminal receipt only for a conclusive outcome. The
+internal recovery engine reconciles receipt-less intents without resuming,
+reversing, restoring, overwriting, or deleting them. Final receipts remain
+immutable historical evidence; current namespace truth is used for
+receipt-less recovery or receipt-stage promotion, not to reinterpret them. See
+the [quarantine execution contract](QUARANTINE.md) and
+[durability contract](DURABILITY.md).
 
 The remaining npm execution fact is activity. The capability review in the
 [activity safety contract](ACTIVITY.md) found no supported, unprivileged macOS
@@ -207,5 +213,6 @@ DevSift is not:
 - a wrapper around arbitrary shell deletion commands.
 
 No public or frontend cleanup operation exists in the current milestone. The
-Core-internal npm kernel performs no permanent deletion and is not yet a
-durable, crash-recoverable product workflow.
+Core-internal npm kernel performs no permanent deletion. Its journal and
+recovery engine are durable internals, not yet a user-facing product workflow;
+restore, manual recovery, and automatic app-launch wiring remain absent.

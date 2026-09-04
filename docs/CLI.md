@@ -5,7 +5,8 @@ classifier without adding a second filesystem or policy implementation. It
 reads metadata under one explicitly named directory. It has no cleanup, move,
 quarantine, delete, plan-review, manifest-import, or manifest-export command.
 Core's internal npm quarantine kernel and process-local execution report have
-no CLI command or JSON schema.
+no CLI command or JSON schema. The private durable journal and recovery engine
+are also unreachable from the CLI.
 The CLI target contains an internal manifest-review JSON encoder described
 below, but no command invokes it and it performs no stream or file output by
 itself.
@@ -389,8 +390,11 @@ schema or command: neither classification JSON nor manifest-review JSON can
 construct its attempt-bound request, attestation, shared single-use state, or
 internal executor handoff. It grants no standalone mutation authority. The
 Core-internal npm executor is the sole consumer, but the CLI cannot invoke or
-render it. See the [authorization contract](AUTHORIZATION.md) and
-[quarantine execution contract](QUARANTINE.md).
+render it or its contract-version-2 durability state. The CLI also cannot start
+the internal recovery engine or inspect its canonical intent and receipt
+records. See the [authorization contract](AUTHORIZATION.md),
+[quarantine execution contract](QUARANTINE.md), and
+[durability contract](DURABILITY.md).
 
 Every invocation requires one explicit privacy profile:
 

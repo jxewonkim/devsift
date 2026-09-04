@@ -33,6 +33,8 @@ enum CleanupQuarantineNotMovedReason: Equatable, Sendable {
   case exclusiveRenameUnsupported
   case invalidDestinationName
   case destinationCollisionLimitExceeded
+  case quarantineJournalBusy
+  case quarantineJournalUnavailable(CleanupQuarantineSystemFailure)
   case preRenameValidationUnavailable(CleanupQuarantineSystemFailure)
   case renameRejected(CleanupQuarantineSystemFailure)
 }
@@ -45,6 +47,8 @@ enum CleanupQuarantineRollbackReason: String, Equatable, Sendable {
 
 /// Why Core cannot safely resolve a mutation without later recovery tooling.
 enum CleanupQuarantineManualRecoveryReason: String, Equatable, Sendable {
+  case quarantineJournalUnsafe = "quarantine-journal-unsafe"
+  case durabilityRecordingFailed = "durability-recording-failed"
   case renameOutcomeIndeterminate = "rename-outcome-indeterminate"
   case destinationCouldNotBeVerified = "destination-could-not-be-verified"
   case parentBindingChanged = "parent-binding-changed"
@@ -65,7 +69,7 @@ enum CleanupQuarantineRootMutation: String, Equatable, Sendable {
 }
 
 /// A root-relative quarantine location. It intentionally contains no absolute
-/// path and is not yet a durable receipt.
+/// path; the report's durability state says whether a receipt binds it.
 struct CleanupQuarantineLocation: Equatable, Sendable {
   let relativePath: ScanRelativePath
   let observedIdentity: FileIdentity?
@@ -73,12 +77,9 @@ struct CleanupQuarantineLocation: Equatable, Sendable {
 
 /// The only outcomes emitted after an authorization claim is consumed.
 ///
-/// `quarantinedAwaitingReceipt` is deliberately not named `completed`: the
-/// move is not crash-recoverable until a later increment durably records and
-/// syncs its restore receipt.
 enum CleanupQuarantineExecutionStatus: Equatable, Sendable {
   case notMoved(CleanupQuarantineNotMovedReason)
-  case quarantinedAwaitingReceipt(
+  case quarantined(
     location: CleanupQuarantineLocation,
     sourceNameWasRecreated: Bool
   )
@@ -89,22 +90,46 @@ enum CleanupQuarantineExecutionStatus: Equatable, Sendable {
   )
 }
 
+/// Monotonic durability evidence for one execution report. Transaction IDs
+/// are random bounded identifiers, not filesystem paths or authorization.
+enum CleanupQuarantineDurabilityState: Equatable, Sendable {
+  case notRecorded
+  case intentRecorded(transactionID: String)
+  case receiptRecorded(transactionID: String, producedByRecovery: Bool)
+  case unresolved(transactionID: String?)
+
+  var isDurablyRecorded: Bool {
+    guard case .receiptRecorded = self else { return false }
+    return true
+  }
+
+  var isCrashRecoverable: Bool {
+    switch self {
+    case .intentRecorded, .receiptRecorded:
+      return true
+    case .notRecorded, .unresolved:
+      return false
+    }
+  }
+}
+
 /// Internal result of one exact npm quarantine attempt.
 ///
 /// This is process-local, non-serializable, and intentionally unavailable to
 /// app and CLI targets until durable intent, receipt, and recovery exist.
 struct CleanupQuarantineExecutionReport: Equatable, Sendable {
-  static let currentContractVersion: UInt32 = 1
+  static let currentContractVersion: UInt32 = 2
 
   let contractVersion: UInt32
   let path: ScanRelativePath
   let ruleRevision: RuleRevision
   let status: CleanupQuarantineExecutionStatus
+  let durabilityState: CleanupQuarantineDurabilityState
   let quarantineRootMutation: CleanupQuarantineRootMutation
   let cancellationWasObservedAfterRename: Bool
 
-  var isDurablyRecorded: Bool { false }
-  var isCrashRecoverable: Bool { false }
+  var isDurablyRecorded: Bool { durabilityState.isDurablyRecorded }
+  var isCrashRecoverable: Bool { durabilityState.isCrashRecoverable }
   var performedPermanentDeletion: Bool { false }
 
   init(
@@ -112,6 +137,7 @@ struct CleanupQuarantineExecutionReport: Equatable, Sendable {
     path: ScanRelativePath,
     ruleRevision: RuleRevision,
     status: CleanupQuarantineExecutionStatus,
+    durabilityState: CleanupQuarantineDurabilityState = .notRecorded,
     quarantineRootMutation: CleanupQuarantineRootMutation,
     cancellationWasObservedAfterRename: Bool = false
   ) {
@@ -119,7 +145,23 @@ struct CleanupQuarantineExecutionReport: Equatable, Sendable {
     self.path = path
     self.ruleRevision = ruleRevision
     self.status = status
+    self.durabilityState = durabilityState
     self.quarantineRootMutation = quarantineRootMutation
     self.cancellationWasObservedAfterRename = cancellationWasObservedAfterRename
+  }
+
+  func replacing(
+    status: CleanupQuarantineExecutionStatus? = nil,
+    durabilityState: CleanupQuarantineDurabilityState? = nil
+  ) -> CleanupQuarantineExecutionReport {
+    CleanupQuarantineExecutionReport(
+      contractVersion: contractVersion,
+      path: path,
+      ruleRevision: ruleRevision,
+      status: status ?? self.status,
+      durabilityState: durabilityState ?? self.durabilityState,
+      quarantineRootMutation: quarantineRootMutation,
+      cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
+    )
   }
 }

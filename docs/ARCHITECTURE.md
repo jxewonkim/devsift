@@ -7,6 +7,8 @@ DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
         scan -> rules -> plan -> diff -> approve -> revalidate -> authorize -> executor
           now      now    now    Core      Core        Core        Core       internal
+                                                                            |
+                                                                    journal/recovery
                                    |
                                    +-> app review now
 ```
@@ -57,14 +59,20 @@ Core layers are:
   `_cacache` candidate, and can make one exclusive same-volume rename into a
   verified private quarantine directory on macOS 26 or newer. Older systems
   reject before namespace mutation because the safety boundary requires
-  `RENAME_RESOLVE_BENEATH`. Its report is process-local and not crash-
-  recoverable;
+  `RENAME_RESOLVE_BENEATH`;
+- **Durability and recovery:** a private canonical intent/receipt journal that
+  serializes cooperating attempts, applies required `F_FULLFSYNC` record and
+  namespace barriers, and reconciles receipt-less intents from current
+  descriptor-bound namespace truth without resuming, reversing, overwriting, or
+  deleting them. The root-only recovery entry point is internal and is not yet
+  wired to app launch;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 Current Core semantic versions are explainable classification revision 3,
 cleanup manifest version 3, manifest diff version 2, approval version 2, and
 revalidation version 2. Quarantine authorization and the internal execution
-report are contract version 1. The
+report are contract version 1 and version 2 respectively. Private intent and receipt
+wire records are version 1. The
 built-in catalog is version 6 and npm is rule revision 5. Older manifests and
 approvals are regenerated rather than migrated.
 
@@ -212,10 +220,14 @@ and cross-attempt replay fails without using a clock or TTL. Authorization v1
 is recoverable-quarantine-only, requires inline filesystem revalidation, and
 grants no standalone mutation authority. The consumer, execution claim, and
 npm-only executor are internal. The executor keeps verified descriptors live
-through one non-overwriting same-volume rename and reports a successful move as
-`quarantinedAwaitingReceipt`, not completed. See the
+through one non-overwriting same-volume rename. It publishes immutable intent
+before mutation, synchronizes affected namespace parents, and publishes a
+terminal receipt for a conclusive outcome. The report's durability state
+distinguishes no record, validated intent, terminal receipt, and unresolved
+state. See the
 [authorization contract](AUTHORIZATION.md) and
-[quarantine execution contract](QUARANTINE.md).
+[quarantine execution contract](QUARANTINE.md), plus the
+[durability contract](DURABILITY.md).
 
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted

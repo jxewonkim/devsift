@@ -7,8 +7,10 @@ results separately. It can also create and display an unapproved in-memory
 draft from explicitly selected eligible results. It has no persistence,
 import, export, diff, approval, activity-attestation, authorization, execution,
 cleanup, move, quarantine, restore, purge, or deletion action.
-Core's internal npm quarantine kernel is intentionally unreachable from the
-app until durable intent, receipt, sync, and recovery exist.
+Core's internal npm quarantine kernel, durable journal, and recovery engine are
+intentionally unreachable from the app. Frontend transaction design, restore
+and manual-recovery flows, security review, and release checks must precede any
+wiring; the app does not automatically invoke recovery on launch.
 
 Run the development executable on macOS 14 or newer:
 
@@ -186,9 +188,11 @@ begins an attempt nor constructs `CleanupQuarantineUserAttestation`. It exposes
 no attestation request, statement, authorization state, cancellation, or
 filesystem action. Authorization contract version 1 is not a UI safety verdict
 and grants no standalone mutation authority. The internal execution report is
-not app presentation state, and `quarantinedAwaitingReceipt` must not be shown
-as completed cleanup; see the [authorization contract](AUTHORIZATION.md) and
-[quarantine execution contract](QUARANTINE.md).
+not app presentation state. Its contract-version-2 durability state and the
+private journal are likewise not app inventory or completion UI; see the
+[authorization contract](AUTHORIZATION.md),
+[quarantine execution contract](QUARANTINE.md), and
+[durability contract](DURABILITY.md).
 
 ## Observation and policy language
 

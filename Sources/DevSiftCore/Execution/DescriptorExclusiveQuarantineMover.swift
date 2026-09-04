@@ -78,6 +78,7 @@ struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
       Int32,
       DescriptorPathComponent
     ) -> DescriptorQuarantineMkdirResult
+  var transactionNonceBytes: @Sendable () -> [UInt8]?
   var nonceBytes: @Sendable (Int) -> [UInt8]?
   var volumeCapabilities:
     @Sendable (
@@ -95,6 +96,7 @@ struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
       DescriptorQuarantineRelativePath,
       UInt32
     ) -> DescriptorExclusiveRenameResult
+  var journal: DescriptorQuarantineJournal
   var cancellationIsRequested: @Sendable () -> Bool
   var hooks: DescriptorExclusiveQuarantineMoverHooks
 
@@ -108,6 +110,8 @@ struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
         Int32,
         DescriptorPathComponent
       ) -> DescriptorQuarantineMkdirResult = descriptorQuarantineMakeRoot,
+    transactionNonceBytes: @escaping @Sendable () -> [UInt8]? =
+      descriptorQuarantineRandomTransactionNonce,
     nonceBytes: @escaping @Sendable (Int) -> [UInt8]? =
       descriptorQuarantineRandomNonce,
     volumeCapabilities:
@@ -127,16 +131,19 @@ struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
         DescriptorQuarantineRelativePath,
         UInt32
       ) -> DescriptorExclusiveRenameResult = descriptorQuarantineRenameExclusive,
+    journal: DescriptorQuarantineJournal = DescriptorQuarantineJournal(),
     cancellationIsRequested: @escaping @Sendable () -> Bool = { Task.isCancelled },
     hooks: DescriptorExclusiveQuarantineMoverHooks = DescriptorExclusiveQuarantineMoverHooks()
   ) {
     self.currentAccountUID = currentAccountUID
     self.supportsResolveBeneathRename = supportsResolveBeneathRename
     self.makeQuarantineRoot = makeQuarantineRoot
+    self.transactionNonceBytes = transactionNonceBytes
     self.nonceBytes = nonceBytes
     self.volumeCapabilities = volumeCapabilities
     self.hasExtendedACL = hasExtendedACL
     self.renameExclusive = renameExclusive
+    self.journal = journal
     self.cancellationIsRequested = cancellationIsRequested
     self.hooks = hooks
   }
@@ -176,12 +183,14 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
 
     func report(
       _ status: CleanupQuarantineExecutionStatus,
+      durabilityState: CleanupQuarantineDurabilityState = .notRecorded,
       cancellationWasObservedAfterRename: Bool = false
     ) -> CleanupQuarantineExecutionReport {
       CleanupQuarantineExecutionReport(
         path: scope.entry.path,
         ruleRevision: scope.entry.ruleRevision,
         status: status,
+        durabilityState: durabilityState,
         quarantineRootMutation: rootMutation,
         cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
       )
@@ -297,13 +306,13 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
       return report(.notMoved(.quarantineRootUnavailable(failure)))
     }
 
-    let preRenameRootSnapshot: DescriptorStatSnapshot
-    let preRenameQuarantineRootSnapshot: DescriptorStatSnapshot
+    let preIntentRootSnapshot: DescriptorStatSnapshot
+    let preIntentQuarantineRootSnapshot: DescriptorStatSnapshot
     do {
-      preRenameRootSnapshot = try DescriptorStatSnapshot.read(
+      preIntentRootSnapshot = try DescriptorStatSnapshot.read(
         from: scope.heldRootDescriptor
       )
-      preRenameQuarantineRootSnapshot = try DescriptorStatSnapshot.read(
+      preIntentQuarantineRootSnapshot = try DescriptorStatSnapshot.read(
         from: quarantineRootDescriptor
       )
     } catch is CancellationError {
@@ -319,17 +328,160 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
       return report(.notMoved(.cancelled))
     }
 
+    guard let plannedDestinationComponents = plannedDestinationComponents() else {
+      return report(.notMoved(.invalidDestinationName))
+    }
+    guard
+      let transactionNonce = dependencies.transactionNonceBytes(),
+      let transactionID = transactionIdentifier(nonce: transactionNonce),
+      let rootBinding = QuarantineJournalFileBindingV1(snapshot: preIntentRootSnapshot),
+      let quarantineRootBinding = QuarantineJournalFileBindingV1(
+        snapshot: preIntentQuarantineRootSnapshot
+      ),
+      let candidateBinding = QuarantineJournalFileBindingV1(
+        snapshot: scope.candidateSnapshot
+      )
+    else {
+      return report(.notMoved(.invalidDestinationName))
+    }
+    let intent = QuarantineJournalIntentV1(
+      transactionID: transactionID,
+      npmRootBinding: rootBinding,
+      quarantineRootBinding: quarantineRootBinding,
+      candidateBinding: candidateBinding,
+      sourceComponents: scope.entry.path.rawComponents,
+      destinationComponents: plannedDestinationComponents.map(\.bytes)
+    )
+    let beginRequest = DescriptorQuarantineJournalBeginRequest(
+      rootDescriptor: scope.heldRootDescriptor,
+      quarantineRootDescriptor: quarantineRootDescriptor,
+      candidateDescriptor: scope.heldCandidateDescriptor,
+      quarantineRootComponent: quarantineRootComponent,
+      absoluteRootComponents: scope.absoluteRootComponents,
+      homeComponentCount: scope.homeComponentCount,
+      accountUID: scope.accountUID,
+      intent: intent
+    )
+    let journalSession: DescriptorQuarantineJournalSession
+    switch dependencies.journal.begin(beginRequest) {
+    case .success(let session):
+      journalSession = session
+    case .failure(.busy):
+      return report(.notMoved(.quarantineJournalBusy))
+    case .failure(.unsafe):
+      return report(
+        .manualRecoveryRequired(location: nil, reason: .quarantineJournalUnsafe),
+        durabilityState: .unresolved(transactionID: nil)
+      )
+    case .failure(.unavailable(let failure)):
+      return report(.notMoved(.quarantineJournalUnavailable(failure)))
+    case .failure(.recoveryRequired(let pendingTransactionID)):
+      return report(
+        .manualRecoveryRequired(location: nil, reason: .quarantineJournalUnsafe),
+        durabilityState: .unresolved(transactionID: pendingTransactionID)
+      )
+    }
+    guard
+      journalSession.transactionID == transactionID,
+      journalSession.intent == intent,
+      (try? QuarantineJournalV1Codec.decodeIntent(
+        journalSession.canonicalIntentBytes
+      )) == intent
+    else {
+      return report(
+        .manualRecoveryRequired(location: nil, reason: .quarantineJournalUnsafe),
+        durabilityState: .unresolved(transactionID: journalSession.transactionID)
+      )
+    }
+
+    var namespaceMutationWasInvoked = false
+
+    func finalize(
+      _ initialReport: CleanupQuarantineExecutionReport,
+      outcome: DescriptorQuarantineJournalTerminalOutcome,
+      namespaceMutationMayHaveBeenInvoked: Bool
+    ) -> CleanupQuarantineExecutionReport {
+      let pendingReport = initialReport.replacing(
+        durabilityState: .intentRecorded(transactionID: journalSession.transactionID)
+      )
+      switch dependencies.journal.finish(
+        journalSession,
+        outcome: outcome,
+        namespaceMutationMayHaveBeenInvoked: namespaceMutationMayHaveBeenInvoked
+          || namespaceMutationWasInvoked
+      ) {
+      case .receiptRecorded(let receipt)
+      where receiptMatches(
+        receipt,
+        expectedOutcome: outcome,
+        session: journalSession
+      ):
+        return pendingReport.replacing(
+          durabilityState: .receiptRecorded(
+            transactionID: receipt.transactionID,
+            producedByRecovery: receipt.producedByRecovery
+          )
+        )
+      case .receiptRecorded, .invalidSession:
+        return pendingReport.replacing(
+          status: durabilityFailureStatus(for: initialReport.status),
+          durabilityState: .unresolved(transactionID: journalSession.transactionID)
+        )
+      case .recoveryRequired:
+        let failedStatus: CleanupQuarantineExecutionStatus =
+          outcome == .unresolved
+          ? initialReport.status
+          : durabilityFailureStatus(for: initialReport.status)
+        return pendingReport.replacing(
+          status: failedStatus,
+          durabilityState: .intentRecorded(transactionID: journalSession.transactionID)
+        )
+      case .unresolved(let transactionID):
+        let failedStatus: CleanupQuarantineExecutionStatus =
+          outcome == .unresolved
+          ? initialReport.status
+          : durabilityFailureStatus(for: initialReport.status)
+        return pendingReport.replacing(
+          status: failedStatus,
+          durabilityState: .unresolved(transactionID: transactionID)
+        )
+      }
+    }
+
+    func finalize(
+      _ status: CleanupQuarantineExecutionStatus,
+      outcome: DescriptorQuarantineJournalTerminalOutcome,
+      namespaceMutationMayHaveBeenInvoked: Bool,
+      cancellationWasObservedAfterRename: Bool = false
+    ) -> CleanupQuarantineExecutionReport {
+      finalize(
+        report(
+          status,
+          durabilityState: .intentRecorded(transactionID: journalSession.transactionID),
+          cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
+        ),
+        outcome: outcome,
+        namespaceMutationMayHaveBeenInvoked: namespaceMutationMayHaveBeenInvoked
+      )
+    }
+
+    let preRenameRootSnapshot = preIntentRootSnapshot
+    let preRenameQuarantineRootSnapshot = journalSession.quarantineRootSnapshotAfterIntent
+
     var cancellationWasObservedAfterRename = false
     for attempt in 0..<Self.maximumDestinationAttempts {
+      let destinationComponent = plannedDestinationComponents[attempt]
       guard
-        let nonce = dependencies.nonceBytes(attempt),
-        let destinationComponent = destinationComponent(nonce: nonce),
         let destinationPath = DescriptorQuarantineRelativePath([
           quarantineRootComponent,
           destinationComponent,
         ])
       else {
-        return report(.notMoved(.invalidDestinationName))
+        return finalize(
+          .notMoved(.invalidDestinationName),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       }
 
       switch validatePreRenameBindings(
@@ -342,33 +494,78 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
       case .valid:
         break
       case .candidateMissing:
-        return report(.notMoved(.candidateMissing))
+        return finalize(
+          .notMoved(.candidateMissing),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .candidateChanged:
-        return report(.notMoved(.candidateChanged))
+        return finalize(
+          .notMoved(.candidateChanged),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .candidateUnsafe:
-        return report(.notMoved(.candidateUnsafe))
+        return finalize(
+          .notMoved(.candidateUnsafe),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .parentChanged:
-        return report(.notMoved(.trustedRootChanged))
+        return finalize(
+          .notMoved(.trustedRootChanged),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .invalidCurrentAccount:
-        return report(.notMoved(.invalidCurrentAccount))
+        return finalize(
+          .notMoved(.invalidCurrentAccount),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .quarantineRootUnsafe:
-        return report(.notMoved(.quarantineRootUnsafe))
+        return finalize(
+          .notMoved(.quarantineRootUnsafe),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .unsupported:
-        return report(.notMoved(.exclusiveRenameUnsupported))
+        return finalize(
+          .notMoved(.exclusiveRenameUnsupported),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .cancelled:
-        return report(.notMoved(.cancelled))
+        return finalize(
+          .notMoved(.cancelled),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       case .unavailable(let failure):
-        return report(.notMoved(.preRenameValidationUnavailable(failure)))
+        return finalize(
+          .notMoved(.preRenameValidationUnavailable(failure)),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       }
 
       guard !dependencies.cancellationIsRequested() else {
-        return report(.notMoved(.cancelled))
+        return finalize(
+          .notMoved(.cancelled),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       }
       dependencies.hooks.afterFinalSourceValidationBeforeRename(attempt)
       guard !dependencies.cancellationIsRequested() else {
-        return report(.notMoved(.cancelled))
+        return finalize(
+          .notMoved(.cancelled),
+          outcome: .notMoved,
+          namespaceMutationMayHaveBeenInvoked: false
+        )
       }
 
+      namespaceMutationWasInvoked = true
       let renameResult = dependencies.renameExclusive(
         scope.heldRootDescriptor,
         sourcePath,
@@ -394,8 +591,10 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
 
       if reconciled.destination == .expectedCandidate {
         guard reconciled.parentsAreValid else {
-          return report(
+          return finalize(
             .manualRecoveryRequired(location: nil, reason: .parentBindingChanged),
+            outcome: .unresolved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
@@ -404,11 +603,13 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
           identity: scope.candidateSnapshot.identity
         )
         guard renameResult == .succeeded else {
-          return report(
+          return finalize(
             .manualRecoveryRequired(
               location: location,
               reason: .renameOutcomeIndeterminate
             ),
+            outcome: .unresolved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
@@ -416,38 +617,52 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
           reconciled.candidateMatchesApprovalAfterRename,
           reconciled.parentsAreValid
         {
-          return report(
-            .quarantinedAwaitingReceipt(
+          return finalize(
+            .quarantined(
               location: location,
               sourceNameWasRecreated: true
             ),
+            outcome: .quarantined(
+              selectedDestinationOrdinal: attempt,
+              sourceNameWasRecreated: true
+            ),
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
         if reconciled.source == .unavailable {
-          return report(
+          return finalize(
             .manualRecoveryRequired(
               location: location,
               reason: .sourceCouldNotBeVerified
             ),
+            outcome: .unresolved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
         if reconciled.source == .other || reconciled.source == .expectedCandidate {
-          return report(
+          return finalize(
             .manualRecoveryRequired(
               location: location,
               reason: .sourceNameOccupied
             ),
+            outcome: .unresolved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
         if reconciled.candidateMatchesApprovalAfterRename {
-          return report(
-            .quarantinedAwaitingReceipt(
+          return finalize(
+            .quarantined(
               location: location,
               sourceNameWasRecreated: false
             ),
+            outcome: .quarantined(
+              selectedDestinationOrdinal: attempt,
+              sourceNameWasRecreated: false
+            ),
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
@@ -456,7 +671,7 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
           reconciled.candidateValidationUnavailable
           ? .postMoveValidationUnavailable
           : .movedObjectDidNotMatchApproval
-        return rollback(
+        let rollbackReport = rollback(
           scope,
           sourceComponent: sourceComponent,
           quarantineRootDescriptor: quarantineRootDescriptor,
@@ -466,6 +681,17 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
           reason: rollbackReason,
           rootMutation: rootMutation,
           cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
+        )
+        let terminalOutcome: DescriptorQuarantineJournalTerminalOutcome =
+          if case .rolledBack = rollbackReport.status {
+            .rolledBack
+          } else {
+            .unresolved
+          }
+        return finalize(
+          rollbackReport,
+          outcome: terminalOutcome,
+          namespaceMutationMayHaveBeenInvoked: true
         )
       }
 
@@ -480,8 +706,10 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
       switch renameResult {
       case .failed(EEXIST):
         if cancellationWasObservedAfterRename {
-          return report(
+          return finalize(
             .notMoved(.cancelled),
+            outcome: .notMoved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: true
           )
         }
@@ -491,13 +719,15 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
           reconciled.parentsAreValid,
           reconciled.destination == .other
         else {
-          return report(
+          return finalize(
             .manualRecoveryRequired(
               location: observedDestinationLocation,
               reason: descriptorQuarantineIndeterminateReason(
                 reconciliation: reconciled
               )
             ),
+            outcome: .unresolved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
@@ -508,35 +738,43 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
           reconciled.parentsAreValid,
           reconciled.destination == .missing
         {
-          return report(
+          return finalize(
             .notMoved(.renameRejected(descriptorQuarantineFailure(for: code))),
+            outcome: .notMoved,
+            namespaceMutationMayHaveBeenInvoked: true,
             cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
           )
         }
-        return report(
+        return finalize(
           .manualRecoveryRequired(
             location: observedDestinationLocation,
             reason: code == EINTR || code == EIO
               ? .renameOutcomeIndeterminate
               : descriptorQuarantineIndeterminateReason(reconciliation: reconciled)
           ),
+          outcome: .unresolved,
+          namespaceMutationMayHaveBeenInvoked: true,
           cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
         )
       case .succeeded:
-        return report(
+        return finalize(
           .manualRecoveryRequired(
             location: observedDestinationLocation,
             reason: descriptorQuarantineIndeterminateReason(
               reconciliation: reconciled
             )
           ),
+          outcome: .unresolved,
+          namespaceMutationMayHaveBeenInvoked: true,
           cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
         )
       }
     }
 
-    return report(
+    return finalize(
       .notMoved(.destinationCollisionLimitExceeded),
+      outcome: .notMoved,
+      namespaceMutationMayHaveBeenInvoked: true,
       cancellationWasObservedAfterRename: cancellationWasObservedAfterRename
     )
   }
@@ -1070,6 +1308,83 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
     return DescriptorPathComponent(bytes)
   }
 
+  private func transactionIdentifier(nonce: [UInt8]) -> String? {
+    guard nonce.count == 16 else { return nil }
+    let alphabet = Array("0123456789abcdef".utf8)
+    var bytes: [UInt8] = []
+    bytes.reserveCapacity(32)
+    for byte in nonce {
+      bytes.append(alphabet[Int(byte >> 4)])
+      bytes.append(alphabet[Int(byte & 0x0F)])
+    }
+    return String(bytes: bytes, encoding: .ascii)
+  }
+
+  private func receiptMatches(
+    _ receipt: QuarantineJournalReceiptV1,
+    expectedOutcome: DescriptorQuarantineJournalTerminalOutcome,
+    session: DescriptorQuarantineJournalSession
+  ) -> Bool {
+    guard
+      receipt.transactionID == session.transactionID,
+      !receipt.producedByRecovery,
+      (try? QuarantineJournalV1Codec.validate(
+        receipt,
+        matching: session.intent,
+        canonicalIntentBytes: session.canonicalIntentBytes
+      )) != nil
+    else {
+      return false
+    }
+
+    switch (expectedOutcome, receipt.outcome) {
+    case (.notMoved, .notMoved), (.rolledBack, .rolledBack):
+      return true
+    case (
+      .quarantined(let expectedOrdinal, let expectedRecreated),
+      .quarantined
+    ):
+      return receipt.selectedDestinationOrdinal == expectedOrdinal
+        && receipt.sourceNameWasRecreated == expectedRecreated
+    case (.unresolved, _), (_, _):
+      return false
+    }
+  }
+
+  private func durabilityFailureStatus(
+    for status: CleanupQuarantineExecutionStatus
+  ) -> CleanupQuarantineExecutionStatus {
+    let location: CleanupQuarantineLocation?
+    switch status {
+    case .quarantined(let value, _):
+      location = value
+    case .manualRecoveryRequired(let value, _):
+      location = value
+    case .notMoved, .rolledBack:
+      location = nil
+    }
+    return .manualRecoveryRequired(
+      location: location,
+      reason: .durabilityRecordingFailed
+    )
+  }
+
+  private func plannedDestinationComponents() -> [DescriptorPathComponent]? {
+    var components: [DescriptorPathComponent] = []
+    components.reserveCapacity(Self.maximumDestinationAttempts)
+    for attempt in 0..<Self.maximumDestinationAttempts {
+      guard
+        let nonce = dependencies.nonceBytes(attempt),
+        let component = destinationComponent(nonce: nonce),
+        !components.contains(component)
+      else {
+        return nil
+      }
+      components.append(component)
+    }
+    return components
+  }
+
   private func quarantineLocation(
     destinationComponent: DescriptorPathComponent,
     identity: FileIdentity?
@@ -1173,6 +1488,10 @@ private func descriptorQuarantineRandomNonce(_ attempt: Int) -> [UInt8]? {
     }
   }
   return bytes
+}
+
+private func descriptorQuarantineRandomTransactionNonce() -> [UInt8]? {
+  descriptorQuarantineRandomNonce(0)
 }
 
 private func descriptorQuarantineVolumeCapabilities(

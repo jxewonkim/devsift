@@ -1,10 +1,12 @@
 # Quarantine execution contract
 
-DevSift's ninth increment adds a Core-internal execution kernel for one exact
-npm `_cacache` quarantine attempt. It consumes only the internal claim from a
+DevSift's ninth increment added a Core-internal execution kernel for one exact
+npm `_cacache` quarantine attempt. The tenth adds a durable journal and recovery
+engine around that move. The kernel consumes only the internal claim from a
 single-use `CleanupQuarantineAuthorization`, revalidates the approved object
 while descriptors remain held, and can perform one same-volume, exclusive
-namespace move. The app, CLI, and public package API do not expose this kernel.
+namespace move. The app, CLI, and public package API expose neither execution
+nor recovery.
 
 The scanner, classifier, and read-only surfaces support macOS 14 or newer. The
 internal quarantine mutation kernel has a stricter runtime requirement: it
@@ -12,9 +14,10 @@ requires macOS 26 or newer because its safety boundary depends on
 `RENAME_RESOLVE_BENEATH`. On older macOS versions, execution fails closed before
 creating the quarantine directory or invoking any mutation syscall.
 
-This is not a completed cleanup transaction. The current report is
-process-local and non-`Codable`; there is no durable intent, receipt, directory
-sync, startup recovery, restore workflow, purge, or permanent deletion.
+The report remains process-local and non-`Codable`, but the internal transaction
+now uses canonical immutable intent and receipt records, full synchronization,
+and descriptor-bound recovery. There is still no restore workflow, purge, or
+permanent deletion, and no app or CLI launch wiring invokes recovery.
 
 ## Exact supported policy
 
@@ -82,9 +85,10 @@ both the validated quarantine-root inode and its ancestry. A same-account
 process can therefore replace the quarantine-root name after its last check and
 redirect a move into that replacement inside the held root. When reconciliation
 observes that binding mismatch, Core does not report success and may have no
-trustworthy location to return. Only a successful
-`quarantinedAwaitingReceipt` outcome asserts that the destination parent was the
-verified private directory when reconciled.
+trustworthy location to return. Only a successful `quarantined` outcome asserts
+that the destination parent was the verified private directory when reconciled.
+Its separate durability state says whether the corresponding intent or terminal
+receipt was recorded.
 
 Post-rename reconciliation is detection, not prevention, and a safe rollback is
 not always possible. The npm-stop attestation is still an explicit accepted
@@ -119,10 +123,10 @@ escalation.
 Core does not infer the result from the rename return code alone. Immediately
 after every attempt it reconciles the held source, destination, and parent
 bindings. A verified moved candidate with an absent source becomes
-`quarantinedAwaitingReceipt`. If a different object recreated the source name
-after the move, Core preserves both objects and emits the same status with
-`sourceNameWasRecreated == true`. That name is deliberate: it is not
-`completed`.
+`quarantined`. If a different object recreated the source name after the move,
+Core preserves both objects and emits the same status with
+`sourceNameWasRecreated == true`. Status and durability are deliberately
+separate: a move status alone does not claim its receipt was published.
 
 If the destination contains the approved object but post-move validation does
 not remain trustworthy, Core attempts one reverse descriptor-relative rename
@@ -147,40 +151,65 @@ rollback. The executing task continues to a bounded report and records
 Cancellation never rewrites a verified moved result into a false `notMoved`
 result.
 
-## Report contract and durability gap
+## Journal, recovery, and report contract
 
-`CleanupQuarantineExecutionReport` contract version 1 is internal,
+`CleanupQuarantineExecutionReport` contract version 2 is internal,
 process-local, `Sendable`, and non-`Codable`. It contains the root-relative
 candidate path, rule revision, bounded status, quarantine-root mutation state,
-and the post-rename cancellation flag. A reported location may also retain an
-observed filesystem identity. A successful status separately records whether a
-different object recreated the original source name. It exposes these invariant
-facts:
+post-rename cancellation flag, and a separate durability state. A reported
+location may also retain an observed filesystem identity. A successful status
+separately records whether a different object recreated the original source
+name. Durability is one of:
 
-- `isDurablyRecorded == false`;
-- `isCrashRecoverable == false`; and
-- `performedPermanentDeletion == false`.
+- `notRecorded`, before a final intent exists;
+- `intentRecorded(transactionID:)`, when the canonical journal has
+  authoritative durable intent but no terminal receipt yet;
+- `receiptRecorded(transactionID:producedByRecovery:)`, for a validated,
+  synchronized terminal receipt; or
+- `unresolved(transactionID:)`, when Core cannot safely assert a recoverable
+  durable state. A transaction identifier here is diagnostic only.
 
-`quarantinedAwaitingReceipt` means the atomic namespace move was reconciled in
-the running process. It does not mean a durable restore receipt exists, the
-containing directories were synced, startup can recover an interrupted
-transaction, or the operation is complete across a crash.
+`isDurablyRecorded` is true only for `receiptRecorded`.
+`isCrashRecoverable` is true only for validated `intentRecorded` or
+`receiptRecorded`; `unresolved` remains false even when it carries a transaction
+identifier. `performedPermanentDeletion` remains unconditionally false.
+Crash-recoverable here means restart reconciliation has authoritative evidence
+it can safely inspect, preserve, complete, or block; it does not guarantee that
+an ambiguous live namespace can automatically produce a receipt.
 
-The next increment must add durable pre-mutation intent, a durable post-move
-receipt, required file and directory synchronization, and startup recovery
-before any frontend can expose quarantine. Restore follows that durable
-foundation. Purge and permanent deletion remain later, separately authorized
-work.
+Before rename, Core durably publishes a canonical intent containing all 16
+preplanned destination names. After any possible rename it synchronizes both
+namespace parents, then publishes a canonical terminal receipt when the outcome
+is conclusive. The journal uses validated exclusive records and `F_FULLFSYNC`;
+there is no weaker fallback.
+
+Recovery runs under the journal's validated exclusive lock before a new intent
+is admitted. A separate internal root-only entry point can reach the journal
+when `_cacache` is absent, but automatic app-launch recovery is not wired yet.
+Recovery observes receipt-less intent state and may publish only a provable
+`not-moved` or `quarantined` receipt. It never resumes the forward rename,
+automatically rolls back, restores, overwrites, or deletes anything.
+
+A valid final receipt is immutable historical evidence of the transaction and
+is never reinterpreted from later live source or destination changes. Current
+namespace truth is required for receipt-less intent recovery and for promoting
+a canonical receipt stage, where the intent, digest, and terminal namespace
+must all agree. Restore, manual-recovery UI, purge, and permanent deletion remain
+later work. See the exact state machine, record boundary, synchronization order,
+and recovery table in the [quarantine durability contract](DURABILITY.md).
 
 ## Frontend and privacy boundary
 
-The executor and its report are internal to `DevSiftCore`. Neither frontend can
-construct an attestation, consume an authorization, invoke execution, render a
-report, or offer a dedicated quarantine inventory or discovery workflow. No
-execution value is persisted, exported, logged, uploaded, or added to a CLI
-schema.
+The executor, recovery engine, and report are internal to `DevSiftCore`. Neither
+frontend can construct an attestation, consume an authorization, invoke
+execution or recovery, render a report, or offer a dedicated quarantine
+inventory or discovery workflow. Intent and receipt records are necessarily
+persisted inside the private quarantine directory; they are not logs, exports,
+uploads, app state, or part of a CLI schema.
 
 The in-memory claim and report contain sensitive raw relative paths, rule and
 policy metadata, filesystem identities retained through the claim, and a
-quarantine location when one can be established. They are not credentials or
-authentication, and callers inside Core must release them with the attempt.
+quarantine location when one can be established. The durable records also bind
+raw paths, filesystem metadata, policy versions, and a transaction identifier.
+They are not credentials or authentication. See [DURABILITY.md](DURABILITY.md)
+for their local persistence and validation contract.
