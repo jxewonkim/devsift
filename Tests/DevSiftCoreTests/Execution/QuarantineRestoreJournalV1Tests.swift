@@ -641,7 +641,9 @@ private func restoreReplacingFirst(
 ) throws -> Data {
   let text = try #require(String(data: bytes, encoding: .utf8))
   let range = try #require(text.range(of: target))
-  return Data((text[..<range.lowerBound] + replacement + text[range.upperBound...]).utf8)
+  let prefix = String(text[..<range.lowerBound])
+  let suffix = String(text[range.upperBound...])
+  return Data((prefix + replacement + suffix).utf8)
 }
 
 private func restoreInsertingBeforeFinalBrace(
