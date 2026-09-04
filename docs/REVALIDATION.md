@@ -15,8 +15,8 @@ Preflight requires approval contract version 2, cleanup manifest contract
 version 3, and the exact canonical precondition-review-acknowledgement sequence
 retained by the approval. Each acknowledgement establishes only that a pending
 condition and its risk were reviewed. It is not an activity attestation and
-cannot be substituted for future attempt authorization. Older approval or
-manifest values must be regenerated; there is no import migration.
+cannot be substituted for the separate attempt authorization assertion. Older
+approval or manifest values must be regenerated; there is no import migration.
 
 The default revalidator performs a new allocated-size scan and a new built-in
 explainable classification using that retained root. It accepts only the
@@ -91,17 +91,27 @@ while bounded entry work is processed, but an in-progress scanner or classifier
 operation may finish before its next checkpoint. Cancellation returns no partial
 report.
 
-## Execution remains later
+## Authorization is separate; execution remains later
 
 This contract does not close time-of-check/time-of-use gaps. A later phase must
-create `CleanupQuarantineAuthorization` from the exact `CleanupApproval`, a
-fresh explicit user attestation scoped to that quarantine attempt, and process-
-local single-attempt identity and consumption. A precondition review
-acknowledgement is not the attestation, and a wall-clock TTL is not freshness.
+still implement the executor, but Core now creates an in-memory authorization
+attempt separately from revalidation. `CleanupQuarantineAuthorizer` accepts the
+exact `CleanupApproval`, not this report, and exposes one canonical request for
+an explicit caller assertion over the complete npm pending set. A precondition
+review acknowledgement is not that assertion. The attestation is not observed
+inactivity, proof of human action, or authentication.
 
-A future executor must accept only that authorization, not a bare approval or
-this report, and revalidate each item inline while holding verified descriptors
-immediately before a recoverable operation. It must independently establish
+The authorization attempt uses process-local identity rather than a clock or
+TTL. Issuance succeeds at most once, and all authorization copies share one
+atomic internal handoff. Cancellation is terminal. Authorization contract
+version 1 is recoverable-quarantine-only, requires inline filesystem
+revalidation, and grants no standalone mutation authority. The public API has
+no consumer or executor. See the [authorization contract](AUTHORIZATION.md).
+
+A future executor must enter only through that authorization's internal
+handoff, not a bare approval or this report, and revalidate each item inline
+while holding verified descriptors immediately before a recoverable operation.
+It must independently establish
 containment, kind, identity, device, the selected activity policy, and current
 policy evidence; it must not treat this report as a capability or proof that a
 later path lookup is safe.
@@ -111,6 +121,7 @@ Activity is the remaining npm execution fact. The
 unprivileged product has no supported primitive for proving subtree-wide
 inactivity or preventing access after a check. Revalidation therefore keeps npm
 activity unknown and cannot emit execution authority. The selected narrow
-recoverable-quarantine policy remains pending until the separate attempt-
-authorization phase, while immediate descriptor-held revalidation remains
-mandatory.
+recoverable-quarantine policy can now bind an explicit attempt assertion
+without changing that observation. The authorization remains only an in-memory,
+single-use handoff boundary; immediate descriptor-held revalidation by a future
+executor remains mandatory.

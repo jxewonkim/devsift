@@ -93,8 +93,10 @@ directories named `content-v2` and `index-v5` inside `_cacache` and replaces
 the generic tool-ownership requirement with its narrower
 `account-owned-cache-namespace` check. npm now also collects a bounded
 protected-descendant exclusion against the pinned cacache grammar. npm activity
-remains literally unknown; the new revision records a future attempt-scoped
-user-attestation precondition rather than claiming inactivity. Every other
+remains literally unknown; the new revision records an attempt-scoped user-
+attestation precondition rather than claiming inactivity. The separate Core
+authorizer can bind that condition to an explicit caller assertion, but does
+not change the finding or grant standalone mutation authority. Every other
 built-in rule remains at revision 1.
 The identity-rebinding finding is a classifier-owned integrity invariant, not
 a rule-specific definition change; classifier-wide semantics are now tracked
@@ -103,7 +105,7 @@ separately by the explainable-classification contract revision.
 | Rule ID | Raw-byte recognition | Reproducibility | Eligible disposition | Minimum age | Additional policy |
 | --- | --- | --- | --- | ---: | --- |
 | `devsift.cache.uv` | direct child named exactly `uv` | Reproducible | Reclaimable | 7 days | Generated, tool-owned cache in a trusted uv cache container; uv inactive |
-| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, current-account-owned root and candidate namespace, no protected descendants, and either observed npm inactivity or the pending `requires-user-attestation-that-responsible-tool-is-stopped@1` condition for a future recoverable quarantine attempt |
+| `devsift.cache.npm` | direct child named exactly `_cacache` | Conditional | Review required | 7 days | Exact `content-v2` and `index-v5` directory layout, trusted npm cache container, current-account-owned root and candidate namespace, no protected descendants, and either observed npm inactivity or the pending `requires-user-attestation-that-responsible-tool-is-stopped@1` condition for a recoverable quarantine authorization attempt |
 | `devsift.cache.homebrew` | direct child named exactly `Homebrew` | Conditional | Review required | 7 days | Trusted Homebrew cache container; Homebrew inactive |
 | `devsift.xcode.derived-data` | direct child named exactly `DerivedData` | Conditional | Review required | 7 days | Trusted Xcode container and generated-content evidence; Xcode inactive |
 | `devsift.swiftpm.build` | direct child named exactly `.build` | Conditional | Review required | 7 days | Exact regular-file `Package.swift` sibling and `.build/workspace-state.json` marker; build tooling inactive |
@@ -326,9 +328,12 @@ FSEvents result to `known(.inactive)`. The narrow recoverable-quarantine policy
 defers only `unknown(.notCollected)`; it does not satisfy the finding. A future
 positive-only conflict observer may return `active` when it has concrete
 evidence, but every negative, incomplete, raced, denied, or bounded result must
-remain unknown and cannot close an execution race. The later explicit user
-attestation belongs to an attempt-scoped `CleanupQuarantineAuthorization`, not
-classification.
+remain unknown and cannot close an execution race. The explicit caller
+attestation is accepted only by the separate Core authorization attempt, not by
+classification. Its process-local single-use
+`CleanupQuarantineAuthorization` is still not observed activity or a
+standalone filesystem capability. See the
+[authorization contract](AUTHORIZATION.md).
 
 ## Determinism and versioning
 

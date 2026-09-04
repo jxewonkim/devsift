@@ -26,10 +26,12 @@ policy-provenanced drafts and prepare a root-bound, opaque review session from
 one exact source-bound planning request without reading the filesystem. The
 caller must confirm every entry and acknowledge every pending condition for
 review before Core issues approval. That acknowledgement is not an activity
-attestation. The
-CLI target can internally project one draft into a privacy-profiled, review-only
-JSON schema, but no command or file export exposes it. No frontend exposes
-approval, and job 5 remains later product direction.
+attestation. Core can separately bind that exact approval to one explicit
+caller assertion in a process-local, single-use quarantine authorization
+attempt. The CLI target can internally project one draft into a privacy-
+profiled, review-only JSON schema, but no command or file export exposes it. No
+frontend exposes approval, attestation, authorization, or execution, and job 5
+remains later product direction.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -68,9 +70,10 @@ Custom locations, other generated markers, and other unavailable required facts
 remain Protected.
 
 The corresponding current contracts are explainable classification revision 3,
-cleanup manifest 3, manifest diff 2, approval 2, and revalidation 2. Scan JSON
-remains version 2; classification JSON and the internal manifest-review JSON are
-version 2, with the latter pinned to source manifest 3.
+cleanup manifest 3, manifest diff 2, approval 2, revalidation 2, and quarantine
+authorization 1. Scan JSON remains version 2; classification JSON and the
+internal manifest-review JSON are version 2, with the latter pinned to source
+manifest 3.
 
 The first rule set recognizes:
 
@@ -157,22 +160,33 @@ imports, exports, diffs, approves, executes, performs live-filesystem
 revalidation, or mutates from a manifest, and no diff-export format exists.
 The revalidation boundary accepts only `CleanupApproval` and reopens the root
 stored within it, rather than accepting a separately supplied root, standalone
-draft, diff, or review projection. A later phase must create
-`CleanupQuarantineAuthorization` from that exact approval, a fresh explicit
-attempt-scoped user attestation, and process-local single-attempt identity and
-consumption. A wall-clock TTL is not freshness. A future executor must take only
-that authorization, not the approval or report, and revalidate inline while
-holding descriptors before a recoverable operation.
+draft, diff, or review projection.
+
+`CleanupQuarantineAuthorizer.beginAttempt(for:)` now validates and retains that
+exact approval, then exposes one request for an explicit caller assertion over
+the complete canonical npm pending set. Review acknowledgement is replayable
+review intent; the separate `CleanupQuarantineUserAttestation` is an attempt-
+bound assertion, not observed inactivity, human proof, or authentication.
+Process-local identity rejects cross-attempt replay without a clock or TTL.
+Authorization issuance and the shared internal handoff each succeed at most
+once. Contract version 1 is recoverable-quarantine-only, requires inline
+filesystem revalidation, and grants no standalone mutation authority. No public
+consumer or executor exists. See the
+[authorization contract](AUTHORIZATION.md).
+
+A future executor must take only the authorization's internal handoff, not a
+bare approval or revalidation report, and revalidate inline while holding
+descriptors before a recoverable operation.
 
 The remaining npm execution fact is activity. The capability review in the
 [activity safety contract](ACTIVITY.md) found no supported, unprivileged macOS
 primitive that can prove subtree-wide inactivity or prevent a new cache access
 between a check and an operation. The current product therefore leaves this
-fact unknown. The project has selected explicit user-attested risk only for a
-future recoverable quarantine attempt. This milestone propagates and reviews
-the pending condition but does not collect that attestation or create the
-authorization. A quiet-tree or empty-process snapshot will not be called
-inactivity evidence.
+fact unknown. The project has selected explicit caller-attested risk only for
+recoverable quarantine. Core now accepts that assertion for one exact
+authorization attempt without changing the observation or providing a UI. A
+quiet-tree, empty-process snapshot, caller assertion, or authorization will not
+be called inactivity evidence.
 
 ## Non-goals
 

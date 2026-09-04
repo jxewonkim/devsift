@@ -6,7 +6,7 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
         scan -> rules -> plan -> diff -> approve -> revalidate -> authorize -> executor
-          now      now    now    Core      Core        Core       later       later
+          now      now    now    Core      Core        Core        Core        later
                                    |
                                    +-> app review now
 ```
@@ -46,19 +46,22 @@ Core layers are:
   rescans its retained root, and reclassifies it with current built-in policy.
   It emits canonical point-in-time entry statuses, including pending execution
   preconditions, and no execution capability;
-- **Authorization:** a later process-local transition that must bind one exact
-  approval to a fresh, explicit, attempt-scoped user attestation and single-
-  attempt identity and consumption. `CleanupQuarantineAuthorization` does not
-  exist yet; wall-clock TTL is not its freshness model;
+- **Authorization:** a Core-only process-local transition that binds one exact
+  approval to an explicit caller assertion covering its complete canonical
+  pending set. `CleanupQuarantineAuthorization` is single-use and recoverable-
+  quarantine-only, requires inline filesystem revalidation, and grants no
+  standalone mutation authority. It uses shared attempt identity and state,
+  not a wall-clock TTL;
 - **Execution:** descriptor-relative, inline revalidation and recoverable
-  quarantine that accepts only that future authorization, introduced only
-  after the earlier layers are stable;
+  quarantine that accepts only the authorization's internal handoff,
+  introduced only after the earlier layers are stable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 Current Core semantic versions are explainable classification revision 3,
 cleanup manifest version 3, manifest diff version 2, approval version 2, and
-revalidation version 2. The built-in catalog is version 6 and npm is rule
-revision 5. Older manifests and approvals are regenerated rather than migrated.
+revalidation version 2. Quarantine authorization is contract version 1. The
+built-in catalog is version 6 and npm is rule revision 5. Older manifests and
+approvals are regenerated rather than migrated.
 
 ### devsift CLI
 
@@ -188,12 +191,23 @@ closed. A valid deferred npm entry remains
 version-2 report omits the absolute root URL, is non-`Codable`, copyable, and
 never a filesystem capability or executor input.
 
-A later phase must bind the exact approval with a fresh, explicit, attempt-
-scoped user attestation and process-local single-attempt identity and
-consumption in `CleanupQuarantineAuthorization`. A wall-clock TTL is not
-freshness. Only that authorization may be accepted by a future executor, which
-must still revalidate inline while holding descriptors immediately before
-mutation.
+`CleanupQuarantineAuthorizer.beginAttempt(for:)` now validates and retains one
+exact approval. After canonical current-built-in validation, authorization
+contract version 1 independently pins classifier revision 3 and catalog
+revision 6, then directly pins npm rule revision 5, tool `npm`, precondition
+policy revision 1, and statement policy revision 1. Drift fails through typed
+unsupported-policy or unsupported-requirement errors.
+
+The session exposes a `CleanupQuarantineAttestationRequest` over the complete
+canonical pending set. `CleanupQuarantineUserAttestation` is an explicit caller
+assertion for that request, not observed inactivity, proof of human action, or
+authentication. Shared process-local state permits at most one authorization
+issuance and one internal handoff across every copy; cancellation is terminal,
+and cross-attempt replay fails without using a clock or TTL. Authorization v1
+is recoverable-quarantine-only, requires future inline filesystem revalidation,
+and grants no standalone mutation authority. The consumer and execution claim
+are internal, and no executor exists. See the
+[authorization contract](AUTHORIZATION.md).
 
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
@@ -256,9 +270,11 @@ only. A Core approval review session instead owns its exact planning request,
 source root, manifest, and session-bound entry and pending-precondition
 references; it cannot be rebuilt from either projection. The approval retains
 the exact root, manifest, and review acknowledgements but does not make either
-projection approvable. User-facing export, import, persistence, diffing,
-frontend approval, attestation, authorization, and execution remain separate
-future boundaries. The CLI projection's sorted `JSONEncoder` output targets
+projection approvable. Core review, caller-created attestation, and
+single-attempt authorization now exist only as process-local values. User-facing
+export, import, persistence, diffing, frontend approval and attestation flows,
+and execution remain future boundaries. The CLI projection's sorted
+`JSONEncoder` output targets
 repeatability only for the same input, privacy profile, implementation build,
 and Swift/Foundation runtime; it is not a cryptographic canonical form, stable
 digest, signature, or authenticity proof.
@@ -311,8 +327,9 @@ can establish the absence of active subtree use and hold that result through a
 later operation. Classification therefore leaves the fact unknown and records
 the selected narrow recoverable-quarantine precondition. A positive-only
 conflict probe may add a protective signal in a separately versioned increment,
-but a negative result must not become `inactive`. A later
-`CleanupQuarantineAuthorization` must bind the exact approval, fresh attempt-
-scoped explicit user attestation, and process-local single-attempt consumption;
-only it may reach an executor. Neither a process snapshot, review
+but a negative result must not become `inactive`. The Core authorizer now binds
+the exact approval to an explicit attempt-scoped caller assertion and process-
+local single-use `CleanupQuarantineAuthorization`; only its internal handoff may
+reach a future executor. It does not change activity evidence or grant
+standalone mutation authority. Neither a process snapshot, review
 acknowledgement, returned diagnostic, nor wall-clock TTL is durable authority.

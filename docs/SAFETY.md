@@ -18,8 +18,8 @@ Unknown is protected, not reclaimable or review-required, except for one
 versioned policy deferral: npm activity may remain exactly
 `unknown(.notCollected)` while an otherwise valid npm candidate becomes Review
 required with `requires-user-attestation-that-responsible-tool-is-stopped@1`.
-That exception records
-future work; it is neither inactivity evidence nor operation authority.
+That exception records a pending execution condition; it is neither inactivity
+evidence nor operation authority.
 
 ## Required workflow
 
@@ -28,10 +28,10 @@ Cleanup functionality must preserve this ordering:
 `scan -> classify -> plan -> approve -> revalidate -> authorize attempt -> quarantine -> report`
 
 Current versions are classifier contract 3, cleanup manifest 3, manifest diff
-2, approval 2, revalidation 2, classification JSON 2, and internal manifest-
-review JSON 2 over source manifest 3. npm is rule revision 5 in built-in catalog
-6. Scan JSON remains version 2. Old manifests, approvals, and exports are
-regenerated rather than imported or migrated.
+2, approval 2, revalidation 2, quarantine authorization 1, classification JSON
+2, and internal manifest-review JSON 2 over source manifest 3. npm is rule
+revision 5 in built-in catalog 6. Scan JSON remains version 2. Old manifests,
+approvals, and exports are regenerated rather than imported or migrated.
 
 Scanning and planning are read-only. A plan records the exact candidate,
 evidence, expected identity, rule version, and estimated allocated bytes. Before
@@ -44,8 +44,9 @@ and the Core differ compares only compatible drafts. An explicit
 rule revision, but selection and diff output are not approval. Core can now
 record explicit intent for one fully confirmed reviewed manifest and its
 pending execution conditions. Core now has an approval-only, read-only
-revalidation diagnostic. Attempt authorization, execution, quarantine,
-restore, purge, and deletion APIs do not exist in this phase.
+revalidation diagnostic and a Core-only, in-memory quarantine-attempt
+authorizer. Executor, quarantine, receipt, recovery, restore, purge, and
+deletion APIs do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -99,6 +100,20 @@ as `awaitingExecutionPreconditions`, not eligible, inactive, or authorized.
 Other rules retain unknown tool ownership, protected-descendant evidence, and
 other required facts.
 
+`CleanupQuarantineAuthorizer.beginAttempt(for:)` validates and retains one
+exact approval, then exposes one request for an explicit caller assertion over
+its complete canonical npm pending set. After canonical built-in approval
+validation, version 1 independently pins classifier revision 3 and catalog
+revision 6, then directly pins npm rule revision 5, tool `npm`, precondition
+policy revision 1, and statement policy revision 1. The assertion is not
+observed inactivity, proof of human action, or authentication. Process-local
+identity rejects cross-attempt replay without a clock or TTL. Authorization
+issuance and the internal handoff are each atomic and at most once across all
+copies; cancellation is terminal. Version 1 is recoverable-quarantine-only,
+requires future inline filesystem revalidation, and grants no standalone
+mutation authority. No public consumer or executor exists. See the
+[authorization contract](AUTHORIZATION.md).
+
 ## Hard invariants
 
 - A scan root is explicit; there is no implicit whole-disk cleanup.
@@ -139,12 +154,21 @@ other required facts.
   filesystem authority, or permission to mutate the filesystem.
 - A timestamp or wall-clock TTL must not turn an approval, entry confirmation,
   precondition review acknowledgement, attestation, or diagnostic into
-  freshness. The future attempt boundary must use process-local identity and
-  single consumption, plus inline descriptor-held checks.
+  freshness. The authorization attempt uses process-local identity and shared
+  single-use state; a future executor must add inline descriptor-held checks.
 - Approval performs no filesystem or network I/O. It cannot be passed directly
-  to a future executor. A later `CleanupQuarantineAuthorization` must bind the
-  exact approval with a fresh, explicit, attempt-scoped user attestation and
-  process-local single-attempt identity and consumption.
+  to a future executor. `CleanupQuarantineAuthorizer` instead binds the exact
+  approval to an explicit, attempt-scoped caller assertion and process-local
+  single-use `CleanupQuarantineAuthorization`.
+- A precondition review acknowledgement remains copyable, replayable review
+  intent. `CleanupQuarantineUserAttestation` is the distinct caller assertion
+  bound to the authorization attempt, but is not observed activity, human
+  proof, authentication, or standalone mutation authority.
+- All authorization copies share one atomic internal-consumption state.
+  Authorization is recoverable-quarantine-only, authorizes no permanent
+  deletion, requires inline filesystem revalidation, and grants no standalone
+  filesystem mutation authority. Its consumer and execution claim are not
+  public.
 - Revalidation accepts only `CleanupApproval`, uses its retained root, and
   accepts only current built-in policy provenance. It returns canonical,
   point-in-time diagnostic entries; incomplete or unknown observations fail
@@ -255,11 +279,12 @@ unprivileged macOS API can prove the absence of subtree-wide active use and
 preserve that result until a later operation. DevSift must not infer
 `inactive` from a quiet interval, empty process query, advisory lock, kqueue, or
 FSEvents result. The selected recoverable-quarantine policy therefore preserves
-`unknown(.notCollected)` and carries an explicit pending precondition. A later
-`CleanupQuarantineAuthorization` must bind the exact approval to a fresh,
-attempt-scoped user attestation and be consumed once in process; only that
-authorization may reach a future executor. A prior observation, review
-acknowledgement, or elapsed-time test is never execution authority.
+`unknown(.notCollected)` and carries an explicit pending precondition. The
+Core-only `CleanupQuarantineAuthorization` now binds the exact approval to an
+attempt-scoped caller assertion and a shared single-use lifecycle; only its
+internal handoff may reach a future executor. It still grants no standalone
+mutation authority. A prior observation, review acknowledgement, or elapsed-
+time test is never execution authority.
 
 Cancellation is safe but may not be instantaneous. A blocking filesystem call
 can finish before the next cancellation checkpoint is reached. The scanner
@@ -279,6 +304,13 @@ Revalidation is also cooperative: it checks cancellation at bounded phase
 boundaries and while producing entry diagnostics. A scanner or classifier call
 already in progress may finish before its next checkpoint. Cancellation returns
 no partial revalidation report.
+
+Authorization attempt cancellation is terminal. Cancelling an open or issued
+attempt clears retained state; concurrent issuance and internal consumption
+permit at most one success each across all copies. An attestation belonging to
+another attempt or carrying the wrong statement may be corrected while the
+session remains open, but cancellation, successful issuance, or consumption is
+not reversed by waiting.
 
 ## Rule requirements
 
@@ -334,15 +366,16 @@ planning request, then accepts only that session's complete entry-confirmation
 and precondition-review-acknowledgement sequences. The session binds its source
 root, full manifest, canonical ordinals, raw paths, rule revisions, and pending-
 condition identifiers without deriving intent from a diff or lossy projection.
-Its
-process-local seal prevents cross-session value mixing but is not proof of
+Its process-local seal prevents cross-session value mixing but is not proof of
 human review, authenticity, attestation, or freshness. The revalidator is a
 read-only diagnostic that consumes only the approval and reopens its stored
-root. A future authorizer must combine that exact approval with a fresh
-attempt-scoped attestation; a future executor must accept only the resulting
-single-attempt `CleanupQuarantineAuthorization` and establish policy and object
-evidence inline while holding verified descriptors before any mutation. See
-the [planning contract](PLANNING.md) and [revalidation contract](REVALIDATION.md).
+root. The Core authorizer now combines that exact approval with an explicit
+attempt-scoped caller assertion and produces a process-local single-use
+`CleanupQuarantineAuthorization`. A future executor must accept only its
+internal handoff and establish policy and object evidence inline while holding
+verified descriptors before any mutation. See the
+[planning contract](PLANNING.md), [revalidation contract](REVALIDATION.md), and
+[authorization contract](AUTHORIZATION.md).
 
 The internal review encoder accepts only Core manifest contract version 3 and
 emits CLI schema `devsift.cleanup-manifest-review` version 2. A per-entry
@@ -384,6 +417,14 @@ duplicate, reordered, changed, and foreign-session input, cross-root and cross-
 manifest substitution, planning bounds, pre-cancel rejection, non-UTF-8 raw-
 path identity, and the absence of filesystem, serialization, attestation,
 freshness, authentication, and execution authority.
+
+Authorization tests use only synthetic approvals. They cover independent
+classifier/catalog pins, npm rule/tool/precondition/statement pins, complete
+canonical subjects, no-pending and mixed-set rejection, cross-attempt
+substitution, retryable statement mismatch, atomic concurrent issuance and
+internal consumption across copies, terminal cancellation, non-`Codable`
+values, and the absence of process, npm, clock, filesystem, persistence,
+frontend, and CLI operations.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

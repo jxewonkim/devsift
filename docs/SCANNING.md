@@ -212,8 +212,12 @@ A scan is a point-in-time observation, not a filesystem snapshot. Each entry's
 logical and allocated sizes come from one POSIX stat result. An opened
 directory's device and inode are revalidated before recursion, but files can
 still change before or after their individual observation. Paths and inode
-identities from a scan must never be reused as authority for later cleanup. A
-future executor will consume only `CleanupQuarantineAuthorization`, reopen the
-approval-bound root carried through that process-local single-attempt value,
-and revalidate every authorized item before mutation. A bare approval or
-revalidation report is not executor input.
+identities from a scan must never be reused as authority for later cleanup.
+Core authorization contract version 1 can bind an exact approval and explicit
+caller assertion into a process-local, single-use value, but it performs no
+filesystem I/O and grants no standalone mutation authority. A future executor
+will enter only through the `CleanupQuarantineAuthorization` internal handoff,
+reopen the approval-bound root, and revalidate every authorized item before
+mutation.
+A bare approval or revalidation report is not executor input. See the
+[authorization contract](AUTHORIZATION.md).
