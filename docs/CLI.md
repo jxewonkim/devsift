@@ -259,8 +259,9 @@ current export.
 
 The related current contracts are explainable classification revision 3,
 cleanup manifest version 3, manifest diff version 2, approval version 2,
-revalidation version 2, and internal cleanup-manifest-review JSON version 2
-pinned to source manifest version 3. Scan JSON remains version 2.
+revalidation version 2, quarantine authorization version 1, and internal
+cleanup-manifest-review JSON version 2 pinned to source manifest version 3.
+Scan JSON remains version 2.
 
 The envelope contains:
 
@@ -369,8 +370,9 @@ Every projected entry always has a sorted `deferredExecutionPreconditions`
 array. Each element contains the fixed policy `identifier` and decimal-string
 `policyRevision`; an empty array is encoded explicitly. Both privacy profiles
 include these fields so a pending execution condition cannot disappear through
-redaction. They are review disclosure only and cannot represent the future user
-attestation or `CleanupQuarantineAuthorization`.
+redaction. They are review disclosure only and cannot represent the current
+Core `CleanupQuarantineUserAttestation` or
+`CleanupQuarantineAuthorization`.
 
 Core's current approval boundary instead prepares an opaque review session from
 the exact source-bound planning request. The session owns its exact root and
@@ -378,6 +380,13 @@ Core-built manifest and issues process-local entry and pending-precondition
 references that this lossy document cannot reconstruct. The CLI does not expose
 an approval, review-acknowledgement, attestation, or authorization command and
 retains none of that state.
+
+Core authorization contract version 1 now provides a separate process-local
+API over one exact approval and one explicit caller assertion. It is not a CLI
+schema or command: neither classification JSON nor manifest-review JSON can
+construct its attempt-bound request, attestation, shared single-use state, or
+internal executor handoff. It grants no standalone mutation authority, and no
+executor exists. See the [authorization contract](AUTHORIZATION.md).
 
 Every invocation requires one explicit privacy profile:
 

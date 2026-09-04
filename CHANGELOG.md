@@ -177,6 +177,28 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   internal manifest-review JSON projection, and the native draft review. The
   app says activity remains unobserved and provides no attestation or approval
   action.
+- Core-only, in-memory quarantine-attempt authorization contract version 1.
+  `CleanupQuarantineAuthorizer.beginAttempt(for:)` retains one exact canonical
+  approval and exposes one `CleanupQuarantineAttestationRequest` covering its
+  complete ordered npm pending set. After canonical built-in validation, the
+  public default independently pins classifier revision 3 and catalog revision
+  6, with drift reported as `unsupportedApprovalPolicy`. It directly pins npm
+  rule revision 5, responsible tool `npm`, precondition policy revision 1, and
+  statement policy revision 1; requirement drift fails as
+  `unsupportedAttestationRequirements`.
+- Explicit `CleanupQuarantineUserAttestation` caller assertions scoped by
+  process-local attempt identity. An assertion is not observed inactivity,
+  proof of human action or understanding, caller authentication, or standalone
+  filesystem authority. Cross-attempt substitution fails, and no clock or TTL
+  supplies freshness.
+- Shared actor-backed attempt lifecycle. At most one authorization issuance and
+  one internal executor handoff can succeed for an attempt across all value
+  copies; cancellation is terminal. Wrong-attempt or wrong-statement input may
+  be corrected while the session remains open, while observed task cancellation
+  clears retained state and throws `CancellationError`. The public API exposes
+  no consume method, executor, quarantine, receipt, recovery, restore, purge,
+  deletion, frontend action, or CLI action and performs no process, npm, clock,
+  or filesystem I/O.
 
 ### Changed
 
@@ -184,16 +206,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   is version 6, and `devsift.cache.npm` is rule revision 5. SwiftPM remains at
   revision 2 and every other built-in rule remains at revision 1.
 - Cleanup manifest is contract version 3, manifest diff is contract version 2,
-  approval is contract version 2, and revalidation is contract version 2.
-  Older in-memory manifests and approvals must be regenerated; there is no
-  import migration.
+  approval is contract version 2, revalidation is contract version 2, and
+  quarantine authorization is contract version 1. Older in-memory manifests
+  and approvals must be regenerated; there is no import migration.
 - Scan JSON remains version 2. Classification JSON is version 2, and the
   internal cleanup-manifest-review JSON is version 2 pinned to source manifest
   version 3. Both projections always carry the sorted deferred-precondition
   array. Older exports are not imported or migrated and must be regenerated.
-- The project selected the user-attested policy option only for a future
-  recoverable quarantine attempt. A later `CleanupQuarantineAuthorization`
-  must combine one exact approval with a fresh, explicit, attempt-scoped user
-  attestation and process-local single-attempt identity and consumption. A
-  wall-clock TTL is not freshness. Executor, quarantine, restore, purge, and
-  deletion APIs remain absent.
+- The project selected the user-attested policy option only for recoverable
+  quarantine. `CleanupQuarantineAuthorization` now combines one exact approval
+  with an explicit attempt-scoped caller assertion and process-local
+  single-use lifecycle. It authorizes no permanent deletion, still requires
+  inline filesystem revalidation, and grants no standalone mutation authority.
+  Executor, quarantine, receipt, recovery, restore, purge, and deletion APIs
+  remain absent.

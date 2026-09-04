@@ -277,9 +277,10 @@ not a wire format or approval input. The Core approval review session retains
 the exact planning request, root, manifest, and process-local entry and pending-
 condition bindings. The final approval drops the larger source request and
 retains the root, manifest, and review acknowledgements. It is accepted by the
-read-only revalidator but grants no execution authority; a future authorizer
-must add fresh attempt-scoped attestation and single-consumption identity before
-an executor can receive anything.
+read-only revalidator but grants no execution authority. The current Core
+authorizer separately binds it to an explicit attempt-scoped caller assertion
+and process-local single-use lifecycle before a future executor can receive an
+internal handoff.
 
 Gate: planning and diffing remain read-only and deterministic, selected
 ineligible or policy-undeclared input fails closed, incompatible manifests never
@@ -300,8 +301,9 @@ Milestone: `v0.2.0-alpha.1` -- explainable recommendations and dry runs.
 ## Phase 7: recoverable cleanup
 
 Each implemented-increment block below is a historical snapshot of the
-contract at that increment. The seventh block records the current contracts and
-supersedes the earlier version numbers and npm disposition statements.
+contract at that increment. The eighth block records the current contracts and
+supersedes the earlier version numbers, npm disposition statements, and future-
+authorization language.
 
 Implemented first commit: `feat(revalidation): reobserve approved cleanup intent`.
 
@@ -449,6 +451,47 @@ Implemented seventh increment:
   migrating them. Add no wall-clock TTL freshness rule and no executor,
   quarantine, restore, purge, or deletion implementation.
 
+Implemented eighth increment:
+`feat(core): add single-attempt quarantine authorization`.
+
+- Add Core-only `CleanupQuarantineAuthorizer.beginAttempt(for:)`. Validate and
+  retain one exact approval; accept no caller-supplied root, manifest,
+  revalidation report, or review projection.
+- After current-built-in canonical validation, independently pin classifier
+  revision 3 and catalog revision 6 for authorization contract version 1.
+  Report drift as `unsupportedApprovalPolicy` rather than silently inheriting a
+  future built-in default.
+- Directly pin every pending subject to npm rule revision 5, responsible tool
+  `npm`, precondition policy revision 1, and statement policy revision 1.
+  Reject no-pending, mixed, or unsupported sets; unsupported
+  requirements report `unsupportedAttestationRequirements`.
+- Expose one `CleanupQuarantineAttestationRequest` whose canonical subjects
+  cover the complete pending set. Accept one explicit
+  `CleanupQuarantineUserAttestation` using the required
+  `responsibleToolStoppedAndUnobservedActivityRiskAccepted` statement. This is
+  a caller assertion, not observed inactivity, human proof, authentication, or
+  standalone mutation authority. Approval-time review acknowledgement remains
+  separate copyable, replayable review intent.
+- Bind request, attestation, session, and authorization to process-local attempt
+  identity. Reject cross-attempt replay without clock reads or a TTL. Permit at
+  most one authorization issuance per attempt and one internal executor handoff
+  across every authorization copy through shared actor state.
+- Make cancellation terminal for an open or issued attempt and release retained
+  state. Allow a correct retry after wrong-attempt or wrong-statement input
+  while the session remains open; observed task cancellation returns
+  `CancellationError` and no partial authorization.
+- Define `CleanupQuarantineAuthorization` contract version 1 as single-use,
+  recoverable-quarantine-only, not permanent-deletion authorization, and still
+  requiring inline filesystem revalidation. Explicitly report
+  `grantsStandaloneFilesystemMutationAuthority == false` and
+  `usesWallClockFreshness == false`.
+- Keep `consumeForExecution()` and `CleanupQuarantineExecutionClaim` internal.
+  Add no executor, filesystem I/O, npm or process invocation, persistence,
+  `Codable`, frontend or CLI action, quarantine, receipt, recovery, restore,
+  purge, or deletion.
+- Record the complete contract in the
+  [authorization contract](AUTHORIZATION.md).
+
 Current boundary before later Phase 7 execution work:
 
 - The activity-policy choice is complete only for recoverable quarantine; the
@@ -456,29 +499,29 @@ Current boundary before later Phase 7 execution work:
 - Preserve the distinction between review acknowledgement, explicit user
   attestation, and execution authorization. Activity that is positive or
   unavailable for any non-deferred reason remains blocking.
+- Authorization is a process-local single-use intent handoff, not observed
+  inactivity, a safety verdict, or standalone filesystem mutation authority.
 - Complete a focused threat model and security review before adding mutation.
 
-Later Phase 7 work, after a separate authorization and executor design:
+Later Phase 7 work, after the implemented authorization boundary:
 
-- Create `CleanupQuarantineAuthorization` only from one exact
-  `CleanupApproval`, a fresh explicit user attestation scoped to the exact
-  attempt, and process-local single-attempt identity and consumption. Do not
-  accept a review acknowledgement as the attestation or use wall-clock TTL as
-  freshness.
-- Let the executor accept only `CleanupQuarantineAuthorization` and reopen the
-  root bound through it, never a bare approval, separately supplied root, draft
-  manifest, diff, revalidation report, or presentation.
-- Revalidate identity, containment, activity, rule version, and every required
-  policy fact within one non-escaping descriptor-held operation scope.
-- Validate and hold a trusted same-device quarantine parent, then atomically
-  claim an absent bounded destination leaf with an exclusive descriptor-
-  relative rename. Never pre-create the destination entry.
-- After the rename linearizes, finish post-validation and sync a crash-
-  consistent restore receipt even if cancellation arrives.
-- Make rollback best-effort and non-overwriting. If the source was recreated or
-  either binding changed, preserve both entries and require manual recovery.
-- Report completed, failed, changed, and skipped items individually.
-- Add restore support before considering purge.
+- Implement a descriptor-held executor that accepts only the authorization's
+  internal claim, never a bare approval, separately supplied root, manifest,
+  diff, revalidation report, or presentation. Revalidate identity, containment,
+  activity policy, rule revision, and every required policy fact within one
+  non-escaping descriptor scope.
+- Implement recoverable quarantine by validating and holding a trusted same-
+  device parent, then atomically claiming an absent bounded destination leaf
+  with an exclusive descriptor-relative rename. Never pre-create the
+  destination entry.
+- Add crash-consistent receipt and recovery. After rename linearization, finish
+  post-validation and sync the restore receipt even if cancellation arrives;
+  rollback remains best-effort and non-overwriting.
+- Add restore and manual-recovery flows before any permanent-removal work.
+- Design purge as a later, separately reviewed policy, authorization, and user
+  action. Quarantine authorization version 1 never authorizes deletion.
+- Report completed, failed, changed, recovered, restored, and skipped items
+  individually at the applicable stages.
 
 Gate: adversarial tests cover symlink swaps, path races, mounts, partial
 failures, cancellation on both sides of the rename linearization point, crash-

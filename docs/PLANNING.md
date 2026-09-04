@@ -5,18 +5,21 @@ classification result into an immutable draft cleanup manifest, compare two
 compatible drafts, and bind explicit intent to one exact reviewed manifest and
 its pending execution conditions. Planning and diffing are pure value
 transformations; approval is a read-only, process-local session transition.
-None inspects the filesystem, exports a document, collects an activity
-attestation, or grants authority to mutate anything.
+Those layers do not inspect the filesystem, export a document, collect an
+activity attestation, or grant authority to mutate anything. The separate Core
+authorizer can collect one explicit caller assertion for an exact attempt; its
+single-use output still grants no standalone filesystem mutation authority.
 
 The native app exposes explicit candidate selection and a read-only in-memory
 review over Core planning. It does not expose Core diffing. The CLI target has
 an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
 persistence, saved drafts, user-facing export, import, frontend diffing,
-frontend approval, execution, execution-time filesystem revalidation, and
-cleanup remain separate later increments. Core-only approval revalidation is
-now available as a diagnostic; it is not an app or CLI surface and does not
-provide execution-time authority.
+frontend approval, attestation, authorization, execution, execution-time
+filesystem revalidation, and cleanup remain separate later increments. Core-
+only approval revalidation and attempt authorization are now available; neither
+is an app or CLI surface, and neither provides standalone execution-time
+authority.
 
 ## Inputs and selection
 
@@ -370,7 +373,7 @@ Access control is not encryption: callers must still treat in-memory reports,
 manifests, review sessions, approvals, and diffs as sensitive and discard them
 with the analysis session.
 
-## Staleness and future execution
+## Staleness, attempt authorization, and future execution
 
 A manifest can become stale immediately after its source scan, and approval
 does not refresh it. Matching a recorded `(device, inode)` pair is not enough
@@ -387,15 +390,37 @@ free, non-`Codable` report is neither a capability nor executor input and can
 become stale immediately. See the
 [revalidation contract](REVALIDATION.md).
 
-A later phase must create `CleanupQuarantineAuthorization` from one exact Core
-approval plus a fresh, explicit, attempt-scoped user attestation that they
-stopped npm work that may use the cache. The authorization must carry process-
-local single-attempt identity and be consumed once. Review-time precondition
-review acknowledgement is not the attestation; a wall-clock timestamp or TTL is not
-freshness. Older approvals must be regenerated, not upgraded.
+`CleanupQuarantineAuthorizer.beginAttempt(for:)` now validates and retains one
+exact approval. The public default independently pins classifier revision 3,
+catalog revision 6, npm rule revision 5, responsible tool `npm`, precondition
+policy revision 1, and statement policy revision 1. Policy drift fails closed
+rather than inheriting a later built-in default. An approval with no pending
+precondition or a mixed or unsupported pending set cannot begin an attempt.
 
-A future executor must receive only that authorization, reopen the approval's
-stored root and each candidate descriptor-relatively, and revalidate
+The resulting session exposes one `CleanupQuarantineAttestationRequest` for the
+complete canonical pending set. The caller explicitly creates
+`CleanupQuarantineUserAttestation` with that request and its required
+`responsibleToolStoppedAndUnobservedActivityRiskAccepted` statement. This is a
+caller assertion for the exact attempt, not observed inactivity, human proof,
+authentication, or standalone filesystem authority. Review-time precondition
+review acknowledgement remains copyable, replayable review intent and cannot
+substitute for this assertion.
+
+Process-local attempt identity rejects cross-attempt replay. Authorization
+issuance can succeed once, and every copy of
+`CleanupQuarantineAuthorization` shares one actor-backed internal consumption
+state that permits one handoff in total. Cancellation is terminal, while a
+wrong-attempt or wrong-statement assertion may be corrected before successful
+issuance. The contract reads no clock; a wall-clock timestamp or TTL is not
+freshness. Authorization contract version 1 is recoverable-quarantine-only,
+authorizes no permanent deletion, requires inline filesystem revalidation, and
+sets `grantsStandaloneFilesystemMutationAuthority` to `false`. Its consume
+method and execution claim are internal. See the
+[authorization contract](AUTHORIZATION.md).
+
+A future executor must enter only through that authorization's internal
+handoff, reopen the approval's stored root and each candidate descriptor-
+relatively, and revalidate
 containment, kind, device, identity, the selected activity policy, rule
 revision, and all required policy evidence inline while holding descriptors
 immediately before any mutation. Changed or unavailable candidates must be
@@ -407,10 +432,12 @@ The [activity safety contract](ACTIVITY.md) records why the current
 unprivileged product cannot prove a subtree-wide negative observation and must
 not convert a quiet tree or empty process result into `inactive`. The selected
 recoverable-quarantine policy lets only the exact `unknown(.notCollected)`
-finding enter a real draft with its versioned pending precondition. It still
-requires the separate authorization described above; immediate descriptor-held
+finding enter a real draft with its versioned pending precondition. The Core
+authorization described above binds caller intent but does not satisfy the
+unknown activity finding or make a path safe. Immediate descriptor-held
 revalidation cannot be replaced by planning, approval, an entry confirmation,
-a precondition review acknowledgement, or an elapsed-time check.
+a precondition review acknowledgement, an attestation, authorization, or an
+elapsed-time check.
 
 ## Test boundary
 
@@ -443,3 +470,10 @@ and cross-root substitution; empty-review rejection; planning bounds; byte-
 distinct non-UTF-8 paths; pre-cancel rejection; and the absence of filesystem
 I/O, serialization, attestation, freshness, authentication, and execution
 authority.
+
+Authorization tests cover canonical approval and subject validation, the
+independently pinned classifier and catalog markers, npm rule/tool/precondition/
+statement policy pins, explicit caller assertion, retryable mismatches,
+cross-attempt rejection, atomic concurrent issuance and shared-copy internal
+consumption, terminal cancellation, non-`Codable` values, and the absence of
+clock, process, npm, filesystem, persistence, frontend, and CLI operations.

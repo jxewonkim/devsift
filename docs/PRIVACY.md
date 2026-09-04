@@ -55,6 +55,13 @@ DevSift is designed to work locally and reveal as little as possible.
   either frontend. No session or approval is persisted, logged, uploaded,
   imported, or exported. Non-`Codable` does not prevent in-memory copying or
   provide confidentiality.
+- Core quarantine authorization retains one exact approval inside a process-
+  local attempt and exposes its complete canonical pending subjects, including
+  exact relative paths, rule revisions, tool attribution, and policy metadata.
+  The caller's attestation additionally records the required stopped-tool and
+  unobserved-risk assertion. No frontend invokes this API. It performs no
+  process inspection, npm invocation, clock read, network request, or
+  filesystem I/O and exposes no persistence or public consume operation.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
@@ -134,6 +141,22 @@ frontend. It is not persisted, logged, uploaded, imported, or exported. Omitting
 the root URL does not make raw relative paths, rule revisions, findings,
 conditions, or policy results non-sensitive.
 
+A `CleanupQuarantineAuthorizationSession` retains the exact approval, including
+its absolute root and manifest, until cancellation or internal consumption. Its
+`CleanupQuarantineAttestationRequest` repeats the canonical pending subjects;
+`CleanupQuarantineUserAttestation` records an explicit caller assertion for
+that attempt. This value is not proof of a human action or identity. Opaque
+process-local identity prevents cross-attempt substitution but provides no
+encryption, authentication, anonymity, or secrecy.
+
+Authorization issuance and the internal handoff each succeed at most once
+across all copies through shared actor state. Cancelling an open or issued
+attempt is terminal and releases retained approval, request, and attestation
+state; internal consumption also releases them from the attempt. Callers must
+still discard their own copies. The request, attestation, session,
+authorization, and internal claim are non-`Codable`, unpersisted, unlogged, and
+unuploaded. No clock or timestamp is stored, and no TTL reconstructs freshness.
+
 Trusted-location observation resolves the current account home from the local
 operating-system account record and compares only bounded raw path components
 and directory metadata. It does not use the `$HOME` environment variable,
@@ -199,15 +222,16 @@ continue to omit filesystem identities, and the current app presentation must
 not be treated as a wire format or approval input. A revalidation report must
 never be used as an execution input or mutation capability.
 
-A later `CleanupQuarantineAuthorization` will be more sensitive than a review
-acknowledgement because it must bind the exact in-memory approval to a fresh,
-explicit user attestation for one quarantine attempt and process-local single-
-attempt identity and consumption. It must not be serialized, exported, logged,
-uploaded, or reconstructed from a wall-clock TTL. Only that authorization may
-reach a future executor; the bare approval, review acknowledgement, and
-revalidation report may not. Its API and any user-visible wording require a
-separate privacy and security review. Adding these features must not silently
-make Core domain models `Codable`.
+Current `CleanupQuarantineAuthorization` is more sensitive than a review
+acknowledgement because it binds the exact in-memory approval to an explicit
+caller attestation for one attempt and process-local single-use state. It is
+recoverable-quarantine-only, grants no standalone filesystem mutation
+authority, and exposes no public consumer. Only its internal handoff may reach
+a future executor; a bare approval, review acknowledgement, or revalidation
+report may not. Future UI wording, executor state, receipts, recovery, restore,
+and purge require separate privacy and security review. Adding those features
+must not silently make Core domain models `Codable`. See the
+[authorization contract](AUTHORIZATION.md).
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

@@ -179,6 +179,13 @@ identity-free presentation, exposes no approval button or state, and cannot
 reconstruct the opaque session, its exact root, or its session-bound entry
 or precondition references from that lossy presentation.
 
+Core also has an in-memory `CleanupQuarantineAuthorizer`, but the app neither
+begins an attempt nor constructs `CleanupQuarantineUserAttestation`. It exposes
+no attestation request, statement, authorization state, cancellation, or
+filesystem action. Authorization contract version 1 is not a UI safety verdict
+and grants no standalone mutation authority; see the
+[authorization contract](AUTHORIZATION.md).
+
 ## Observation and policy language
 
 The app uses “Reclaimable” only as a rule disposition, never as a measured or

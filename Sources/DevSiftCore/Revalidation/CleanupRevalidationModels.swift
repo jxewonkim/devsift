@@ -75,28 +75,12 @@ public struct CleanupRevalidationReport: Hashable, Sendable {
   }
 }
 
-public enum CleanupRevalidationApprovalInvariant: String, Hashable, Sendable {
-  case approvalContractVersion = "approval-contract-version"
-  case manifestContractVersion = "manifest-contract-version"
-  case invalidSourceRoot = "invalid-source-root"
-  case emptyManifest = "empty-manifest"
-  case tooManyEntries = "too-many-entries"
-  case entriesNotCanonical = "entries-not-canonical"
-  case duplicateEntryPath = "duplicate-entry-path"
-  case invalidEntryPath = "invalid-entry-path"
-  case unsupportedEntryKind = "unsupported-entry-kind"
-  case entryDeviceMismatch = "entry-device-mismatch"
-  case undeclaredRuleRevision = "undeclared-rule-revision"
-  case ineligibleDisposition = "ineligible-disposition"
-  case invalidFindings = "invalid-findings"
-  case invalidPreconditionReviewAcknowledgements =
-    "invalid-precondition-review-acknowledgements"
-  case invalidTotals = "invalid-totals"
-}
+/// Backwards-compatible name retained for callers of the revalidation API.
+public typealias CleanupRevalidationApprovalInvariant = CleanupApprovalInvariant
 
 /// Stable failure categories which do not expose arbitrary dependency errors.
 public enum CleanupRevalidationError: Error, Equatable, Sendable {
-  case invalidApproval(CleanupRevalidationApprovalInvariant)
+  case invalidApproval(CleanupApprovalInvariant)
   case unsupportedApprovalPolicy
   case scanFailed
   case invalidScanReport

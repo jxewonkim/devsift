@@ -17,8 +17,8 @@ empty process query, a quiet metadata interval, or successful acquisition of
 an advisory lock. Runtime npm activity remains literally
 `unknown(.notCollected)`.
 
-DevSift has selected policy option 2 below only for a future recoverable npm
-quarantine attempt. When every non-deferred npm finding is satisfied, the
+DevSift has selected policy option 2 below only for recoverable npm quarantine
+attempts. When every non-deferred npm finding is satisfied, the
 classifier applies
 `RuleActivityRequirement.mustBeInactiveOrDeferToAttestationWhenUnobserved` and
 may return `matched` / `review-required` while preserving the unknown activity
@@ -31,12 +31,14 @@ with raw value
 policy deferral, not an observation that npm is inactive. Known active use, any
 other unknown reason, or any other blocking finding remains Protected.
 
-The current milestone only propagates that pending condition through
-classification, planning, review, approval, and revalidation. Approval binds a
-review acknowledgement that the condition and its risk were reviewed. That
-copyable, replayable review intent does not collect the user's statement that
-npm stopped, establish freshness, or authorize an operation. There is still no
-executor or filesystem mutation API.
+Approval still binds only a review acknowledgement that the condition and its
+risk were reviewed. That copyable, replayable review intent is not the separate
+attempt attestation. Core now exposes a process-local authorization attempt;
+its `CleanupQuarantineUserAttestation` is an explicit caller assertion for one
+exact canonical pending set, not activity evidence, human proof, or
+authentication. The resulting single-use authorization grants no standalone
+mutation authority. There is still no executor or filesystem mutation API. See
+the [authorization contract](AUTHORIZATION.md).
 
 This conclusion is scoped to the current local, unprivileged, dependency-free
 product. It is not a claim that macOS has no privileged security mechanism.
@@ -73,11 +75,17 @@ absence of that observation cannot satisfy the activity requirement.
   presence must never change `unknown(.notCollected)` into `inactive`.
 - Acknowledging a deferred precondition for review during approval means only
   “this condition and risk were included in review.” It must not be labeled or
-  accepted as the later attempt-scoped attestation.
+  accepted as the separate attempt-scoped attestation.
+- `CleanupQuarantineUserAttestation` is an explicit caller assertion for one
+  exact attempt, not an observation that npm is inactive, proof that a human
+  acted or understood, or caller authentication.
+- `CleanupQuarantineAuthorization` is process-local and single-use, but it is
+  not a filesystem capability or safety verdict and grants no standalone
+  mutation authority.
 - Atomic rename protects the binding of an operation; it does not prove that a
   tool was inactive and must not be described as doing so.
 
-## Selected policy for future recoverable quarantine
+## Selected policy for recoverable quarantine
 
 The project has narrowly adopted the second of the three reviewed policy paths:
 
@@ -97,23 +105,32 @@ The project has narrowly adopted the second of the three reviewed policy paths:
    process may access the cache. A positive conflict still blocks; an
    exclusive, same-volume quarantine move, durable restore metadata, and best-
    effort non-overwriting rollback may limit consequences but cannot prevent
-   tool disruption. This policy applies only to future recoverable quarantine,
-   never purge or permanent deletion.
+   tool disruption. This policy applies only to recoverable quarantine, never
+   purge or permanent deletion.
 3. **Cooperative upstream lock.** Remain protected until npm/cacache exposes a
    stable lock or lease that covers the operation and DevSift can participate
    without invoking npm or modifying the cache during classification.
 
 Options 1 and 3 remain unimplemented alternatives rather than current product
-claims. Selecting option 2 does not add an attestation UI or operation in this
-milestone.
+claims. Implementing its Core authorization boundary adds no user-facing
+attestation UI or filesystem operation.
 
-A later phase must introduce `CleanupQuarantineAuthorization` as the only
-executor input. It must bind one exact `CleanupApproval`, a fresh explicit user
-attestation captured for that exact quarantine attempt, and process-local
-single-attempt identity and consumption. It must not accept a review-time
-precondition review acknowledgement as the attestation, permit serialization
-or replay, or infer freshness from a wall-clock TTL. “Fresh” means created and
-consumed inside the same bounded attempt flow, not “younger than N seconds.”
+`CleanupQuarantineAuthorizer.beginAttempt(for:)` now retains one exact
+`CleanupApproval` and issues a request for one explicit assertion covering its
+complete canonical pending set. The request, attestation, authorization, and
+shared lifecycle carry process-local attempt identity. Cross-attempt replay
+fails, authorization issuance succeeds at most once, and every authorization
+copy shares one internal consumption state. No value is serialized, and no
+wall-clock TTL supplies freshness. “Fresh” means bound to this newly begun
+attempt, not “younger than N seconds.”
+
+The required statement is
+`responsibleToolStoppedAndUnobservedActivityRiskAccepted` at policy revision 1.
+Supplying it is the caller's assertion that npm work was stopped and the
+unobserved-activity risk was accepted. It does not change
+`unknown(.notCollected)`, prove who supplied it, or prevent a new access. The
+public API exposes no consume method; its only handoff is reserved internally
+for the future executor described below.
 
 ## Future executor boundary
 
@@ -152,15 +169,18 @@ not an acceptable implementation.
 
 ## Test gate
 
-Any future activity or executor implementation requires synthetic adversarial
-tests for positive-use detection, negative-result fail-closure, permissions,
-PID and descriptor churn, enumeration limits, pre-existing references, event
-coverage and gaps, cancellation before and after the rename linearization
-point, source and destination swaps, symlinks, mount boundaries, rename
-collision, concurrent source recreation, post-move validation, crash-consistent
-receipt recovery, non-overwriting rollback, partial failure reporting,
-attestation substitution, cross-attempt replay, double consumption, and
-fixture-boundary integrity.
+Current authorization tests use synthetic approvals and cover complete
+canonical subjects, unsupported policy, the exact required statement policy,
+attestation substitution, cross-attempt replay, concurrent issuance, shared-
+copy double consumption, terminal cancellation, and fixture-boundary integrity.
+Any future activity observer or executor still requires adversarial tests for
+positive-use detection, negative-result fail-closure, permissions, PID and
+descriptor churn, enumeration limits, pre-existing references, event coverage
+and gaps,
+cancellation before and after the rename linearization point, source and
+destination swaps, symlinks, mount boundaries, rename collision, concurrent
+source recreation, post-move validation, crash-consistent receipt recovery,
+non-overwriting rollback, and partial failure reporting.
 
 Tests must not inspect a contributor's live process table or real cache as an
 oracle. Runtime process inspection, if ever selected, needs injected system-
@@ -171,10 +191,11 @@ call fixtures and an explicit privacy review.
 This decision adds policy behavior but no runtime activity evidence. The
 explainable-classification contract is revision 3, npm is rule revision 5, and
 the built-in catalog is version 6. Cleanup manifest is version 3, manifest diff
-is version 2, approval is version 2, and revalidation is version 2. Scan JSON
-remains version 2; classification JSON and internal manifest-review JSON are
-version 2, with the latter pinned to source manifest version 3.
+is version 2, approval is version 2, revalidation is version 2, and quarantine
+authorization is version 1. Scan JSON remains version 2; classification JSON
+and internal manifest-review JSON are version 2, with the latter pinned to
+source manifest version 3.
 
 Older manifests, approvals, and exports are regenerated rather than migrated;
-there is no import path. Executor, quarantine, restore, purge, and deletion
-remain unimplemented.
+there is no import path. Executor, quarantine, receipt, recovery, restore,
+purge, and deletion remain unimplemented.
