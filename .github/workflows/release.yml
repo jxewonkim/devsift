@@ -1,0 +1,353 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build verified release handoff
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      TAG_NAME: ${{ github.ref_name }}
+    outputs:
+      archive_sha256: ${{ steps.release.outputs.archive_sha256 }}
+      checksum_sha256: ${{ steps.release.outputs.checksum_sha256 }}
+      notes_sha256: ${{ steps.release.outputs.notes_sha256 }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Bind annotated tag to the main tip
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_ref="refs/tags/$TAG_NAME"
+          [[ "$GITHUB_REF" == "$tag_ref" ]]
+          [[ "$TAG_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.[1-9][0-9]*$ ]]
+          [[ "$(git cat-file -t "$tag_ref")" == "tag" ]]
+          tag_object=$(git cat-file -p "$tag_ref")
+          [[ "$(printf '%s\n' "$tag_object" | sed -n '1p')" =~ ^object\ ([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+          [[ "$(printf '%s\n' "$tag_object" | sed -n '2p')" == "type commit" ]]
+          tag_commit=$(git rev-parse "$tag_ref^{commit}")
+          [[ "$tag_commit" == "$GITHUB_SHA" ]]
+          [[ "$tag_commit" == "$(git rev-parse HEAD)" ]]
+          git fetch --no-tags --force origin refs/heads/main:refs/remotes/origin/main
+          [[ "$tag_commit" == "$(git rev-parse refs/remotes/origin/main)" ]]
+          scripts/release/verify-metadata.sh "$TAG_NAME"
+
+      - name: Verify pinned release toolchain
+        run: scripts/release/verify-toolchain.sh
+
+      - name: Validate package manifest
+        run: swift package describe
+
+      - name: Lint Swift formatting
+        run: swift format lint --recursive --strict Package.swift Sources Tests
+
+      - name: Build debug targets
+        run: swift build --build-tests
+
+      - name: Run tests
+        run: swift test --parallel
+
+      - name: Build release targets
+        run: swift build --configuration release
+
+      - name: Build reproducible universal archive
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]
+          output_directory="$RUNNER_TEMP/release-handoff"
+          scripts/release/verify-reproducibility.sh "$output_directory"
+          git diff --exit-code
+          [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]
+          version=${TAG_NAME#v}
+          archive_name="devsift-$version-macos-universal.tar.gz"
+          checksum_line=$(sed -n '1p' "$output_directory/SHA256SUMS")
+          archive_sha256=${checksum_line%% *}
+          [[ "$archive_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$checksum_line" == "$archive_sha256  $archive_name" ]]
+          [[ "$(awk 'END { print NR }' "$output_directory/SHA256SUMS")" == "1" ]]
+          [[ "$(wc -l < "$output_directory/SHA256SUMS" | tr -d '[:space:]')" == "1" ]]
+          checksum_sha256=$(shasum -a 256 "$output_directory/SHA256SUMS" | awk '{ print $1 }')
+          notes_sha256=$(shasum -a 256 "$output_directory/RELEASE_NOTES.md" | awk '{ print $1 }')
+          [[ "$checksum_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$notes_sha256" =~ ^[0-9a-f]{64}$ ]]
+          printf 'archive_sha256=%s\n' "$archive_sha256" >> "$GITHUB_OUTPUT"
+          printf 'checksum_sha256=%s\n' "$checksum_sha256" >> "$GITHUB_OUTPUT"
+          printf 'notes_sha256=%s\n' "$notes_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: devsift-release-handoff
+          path: ${{ runner.temp }}/release-handoff
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+
+  native-smoke:
+    name: Native smoke (${{ matrix.architecture }}, macOS ${{ matrix.macos }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: none
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            architecture: arm64
+            macos: "14"
+          - runner: macos-15-intel
+            architecture: x86_64
+            macos: "15"
+    env:
+      EXPECTED_ARCHIVE_SHA256: ${{ needs.build.outputs.archive_sha256 }}
+      EXPECTED_CHECKSUM_SHA256: ${{ needs.build.outputs.checksum_sha256 }}
+      EXPECTED_NOTES_SHA256: ${{ needs.build.outputs.notes_sha256 }}
+      EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+      EXPECTED_MACOS: ${{ matrix.macos }}
+      TAG_NAME: ${{ github.ref_name }}
+
+    steps:
+      - name: Download release handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: devsift-release-handoff
+          path: ${{ runner.temp }}/release-handoff
+
+      - name: Verify archive and run the native slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_CHECKSUM_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_NOTES_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(uname -m)" == "$EXPECTED_ARCHITECTURE" ]]
+          [[ "$(sw_vers -productVersion | cut -d. -f1)" == "$EXPECTED_MACOS" ]]
+
+          version=${TAG_NAME#v}
+          bundle_name="devsift-$version-macos-universal"
+          archive_name="$bundle_name.tar.gz"
+          handoff="$RUNNER_TEMP/release-handoff"
+          archive_path="$handoff/$archive_name"
+          expected_entries=$(printf '%s\n' RELEASE_NOTES.md SHA256SUMS "$archive_name")
+          actual_entries=$(find "$handoff" -mindepth 1 -maxdepth 1 -exec basename {} \; | LC_ALL=C sort)
+          [[ "$actual_entries" == "$expected_entries" ]]
+          for file_name in RELEASE_NOTES.md SHA256SUMS "$archive_name"; do
+            [[ -f "$handoff/$file_name" && ! -L "$handoff/$file_name" ]]
+          done
+
+          actual_sha256=$(shasum -a 256 "$archive_path" | awk '{ print $1 }')
+          [[ "$actual_sha256" == "$EXPECTED_ARCHIVE_SHA256" ]]
+          actual_checksum_sha256=$(shasum -a 256 "$handoff/SHA256SUMS" | awk '{ print $1 }')
+          actual_notes_sha256=$(shasum -a 256 "$handoff/RELEASE_NOTES.md" | awk '{ print $1 }')
+          [[ "$actual_checksum_sha256" == "$EXPECTED_CHECKSUM_SHA256" ]]
+          [[ "$actual_notes_sha256" == "$EXPECTED_NOTES_SHA256" ]]
+          checksum_line=$(sed -n '1p' "$handoff/SHA256SUMS")
+          [[ "$checksum_line" == "$EXPECTED_ARCHIVE_SHA256  $archive_name" ]]
+          [[ "$(awk 'END { print NR }' "$handoff/SHA256SUMS")" == "1" ]]
+          [[ "$(wc -l < "$handoff/SHA256SUMS" | tr -d '[:space:]')" == "1" ]]
+          (cd "$handoff" && shasum -a 256 -c SHA256SUMS)
+
+          expected_members=$(printf '%s\n' \
+            "$bundle_name/" \
+            "$bundle_name/LICENSE" \
+            "$bundle_name/RELEASE_NOTES.md" \
+            "$bundle_name/VERSION" \
+            "$bundle_name/devsift")
+          [[ "$(tar -tzf "$archive_path")" == "$expected_members" ]]
+
+          extraction_directory="$RUNNER_TEMP/extracted"
+          mkdir "$extraction_directory"
+          tar -xzf "$archive_path" -C "$extraction_directory"
+          binary="$extraction_directory/$bundle_name/devsift"
+          [[ -f "$binary" && ! -L "$binary" && -x "$binary" ]]
+          [[ "$(arch "-$EXPECTED_ARCHITECTURE" "$binary" --version)" == "$version" ]]
+          expected_status=$(printf '%s\n%s' \
+            "DevSift $version (scan-only)" \
+            "Read-only scanning and policy classification are available. This build cannot delete, move, or modify files.")
+          [[ "$(arch "-$EXPECTED_ARCHITECTURE" "$binary" status)" == "$expected_status" ]]
+
+  publish:
+    name: Attest and publish pre-release
+    needs:
+      - build
+      - native-smoke
+    if: github.repository == 'jxewonkim/devsift'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    env:
+      EXPECTED_ARCHIVE_SHA256: ${{ needs.build.outputs.archive_sha256 }}
+      EXPECTED_CHECKSUM_SHA256: ${{ needs.build.outputs.checksum_sha256 }}
+      EXPECTED_NOTES_SHA256: ${{ needs.build.outputs.notes_sha256 }}
+      TAG_NAME: ${{ github.ref_name }}
+
+    steps:
+      - name: Download release handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: devsift-release-handoff
+          path: ${{ runner.temp }}/release-handoff
+
+      - name: Revalidate untrusted handoff
+        id: handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_CHECKSUM_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_NOTES_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          version=${TAG_NAME#v}
+          bundle_name="devsift-$version-macos-universal"
+          archive_name="$bundle_name.tar.gz"
+          handoff="$RUNNER_TEMP/release-handoff"
+          archive_path="$handoff/$archive_name"
+          expected_entries=$(printf '%s\n' RELEASE_NOTES.md SHA256SUMS "$archive_name")
+          actual_entries=$(find "$handoff" -mindepth 1 -maxdepth 1 -exec basename {} \; | LC_ALL=C sort)
+          [[ "$actual_entries" == "$expected_entries" ]]
+          for file_name in RELEASE_NOTES.md SHA256SUMS "$archive_name"; do
+            [[ -f "$handoff/$file_name" && ! -L "$handoff/$file_name" ]]
+          done
+          actual_sha256=$(sha256sum "$archive_path" | awk '{ print $1 }')
+          [[ "$actual_sha256" == "$EXPECTED_ARCHIVE_SHA256" ]]
+          actual_checksum_sha256=$(sha256sum "$handoff/SHA256SUMS" | awk '{ print $1 }')
+          actual_notes_sha256=$(sha256sum "$handoff/RELEASE_NOTES.md" | awk '{ print $1 }')
+          [[ "$actual_checksum_sha256" == "$EXPECTED_CHECKSUM_SHA256" ]]
+          [[ "$actual_notes_sha256" == "$EXPECTED_NOTES_SHA256" ]]
+          checksum_line=$(sed -n '1p' "$handoff/SHA256SUMS")
+          [[ "$checksum_line" == "$EXPECTED_ARCHIVE_SHA256  $archive_name" ]]
+          [[ "$(awk 'END { print NR }' "$handoff/SHA256SUMS")" == "1" ]]
+          [[ "$(wc -l < "$handoff/SHA256SUMS" | tr -d '[:space:]')" == "1" ]]
+          (cd "$handoff" && sha256sum -c SHA256SUMS)
+          expected_members=$(printf '%s\n' \
+            "$bundle_name/" \
+            "$bundle_name/LICENSE" \
+            "$bundle_name/RELEASE_NOTES.md" \
+            "$bundle_name/VERSION" \
+            "$bundle_name/devsift")
+          [[ "$(tar -tzf "$archive_path")" == "$expected_members" ]]
+          [[ "$(sed -n '1p' "$handoff/RELEASE_NOTES.md")" == "# DevSift $TAG_NAME" ]]
+          printf 'archive_path=%s\n' "$archive_path" >> "$GITHUB_OUTPUT"
+          printf 'checksum_path=%s\n' "$handoff/SHA256SUMS" >> "$GITHUB_OUTPUT"
+          printf 'notes_path=%s\n' "$handoff/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm the tag still points directly to main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/tags/$TAG_NAME" ]]
+          tag_object_type=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq .object.type)
+          tag_object_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq .object.sha)
+          [[ "$tag_object_type" == "tag" ]]
+          tag_target_type=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" --jq .object.type)
+          tag_commit=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" --jq .object.sha)
+          main_commit=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          [[ "$tag_target_type" == "commit" ]]
+          [[ "$tag_commit" == "$GITHUB_SHA" ]]
+          [[ "$tag_commit" == "$main_commit" ]]
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            printf 'release already exists: %s\n' "$TAG_NAME" >&2
+            exit 1
+          fi
+
+      - name: Attest exact release archive
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ steps.handoff.outputs.archive_path }}
+
+      - name: Create, verify, and publish draft pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE_PATH: ${{ steps.handoff.outputs.archive_path }}
+          CHECKSUM_PATH: ${{ steps.handoff.outputs.checksum_path }}
+          NOTES_PATH: ${{ steps.handoff.outputs.notes_path }}
+        run: |
+          set -euo pipefail
+          remote_directory="$RUNNER_TEMP/remote-assets"
+          mkdir "$remote_directory"
+          gh release create "$TAG_NAME" \
+            "$ARCHIVE_PATH" \
+            "$CHECKSUM_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --prerelease \
+            --latest=false \
+            --title "DevSift $TAG_NAME" \
+            --notes-file "$NOTES_PATH"
+          gh release download "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$(basename "$ARCHIVE_PATH")" \
+            --pattern "$(basename "$CHECKSUM_PATH")" \
+            --dir "$remote_directory"
+          cmp "$ARCHIVE_PATH" "$remote_directory/$(basename "$ARCHIVE_PATH")"
+          cmp "$CHECKSUM_PATH" "$remote_directory/$(basename "$CHECKSUM_PATH")"
+          actual_asset_names=$(gh release view "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '.assets[].name' | LC_ALL=C sort)
+          expected_asset_names=$(printf '%s\n' \
+            "$(basename "$ARCHIVE_PATH")" \
+            "$(basename "$CHECKSUM_PATH")" | LC_ALL=C sort)
+          [[ "$actual_asset_names" == "$expected_asset_names" ]]
+          release_state=$(gh release view "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease \
+            --jq '[.isDraft, .isPrerelease] | @tsv')
+          [[ "$release_state" == $'true\ttrue' ]]
+          [[ "$(sha256sum "$ARCHIVE_PATH" | awk '{ print $1 }')" == "$EXPECTED_ARCHIVE_SHA256" ]]
+          [[ "$(sha256sum "$CHECKSUM_PATH" | awk '{ print $1 }')" == "$EXPECTED_CHECKSUM_SHA256" ]]
+          [[ "$(sha256sum "$NOTES_PATH" | awk '{ print $1 }')" == "$EXPECTED_NOTES_SHA256" ]]
+
+          tag_object_type=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq .object.type)
+          tag_object_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq .object.sha)
+          [[ "$tag_object_type" == "tag" ]]
+          tag_target_type=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" --jq .object.type)
+          tag_commit=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object_sha" --jq .object.sha)
+          main_commit=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          [[ "$tag_target_type" == "commit" ]]
+          [[ "$tag_commit" == "$GITHUB_SHA" ]]
+          [[ "$tag_commit" == "$main_commit" ]]
+          gh release edit "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --prerelease \
+            --latest=false

@@ -19,7 +19,7 @@ expected_version=$2
 [ ! -L "$binary" ] || fail "binary must not be a symbolic link"
 [ -x "$binary" ] || fail "binary is not executable"
 
-for command_name in codesign file lipo otool strings; do
+for command_name in codesign file lipo nm otool strings; do
   command -v "$command_name" >/dev/null 2>&1 \
     || fail "required command is unavailable: $command_name"
 done
@@ -92,6 +92,11 @@ done
 if LC_ALL=C strings -a "$binary" \
   | LC_ALL=C grep -Eq '/Users/|/home/|/private/var/folders/|/private/tmp/devsift-|/Volumes/'; then
   fail "binary contains a local build or account path"
+fi
+
+if LC_ALL=C nm -a "$binary" 2>/dev/null \
+  | LC_ALL=C grep -Eq '/Users/|/home/|/private/var/folders/|/private/tmp/devsift-|/Volumes/'; then
+  fail "binary symbols contain a local build or account path"
 fi
 
 codesign --verify --all-architectures --strict --verbose=2 "$binary"

@@ -59,6 +59,12 @@ The executable must be a Mach-O universal binary with exactly `arm64` and
 status smoke test before packaging. The package's declared deployment floor is
 macOS 14.
 
+The tag workflow builds on an `arm64` macOS 15 runner and fails unless it is
+using Xcode 16.4 build 16F6, the macOS 15.5 SDK, and Apple Swift 6.1.2 from that
+Xcode installation. Reproducibility means independent builds with those same
+declared toolchain inputs produce byte-identical archives; the hosted runner
+image itself is not claimed to be a timeless or content-addressed input.
+
 Packaging starts from a fresh temporary staging directory. It refuses to
 replace an existing archive or checksum file, disables macOS AppleDouble sidecar
 creation, and validates the archive membership against the fixed allowlist.
@@ -92,9 +98,10 @@ gh attestation verify \
 
 Workflow actions are pinned to full commit hashes. Repository contents are
 read-only by default. The tag workflow separates unprivileged build and native
-smoke-test jobs from its publish job. Only the publish job receives `contents:
-write`, `id-token: write`, and `attestations: write`; it executes no repository
-scripts or release binary with those permissions.
+smoke-test jobs from its publish job. The extracted final archive runs natively
+on macOS 14 `arm64` and macOS 15 `x86_64` before publication. Only the publish
+job receives `contents: write`, `id-token: write`, and `attestations: write`; it
+executes no repository scripts or release binary with those permissions.
 
 ## Signing boundary
 
@@ -115,15 +122,21 @@ reviewed work.
 Before creating the tag:
 
 1. Merge the release pull request into `main` after required CI succeeds.
-2. Confirm the local tree is clean and synchronized with `origin/main`.
-3. Run release metadata verification and a local packaging dry run.
-4. Confirm the merge commit's normal `main` CI succeeds.
-5. Create one annotated tag on that exact merge commit and push only that tag.
+2. Confirm the repository allows only reviewed GitHub-owned actions pinned to
+   full commit hashes, protects `v*` tags from update or deletion, protects the
+   `release` environment, and has immutable releases enabled.
+3. Confirm the local tree is clean and synchronized with `origin/main`.
+4. Run release metadata verification and a local packaging dry run.
+5. Confirm the merge commit's normal `main` CI succeeds.
+6. Create one annotated tag on that exact merge commit and push only that tag.
 
 The tag workflow checks out the tagged commit without retaining Git credentials,
 validates that the tag and source version agree, runs strict formatting and the
 complete test suite, builds and inspects the universal archive, verifies its
-checksum, creates provenance, and only then creates a GitHub pre-release.
+checksum and every handoff digest, executes both native slices on their target
+runner families, creates provenance, and only then creates a draft. It verifies
+the uploaded asset bytes, exact asset inventory, and tag-to-main binding again
+immediately before publishing the GitHub pre-release.
 
 Published tags are immutable source identities. If an artifact is wrong or must
 be withdrawn, record the problem and publish a new incremented pre-release. Do
