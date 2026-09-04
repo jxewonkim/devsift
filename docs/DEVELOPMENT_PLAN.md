@@ -543,7 +543,8 @@ Later Phase 7 work, after the implemented execution kernel:
 
 - Add crash-consistent pre-mutation intent, post-move receipt, required file and
   directory synchronization, and startup recovery. Reconcile any interrupted
-  transaction before allowing another operation.
+  transaction before allowing another operation. The normative design is the
+  [quarantine durability contract](DURABILITY.md).
 - Add restore and manual-recovery flows before any permanent-removal work.
 - Design purge as a later, separately reviewed policy, authorization, and user
   action. Quarantine authorization version 1 never authorizes deletion.

@@ -170,7 +170,9 @@ The next increment must add durable pre-mutation intent, a durable post-move
 receipt, required file and directory synchronization, and startup recovery
 before any frontend can expose quarantine. Restore follows that durable
 foundation. Purge and permanent deletion remain later, separately authorized
-work.
+work. The exact planned state machine, wire-record boundary, synchronization
+order, and recovery table are defined in the
+[quarantine durability contract](DURABILITY.md).
 
 ## Frontend and privacy boundary
 
