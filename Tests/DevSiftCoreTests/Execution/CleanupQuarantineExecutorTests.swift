@@ -62,7 +62,7 @@ struct CleanupQuarantineExecutorTests {
     #expect(!report.performedPermanentDeletion)
   }
 
-  @Test("Separate authorizations for one approval cannot both claim the same move")
+  @Test("Separate consumed claims for one approval cannot both claim the same move")
   func concurrentAuthorizationsForOneApproval() async throws {
     let fixture = try NPMQuarantinePreflightFixture()
     defer { fixture.remove() }
@@ -78,21 +78,27 @@ struct CleanupQuarantineExecutorTests {
       ofItemAtPath: quarantineRoot.path
     )
     let barrier = ExecutorTwoPartyBarrier()
-    let executor = CleanupQuarantineExecutor(
-      preflight: fixture.preflight(),
-      mover: supportedExecutionTestMover(
-        nonceBytes: { _ in [UInt8](repeating: 0x56, count: 16) },
-        hooks: DescriptorExclusiveQuarantineMoverHooks(
-          afterFinalSourceValidationBeforeRename: { _ in
-            barrier.arriveAndWait()
-          }
-        )
+    let firstClaim = try await firstAuthorization.consumeForExecution()
+    let secondClaim = try await secondAuthorization.consumeForExecution()
+    let preflight = fixture.preflight()
+    let mover = supportedExecutionTestMover(
+      nonceBytes: { _ in [UInt8](repeating: 0x56, count: 16) },
+      hooks: DescriptorExclusiveQuarantineMoverHooks(
+        afterFinalSourceValidationBeforeRename: { _ in
+          barrier.arriveAndWait()
+        }
       )
     )
 
-    async let first = executor.execute(firstAuthorization)
-    async let second = executor.execute(secondAuthorization)
-    let reports = try await [first, second]
+    // The held-descriptor operation is deliberately synchronous. Run these
+    // two race participants on dedicated test threads so a blocking barrier
+    // cannot starve Swift's cooperative task executor under parallel CI load.
+    let results = await moveClaimsOnDedicatedThreads(
+      [firstClaim, secondClaim],
+      preflight: preflight,
+      mover: mover
+    )
+    let reports = try results.map { try $0.get() }
     let moved = reports.count { report in
       guard case .quarantinedAwaitingReceipt = report.status else { return false }
       return true
@@ -214,6 +220,47 @@ private enum ExecutorRaceOutcome: Equatable, Sendable {
   case consumptionFailure(CleanupQuarantineAuthorizationConsumptionError)
   case unexpectedCancellation
   case unexpectedError
+}
+
+private typealias ExecutorConcurrentMoveResult = Result<
+  CleanupQuarantineExecutionReport,
+  DescriptorNPMQuarantinePreflightFailure
+>
+
+private func moveClaimsOnDedicatedThreads(
+  _ claims: [CleanupQuarantineExecutionClaim],
+  preflight: DescriptorNPMQuarantinePreflight,
+  mover: DescriptorExclusiveQuarantineMover
+) async -> [ExecutorConcurrentMoveResult] {
+  let collected = ExecutorConcurrentMoveResults()
+  return await withCheckedContinuation { continuation in
+    let group = DispatchGroup()
+    for claim in claims {
+      group.enter()
+      Thread.detachNewThread {
+        defer { group.leave() }
+        collected.append(
+          preflight.moveValidatedCandidate(claim: claim, using: mover)
+        )
+      }
+    }
+    group.notify(queue: .global(qos: .userInitiated)) {
+      continuation.resume(returning: collected.snapshot)
+    }
+  }
+}
+
+private final class ExecutorConcurrentMoveResults: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [ExecutorConcurrentMoveResult] = []
+
+  var snapshot: [ExecutorConcurrentMoveResult] {
+    lock.withLock { values }
+  }
+
+  func append(_ value: ExecutorConcurrentMoveResult) {
+    lock.withLock { values.append(value) }
+  }
 }
 
 private func executorQuarantinedLocation(
