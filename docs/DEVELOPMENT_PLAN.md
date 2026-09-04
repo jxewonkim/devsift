@@ -643,6 +643,56 @@ The eleventh increment's repository-internal focused review is recorded in
 Milestone: `v0.3.0-alpha.1` -- quarantine-based cleanup. Permanent removal is a
 later, separately reviewed milestone.
 
+## Phase 8: verifiable alpha distribution
+
+Status: in progress. This phase packages the completed Phase 7 milestone without
+expanding its product or filesystem authority.
+
+Target tag: `v0.3.0-alpha.1`.
+
+Planned commit sequence:
+
+- `docs(release): define the alpha distribution contract`;
+- `feat(core): publish the alpha release version`;
+- `build(release): package a verified universal CLI`;
+- `ci(release): publish attested tag artifacts`;
+- `docs(release): prepare v0.3.0-alpha.1`.
+
+- Make one repository `VERSION` file, the public Core status, CLI version output,
+  changelog heading, and release tag agree on the exact semantic pre-release
+  version. Product release versions remain independent of rule, report, and
+  private journal contract revisions.
+- Build one macOS 14-or-newer universal CLI containing exactly `arm64` and
+  `x86_64` slices. Package it with the version, license, README, and release
+  contract under one fixed top-level directory.
+- Fail closed when metadata disagrees, an output path already exists, the binary
+  reports the wrong version, either architecture is missing, archive membership
+  differs from the fixed allowlist, or checksum verification fails.
+- Run the same metadata and packaging checks for pull requests and `main` before
+  any tag exists. A tag-triggered workflow repeats formatting, tests, and
+  packaging from the exact tagged commit before publishing.
+- Publish a SHA-256 checksum file and GitHub build-provenance attestation for the
+  exact CLI archive. Keep workflow dependencies pinned to full commit hashes and
+  grant release-write and OIDC permissions only to the tag-only release job.
+- State plainly that the archive is not Developer ID signed or Apple notarized.
+  Do not distribute the SwiftUI executable as an application bundle until a
+  separate signing, entitlements, packaging, and notarization review exists.
+- Add no updater, installer script, package-manager tap, analytics, network call,
+  app or CLI mutation action, automatic recovery, purge, permanent deletion, or
+  public access to Core-internal quarantine and restore kernels.
+
+Gate: version checks, strict formatting, manifest validation, all tests, debug
+and release builds, universal-architecture inspection, archive allowlist
+inspection, checksum verification, workflow permission review, and a local
+release dry run all pass. The tag must point at the reviewed `main` merge commit,
+and that commit's normal CI must be green before the tag is pushed. A failed or
+withdrawn pre-release is superseded by a new version; a published tag is never
+moved to different source.
+
+Milestone: GitHub pre-release `v0.3.0-alpha.1` with a source-bound universal CLI
+archive, checksum, and provenance attestation. The app remains source-only and
+all shipped CLI commands remain read-only.
+
 ## Definition of done for every code commit
 
 - Formatting passes.
