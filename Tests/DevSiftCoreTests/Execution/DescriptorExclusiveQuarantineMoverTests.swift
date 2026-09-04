@@ -365,7 +365,11 @@ struct DescriptorExclusiveQuarantineMoverTests {
     let report = try move(
       claim,
       fixture: fixture,
-      mover: DescriptorExclusiveQuarantineMover()
+      mover: DescriptorExclusiveQuarantineMover(
+        dependencies: DescriptorExclusiveQuarantineMoverDependencies(
+          supportsResolveBeneathRename: { true }
+        )
+      )
     )
 
     #expect(report.status == .notMoved(.quarantineRootUnsafe))
@@ -1137,6 +1141,7 @@ func supportedExecutionTestMover(
       nonceBytes: nonceBytes,
       volumeCapabilities: { _ in volumeCapabilities() },
       hasExtendedACL: { _ in hasExtendedACL() },
+      renameExclusive: testRenameExclusive,
       cancellationIsRequested: cancellationIsRequested,
       hooks: hooks
     )
@@ -1224,6 +1229,22 @@ private func testRenameExclusive(
   _ toComponent: DescriptorQuarantineRelativePath,
   _ flags: UInt32
 ) -> DescriptorExclusiveRenameResult {
+  guard flags == DescriptorExclusiveQuarantineMover.renameFlags else {
+    return .failed(EINVAL)
+  }
+
+  // The algorithm always has to request the full production flag set. A
+  // macOS 15 runner cannot execute the newer bit, so only this controlled
+  // fixture adapter removes it after checking the request. Production never
+  // takes this fallback and instead fails closed before mutation.
+  let supportsResolveBeneathRename = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+    OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+  )
+  let kernelFlags =
+    supportsResolveBeneathRename
+    ? flags
+    : flags & ~DescriptorExclusiveQuarantineMover.resolveBeneathRenameFlag
+
   var failureCode: Int32 = EINVAL
   let result = fromComponent.withCString { fromPointer in
     toComponent.withCString { toPointer in
@@ -1232,7 +1253,7 @@ private func testRenameExclusive(
         fromPointer,
         toDescriptor,
         toPointer,
-        flags
+        kernelFlags
       )
       if status != 0 { failureCode = errno }
       return status
