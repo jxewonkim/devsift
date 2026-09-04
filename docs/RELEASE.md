@@ -49,8 +49,7 @@ It contains exactly one top-level directory with these entries:
 ```text
 devsift-0.3.0-alpha.1-macos-universal/
 devsift-0.3.0-alpha.1-macos-universal/LICENSE
-devsift-0.3.0-alpha.1-macos-universal/README.md
-devsift-0.3.0-alpha.1-macos-universal/RELEASE.md
+devsift-0.3.0-alpha.1-macos-universal/RELEASE_NOTES.md
 devsift-0.3.0-alpha.1-macos-universal/VERSION
 devsift-0.3.0-alpha.1-macos-universal/devsift
 ```
@@ -63,6 +62,11 @@ macOS 14.
 Packaging starts from a fresh temporary staging directory. It refuses to
 replace an existing archive or checksum file, disables macOS AppleDouble sidecar
 creation, and validates the archive membership against the fixed allowlist.
+It fixes the archive locale, timezone, ownership, modes, and timestamps, then
+checks that independent builds made from different caller timezones are
+byte-for-byte identical.
+The bundled release notes are self-contained and use tag-pinned links rather
+than repository-relative documentation links.
 It does not include build directories, debug symbols, source paths, scan data,
 credentials, signing material, quarantine journals, or any other local file.
 
@@ -80,21 +84,26 @@ downloading the two release assets:
 shasum -a 256 -c SHA256SUMS
 gh attestation verify \
   devsift-0.3.0-alpha.1-macos-universal.tar.gz \
-  --repo jxewonkim/devsift
+  --repo jxewonkim/devsift \
+  --signer-workflow jxewonkim/devsift/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.3.0-alpha.1 \
+  --deny-self-hosted-runners
 ```
 
 Workflow actions are pinned to full commit hashes. Repository contents are
-read-only by default. Only the tag-triggered release job receives `contents:
-write`, `id-token: write`, and `attestations: write`; those permissions are not
-available to pull-request jobs.
+read-only by default. The tag workflow separates unprivileged build and native
+smoke-test jobs from its publish job. Only the publish job receives `contents:
+write`, `id-token: write`, and `attestations: write`; it executes no repository
+scripts or release binary with those permissions.
 
 ## Signing boundary
 
 The first archive is not Developer ID signed and is not Apple notarized. The
-Swift linker may place an ad-hoc signature on the executable, but that is not a
-publisher identity and must not be described as one. Gatekeeper or local
-security policy may therefore require an explicit user decision before running
-the binary.
+packager explicitly applies an ad-hoc signature to the final universal
+executable and validates both slices. That signature protects file integrity;
+it is not a publisher identity and must not be described as one. Gatekeeper or
+local security policy may therefore require an explicit user decision before
+running the binary.
 
 DevSift does not recommend disabling Gatekeeper globally and does not publish a
 `curl | sh` installer. Developer ID signing, notarization, a `.pkg`, a Homebrew
