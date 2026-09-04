@@ -100,7 +100,7 @@ content, or cleanup safety. A scan is not a filesystem snapshot, so a file may
 change after its individual observation. Draft planning must not treat this
 aggregate as current authority. A Core approval review session retains the
 exact scan-derived planning root and manifest but does not refresh either;
-future execution must require fresh policy and object revalidation before any
+any execution must require fresh policy and object revalidation before any
 mutation.
 
 This aggregate is currently a Core-only input to rule findings. Scan JSON v2
@@ -120,7 +120,7 @@ This value exists only to let a bounded descriptor-relative evidence observer
 verify that a reopened root or candidate is the object that was scanned. It is
 not a durable identifier, trusted-location or ownership evidence, a cleanup
 capability, or deletion authority. Inodes can be reused; a draft plan carries
-these values only as comparison evidence, and future execution must reopen and
+these values only as comparison evidence, and any execution must reopen and
 revalidate containment, kind, identity, and policy evidence immediately before
 mutation. Scan JSON v2 and classification JSON v2 do not emit raw scan-time
 identities.
@@ -215,9 +215,11 @@ still change before or after their individual observation. Paths and inode
 identities from a scan must never be reused as authority for later cleanup.
 Core authorization contract version 1 can bind an exact approval and explicit
 caller assertion into a process-local, single-use value, but it performs no
-filesystem I/O and grants no standalone mutation authority. A future executor
-will enter only through the `CleanupQuarantineAuthorization` internal handoff,
-reopen the approval-bound root, and revalidate every authorized item before
-mutation.
+filesystem I/O and grants no standalone mutation authority. The Core-internal
+npm executor enters only through the `CleanupQuarantineAuthorization` handoff,
+reopens the exact approval-bound `~/.npm` root, and revalidates the sole
+authorized `_cacache` candidate while descriptors remain held through the
+atomic move.
 A bare approval or revalidation report is not executor input. See the
-[authorization contract](AUTHORIZATION.md).
+[authorization contract](AUTHORIZATION.md) and
+[quarantine execution contract](QUARANTINE.md).

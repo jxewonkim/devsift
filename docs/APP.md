@@ -7,6 +7,8 @@ results separately. It can also create and display an unapproved in-memory
 draft from explicitly selected eligible results. It has no persistence,
 import, export, diff, approval, activity-attestation, authorization, execution,
 cleanup, move, quarantine, restore, purge, or deletion action.
+Core's internal npm quarantine kernel is intentionally unreachable from the
+app until durable intent, receipt, sync, and recovery exist.
 
 Run the development executable on macOS 14 or newer:
 
@@ -157,9 +159,9 @@ If a manifest entry carries
 `requires-user-attestation-that-responsible-tool-is-stopped@1`, the review
 displays “Activity remains unobserved” at both review and entry level. It says
 that the pending condition is policy metadata, not evidence that npm is
-inactive; any future recoverable operation requires fresh revalidation and a
-separate attempt-scoped authorization. The draft is not that authorization and
-cannot be executed. There is no approval, acknowledgement, or attestation CTA.
+inactive; any recoverable operation requires fresh revalidation and a separate
+attempt-scoped authorization. The draft is not that authorization and cannot
+be executed. There is no approval, acknowledgement, or attestation CTA.
 
 The view is explicitly labeled an unapproved, non-executable in-memory draft.
 Returning to selection discards only the presentation and preserves the user's
@@ -183,8 +185,10 @@ Core also has an in-memory `CleanupQuarantineAuthorizer`, but the app neither
 begins an attempt nor constructs `CleanupQuarantineUserAttestation`. It exposes
 no attestation request, statement, authorization state, cancellation, or
 filesystem action. Authorization contract version 1 is not a UI safety verdict
-and grants no standalone mutation authority; see the
-[authorization contract](AUTHORIZATION.md).
+and grants no standalone mutation authority. The internal execution report is
+not app presentation state, and `quarantinedAwaitingReceipt` must not be shown
+as completed cleanup; see the [authorization contract](AUTHORIZATION.md) and
+[quarantine execution contract](QUARANTINE.md).
 
 ## Observation and policy language
 

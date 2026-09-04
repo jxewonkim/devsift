@@ -2,7 +2,8 @@
 
 DevSift classifies storage observations with versioned, deterministic rules.
 Classification is read-only: it explains evidence and policy, but it cannot
-plan, move, quarantine, or delete anything.
+plan, move, quarantine, or delete anything. The separate Core-internal npm
+executor is constrained by the [quarantine execution contract](QUARANTINE.md).
 
 ```text
 scan observation -> rule recognition -> evidence checks -> policy disposition
@@ -287,7 +288,7 @@ that revision whenever their catalog composition or `assess` behavior changes.
 A scan-time identity binds that read-only observation to the inode that was
 scanned. It is not proof of trusted location or ownership, is not durable
 filesystem identity, and grants no planning, cleanup, or deletion authority.
-Inodes can be reused, so any future execution must reopen and revalidate
+Inodes can be reused, so any execution must reopen and revalidate
 containment, kind, identity, and policy evidence immediately before mutation.
 Generic responsible-tool ownership remains uncollected for every rule that
 requires it. npm instead consumes only the narrower current-account cache-
@@ -333,7 +334,9 @@ attestation is accepted only by the separate Core authorization attempt, not by
 classification. Its process-local single-use
 `CleanupQuarantineAuthorization` is still not observed activity or a
 standalone filesystem capability. See the
-[authorization contract](AUTHORIZATION.md).
+[authorization contract](AUTHORIZATION.md). The internal executor accepts that
+handoff only for the exact pinned npm rule and rechecks the complete policy and
+filesystem grammar before an atomic move.
 
 ## Determinism and versioning
 

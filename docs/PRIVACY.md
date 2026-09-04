@@ -10,6 +10,11 @@ DevSift is designed to work locally and reveal as little as possible.
 - No network access required for scanning.
 - No background or automatic scanning.
 - No scan outside roots explicitly selected by the user.
+- The Core-internal npm quarantine kernel reads only metadata needed for its
+  descriptor-held validation and issues mutations only at the approved
+  `_cacache` source name and fixed quarantine namespace. It does not read cached
+  file contents, invoke npm, inspect processes, use the network, or emit
+  telemetry.
 - Scanning reads POSIX inode modification times but retains only one maximum
   aggregate per root or top-level summary, not a timestamp for every
   descendant. It does not read file contents.
@@ -226,12 +231,16 @@ Current `CleanupQuarantineAuthorization` is more sensitive than a review
 acknowledgement because it binds the exact in-memory approval to an explicit
 caller attestation for one attempt and process-local single-use state. It is
 recoverable-quarantine-only, grants no standalone filesystem mutation
-authority, and exposes no public consumer. Only its internal handoff may reach
-a future executor; a bare approval, review acknowledgement, or revalidation
-report may not. Future UI wording, executor state, receipts, recovery, restore,
-and purge require separate privacy and security review. Adding those features
-must not silently make Core domain models `Codable`. See the
-[authorization contract](AUTHORIZATION.md).
+authority, and exposes no public consumer. Only its internal handoff reaches
+the Core-internal npm executor; a bare approval, review acknowledgement, or
+revalidation report may not. Its process-local, non-`Codable` execution report
+can retain a raw relative path, rule revision, bounded outcome, and quarantine
+location whose optional evidence includes an observed filesystem identity, but
+it is not persisted or exported. Durable intent, receipts, recovery, restore,
+UI wording, and purge require separate privacy and security review. Adding
+those features must not silently make Core domain models `Codable`. See the
+[authorization contract](AUTHORIZATION.md) and [quarantine execution
+contract](QUARANTINE.md).
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

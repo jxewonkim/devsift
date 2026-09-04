@@ -121,7 +121,7 @@ public struct CleanupQuarantineAuthorizationSession: Sendable {
 
   /// Irreversibly cancels an open or issued attempt and releases its retained
   /// approval. Cancellation cannot undo an authorization already consumed by
-  /// a future executor.
+  /// the internal executor.
   public func cancel() async {
     await state.cancel()
   }
@@ -130,9 +130,9 @@ public struct CleanupQuarantineAuthorizationSession: Sendable {
 /// A process-local, single-use authorization record for a recoverable
 /// quarantine attempt.
 ///
-/// This value grants no standalone filesystem mutation capability. A future
-/// executor must consume it exactly once and still perform descriptor-relative
-/// filesystem revalidation immediately before every operation.
+/// This value grants no standalone filesystem mutation capability. The
+/// internal executor consumes it exactly once and still performs
+/// descriptor-relative filesystem revalidation inline before its move.
 public struct CleanupQuarantineAuthorization: Sendable {
   public static let currentContractVersion: UInt32 = 1
 
@@ -158,7 +158,7 @@ public struct CleanupQuarantineAuthorization: Sendable {
     self.state = state
   }
 
-  /// Internal handoff reserved for a future descriptor-relative executor.
+  /// Internal handoff reserved for the descriptor-relative executor.
   /// Every copy of this authorization shares the same atomic consumption
   /// state, so exactly one handoff can succeed.
   func consumeForExecution() async throws -> CleanupQuarantineExecutionClaim {
@@ -352,8 +352,7 @@ enum CleanupQuarantineAuthorizationConsumptionError: Error, Equatable, Sendable 
 }
 
 /// Exact retained values released only after the authorization's atomic
-/// single-use transition. This is intentionally internal until an executor
-/// exists.
+/// single-use transition. This remains internal with its sole executor.
 struct CleanupQuarantineExecutionClaim: Sendable {
   let approval: CleanupApproval
   let attestation: CleanupQuarantineUserAttestation

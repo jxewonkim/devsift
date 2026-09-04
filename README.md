@@ -8,9 +8,9 @@ folder, shows where apparent allocation is concentrated, and applies
 explainable read-only policy rules to recognized development caches.
 
 > [!IMPORTANT]
-> DevSift is pre-alpha. Scanning, classification, draft planning, Core approval,
-> revalidation, and quarantine-attempt authorization perform no mutation:
-> DevSift does not delete, move, quarantine, or otherwise modify files.
+> DevSift is pre-alpha. The app and CLI remain read-only. A Core-internal,
+> npm-only kernel can now make one non-overwriting atomic quarantine move, but
+> it has no durable receipt or crash recovery and is not exposed publicly.
 
 ## Why DevSift?
 
@@ -60,7 +60,8 @@ application data are never treated as disposable merely because they are large.
 - `DevSiftCore`: a Swift library for read-only scanning, versioned explainable
   classification, policy-provenanced in-memory draft manifests, and
   deterministic compatible-manifest diffing, plus exact review-bound approval,
-  revalidation, and process-local quarantine-attempt authorization;
+  revalidation, process-local quarantine-attempt authorization, and an
+  internal npm-only atomic quarantine kernel;
 - `devsift`: a scriptable command-line interface;
 - `DevSift`: a native SwiftUI dashboard with explicit folder selection,
   cancellable scans, observation results, policy explanations, explicit draft
@@ -121,8 +122,11 @@ handoff that can be consumed at most once; cross-attempt replay fails, and no
 clock or TTL defines freshness. The authorization is recoverable-quarantine-
 only, still requires inline filesystem revalidation, and reports
 `grantsStandaloneFilesystemMutationAuthority == false`. Its consume operation
-is internal, and no executor or filesystem operation exists. See the
-[authorization contract](docs/AUTHORIZATION.md).
+is internal. The internal executor now consumes only that handoff, performs
+descriptor-held inline validation, and can make one exclusive same-volume
+move into a private quarantine namespace. See the
+[authorization contract](docs/AUTHORIZATION.md) and
+[quarantine contract](docs/QUARANTINE.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v2 encoder pinned to Core manifest contract
@@ -134,7 +138,8 @@ mutation.
 
 Current semantic contracts are explainable classification revision 3, cleanup
 manifest version 3, manifest diff version 2, approval version 2, and
-revalidation version 2. Quarantine authorization is contract version 1. CLI
+revalidation version 2. Quarantine authorization and the internal process-local
+execution report are contract version 1. CLI
 scan JSON remains version 2; classification JSON is version 2, and the internal
 manifest-review JSON is version 2 over source manifest version 3. The built-in
 catalog is version 6, with npm at rule revision 5.
@@ -156,14 +161,19 @@ grant standalone mutation authority. A wall-clock TTL is not freshness. See the
 
 ## Safety first
 
-DevSift remains read-only. Cleanup will only be introduced after dry-run plans,
-path containment, symlink handling, and race-condition tests are in place.
-Recoverable quarantine is planned before permanent removal.
+The app and CLI remain read-only. Core's internal npm-only kernel performs no
+deletion: it revalidates through held descriptors and uses one non-overwriting,
+same-volume rename into `.devsift-quarantine-v1`. A reconciled move is reported
+as `quarantinedAwaitingReceipt`, never completed, because durable intent,
+receipt, sync, recovery, and restore are still absent. Permanent removal is a
+later, separately authorized phase.
 
 Read the full [rules contract](docs/RULES.md),
 [planning contract](docs/PLANNING.md), [revalidation contract](docs/REVALIDATION.md),
-[activity safety contract](docs/ACTIVITY.md), [safety model](docs/SAFETY.md), and
-[privacy contract](docs/PRIVACY.md).
+[authorization contract](docs/AUTHORIZATION.md),
+[quarantine contract](docs/QUARANTINE.md),
+[activity safety contract](docs/ACTIVITY.md), [safety model](docs/SAFETY.md),
+and [privacy contract](docs/PRIVACY.md).
 
 ## Development
 
@@ -186,8 +196,9 @@ swift run DevSiftApp
 
 DevSiftCore contains a read-only allocated-size scanner, rule classifier,
 Core-only draft-manifest planner, fail-closed manifest differ, in-memory
-approval sessions, a read-only approval revalidator, and a Core-only in-memory
-quarantine-attempt authorizer. The CLI exposes the scanner and classifier as
+approval sessions, a read-only approval revalidator, a Core-only in-memory
+quarantine-attempt authorizer, and an internal npm-only atomic quarantine
+kernel. The CLI exposes the scanner and classifier as
 deterministic text and separately versioned JSON. It also owns an internal,
 non-importable review projection for privacy-contract testing; this is not a
 CLI command or file-export feature. The native app invokes the same Core
@@ -198,8 +209,9 @@ shows a pending npm condition as unobserved rather than as a safety or
 inactivity claim. See the
 [app contract](docs/APP.md),
 [CLI contract](docs/CLI.md), [scanning contract](docs/SCANNING.md),
-[rules contract](docs/RULES.md), [planning contract](docs/PLANNING.md), and
-[authorization contract](docs/AUTHORIZATION.md).
+[rules contract](docs/RULES.md), [planning contract](docs/PLANNING.md),
+[authorization contract](docs/AUTHORIZATION.md), and
+[quarantine contract](docs/QUARANTINE.md).
 
 Development uses small Conventional Commits. Every code commit must build and
 pass tests before it is pushed. Filesystem tests operate only inside temporary,
@@ -211,15 +223,17 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
   diffing, review-bound entry confirmation and precondition review
   acknowledgement, and an approval-only, point-in-time Core revalidation
   diagnostic, plus Core-only process-local, single-use quarantine-attempt
-  authorization; app and CLI remain read-only
+  authorization and an internal npm-only atomic quarantine kernel; app and CLI
+  remain read-only
 - Current behavior: Core scanner, rule classifier, in-memory draft planner,
   compatible-manifest differ, approver, revalidator, and quarantine-attempt
   authorizer, plus the existing text/JSON CLI and native analysis dashboard
   with explicit in-memory draft review of pending execution conditions; no
   manifest-review CLI command, persistence, import, or user-facing export; no
   frontend diff, approval, attestation, authorization, or revalidation
-  workflow; and no executor, cleanup, quarantine, receipt, recovery, restore,
-  purge, or deletion
+  workflow; one internal executor can report an atomic move as
+  `quarantinedAwaitingReceipt`, but there is no durable intent, receipt, sync,
+  recovery, restore, purge, deletion, public API, or frontend action
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer

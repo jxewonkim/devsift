@@ -86,7 +86,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   redacted and root-relative-exact profiles always omit filesystem identities,
   expose no decoder, and mark the result non-importable, non-approvable, and
   non-executable. The encoder has no CLI command or file-writing path; manifest
-  diff export, approval, and execution remain absent.
+  diff export, approval, and execution remain absent from the CLI.
 - A native read-only dry-run review flow. Users explicitly include exact
   eligible path-and-rule-revision pairs from the scan table, starting from zero
   included items independently of table focus. The app freezes the selection,
@@ -107,8 +107,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   and manifest in memory, remains non-`Codable`, and performs no filesystem I/O.
   It is copyable rather than single-use and is not freshness evidence,
   authentication, proof of human review, execution authority, or a frontend
-  feature. Only an approval-bound revalidation layer may consume it;
-  descriptor-relative execution-time checks remain later work.
+  feature. At that approval increment, only an approval-bound revalidation
+  layer could consume it; descriptor-relative execution-time checks remained
+  later work.
 - A Core-only, approval-only `CleanupRevalidator` as the first Phase 7
   diagnostic boundary. It freshly scans and classifies only the exact root
   retained by `CleanupApproval`, supports only the current built-in policy
@@ -159,8 +160,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   added no process observation, execution, filesystem mutation, policy
   revision, or schema change. The deferred-precondition increment below later
   changed the policy result without changing the unknown activity evidence.
-- A narrowly scoped deferred execution-precondition policy for future
-  recoverable npm quarantine. Runtime activity remains exactly
+- A narrowly scoped deferred execution-precondition policy for recoverable npm
+  quarantine. Runtime activity remains exactly
   `unknown(.notCollected)`; when every non-deferred npm fact passes, the
   classifier emits Review required plus
   `requires-user-attestation-that-responsible-tool-is-stopped@1` instead of
@@ -199,6 +200,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   no consume method, executor, quarantine, receipt, recovery, restore, purge,
   deletion, frontend action, or CLI action and performs no process, npm, clock,
   or filesystem I/O.
+- Core-internal npm `_cacache` quarantine execution kernel. It consumes only the
+  authorization's internal single-use claim, independently rechecks the exact
+  classifier-3/catalog-6/npm-5 policy shape, and descriptor-reopens the real
+  account's exact `~/.npm` root and sole approved candidate.
+- Exhaustive descriptor-held execution preflight for the pinned cacache grammar,
+  current-account ownership, same-device containment, identity and mutation
+  stability, no non-owner POSIX writes, no subtree extended ACL, single-link
+  regular files, bounded traversal, and an inclusive seven-day modification-
+  time floor.
+- Same-volume, non-overwriting atomic quarantine into a verified private
+  `.devsift-quarantine-v1` directory using `renameatx_np` with `RENAME_EXCL`,
+  `RENAME_NOFOLLOW_ANY`, and `RENAME_RESOLVE_BENEATH`. Destination collisions
+  are bounded; copy, unlink, shell, npm invocation, and permanent deletion are
+  absent.
+- Post-rename source/destination reconciliation, non-overwriting reverse-rename
+  rollback, and bounded manual-recovery outcomes. Cancellation after rename is
+  latched into the report while reconciliation and rollback continue.
+- Internal process-local `CleanupQuarantineExecutionReport` contract version 1.
+  A verified move is `quarantinedAwaitingReceipt`, not completed: durable
+  intent, receipt, sync, startup recovery, restore, public API, app action, and
+  CLI action remain absent.
 
 ### Changed
 
@@ -218,5 +240,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   with an explicit attempt-scoped caller assertion and process-local
   single-use lifecycle. It authorizes no permanent deletion, still requires
   inline filesystem revalidation, and grants no standalone mutation authority.
-  Executor, quarantine, receipt, recovery, restore, purge, and deletion APIs
-  remain absent.
+  The Core-internal npm executor can now consume that handoff for one atomic
+  quarantine move. Its process-local report is contract version 1 and is never
+  durable or crash-recoverable; receipt, sync, recovery, restore, purge,
+  deletion, public API, and frontend actions remain absent.

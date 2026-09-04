@@ -28,8 +28,9 @@ Cleanup functionality must preserve this ordering:
 `scan -> classify -> plan -> approve -> revalidate -> authorize attempt -> quarantine -> report`
 
 Current versions are classifier contract 3, cleanup manifest 3, manifest diff
-2, approval 2, revalidation 2, quarantine authorization 1, classification JSON
-2, and internal manifest-review JSON 2 over source manifest 3. npm is rule
+2, approval 2, revalidation 2, quarantine authorization 1, internal execution
+report 1, classification JSON 2, and internal manifest-review JSON 2 over
+source manifest 3. npm is rule
 revision 5 in built-in catalog 6. Scan JSON remains version 2. Old manifests,
 approvals, and exports are regenerated rather than imported or migrated.
 
@@ -44,9 +45,10 @@ and the Core differ compares only compatible drafts. An explicit
 rule revision, but selection and diff output are not approval. Core can now
 record explicit intent for one fully confirmed reviewed manifest and its
 pending execution conditions. Core now has an approval-only, read-only
-revalidation diagnostic and a Core-only, in-memory quarantine-attempt
-authorizer. Executor, quarantine, receipt, recovery, restore, purge, and
-deletion APIs do not exist in this phase.
+revalidation diagnostic, a Core-only in-memory quarantine-attempt authorizer,
+and an internal npm-only atomic quarantine kernel. A verified move is only
+`quarantinedAwaitingReceipt`: durable intent, receipt, sync, recovery, restore,
+purge, deletion, public API, and frontend actions do not exist in this phase.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -110,9 +112,10 @@ observed inactivity, proof of human action, or authentication. Process-local
 identity rejects cross-attempt replay without a clock or TTL. Authorization
 issuance and the internal handoff are each atomic and at most once across all
 copies; cancellation is terminal. Version 1 is recoverable-quarantine-only,
-requires future inline filesystem revalidation, and grants no standalone
-mutation authority. No public consumer or executor exists. See the
-[authorization contract](AUTHORIZATION.md).
+requires inline filesystem revalidation, and grants no standalone mutation
+authority. No consumer or executor is public; the internal npm executor is
+the sole consumer. See the [authorization contract](AUTHORIZATION.md) and
+[quarantine execution contract](QUARANTINE.md).
 
 ## Hard invariants
 
@@ -155,9 +158,10 @@ mutation authority. No public consumer or executor exists. See the
 - A timestamp or wall-clock TTL must not turn an approval, entry confirmation,
   precondition review acknowledgement, attestation, or diagnostic into
   freshness. The authorization attempt uses process-local identity and shared
-  single-use state; a future executor must add inline descriptor-held checks.
+  single-use state; the internal executor performs inline descriptor-held
+  checks.
 - Approval performs no filesystem or network I/O. It cannot be passed directly
-  to a future executor. `CleanupQuarantineAuthorizer` instead binds the exact
+  to the executor. `CleanupQuarantineAuthorizer` instead binds the exact
   approval to an explicit, attempt-scoped caller assertion and process-local
   single-use `CleanupQuarantineAuthorization`.
 - A precondition review acknowledgement remains copyable, replayable review
@@ -174,11 +178,11 @@ mutation authority. No public consumer or executor exists. See the
   point-in-time diagnostic entries; incomplete or unknown observations fail
   closed. Its report omits the absolute root URL and is not an execution input
   or filesystem capability.
-- Revalidation does not make a later operation race-free. A future executor
-  must receive only `CleanupQuarantineAuthorization`, never the approval or
-  report directly, and revalidate containment, kind, device, identity, activity
-  policy, and current policy inline while holding verified descriptors
-  immediately before mutation.
+- Revalidation does not make a later operation race-free. The internal executor
+  receives only `CleanupQuarantineAuthorization`, never the approval or report
+  directly, and revalidates containment, kind, device, identity, age, activity
+  policy, full grammar, ownership, and destination safety inline while holding
+  verified descriptors through mutation.
 - App planning reuses the exact retained classification request and report,
   freezes the selected set, and runs without a filesystem capability or active
   security scope. Planning and scan-session tokens must reject any late result
@@ -218,11 +222,18 @@ mutation authority. No public consumer or executor exists. See the
 - Scan depth, entry count, top-level output, hard-link accounting, and recorded
   issue count have explicit limits; a reached limit produces a partial result
   rather than silent omission.
-- A candidate cannot escape its approved root through symlinks, aliases, path
-  normalization, mounts, or race conditions.
+- DevSift resolves both quarantine rename operands beneath the held approved-
+  root descriptor, so its syscall cannot escape that root through symlinks,
+  aliases, path normalization, mounts, or a quarantine-root reparent race.
+  Same-account namespace replacement remains an accepted, post-detected race;
+  it can redirect the move only within the held root and does not yield a
+  success report when reconciliation observes the quarantine-root binding
+  change.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
-- Scan code cannot mutate files.
+- Scan, classification, planning, approval, revalidation, and authorization code
+  cannot mutate files. Only the internal npm execution kernel owns the narrow
+  atomic quarantine namespace operation.
 - The app and CLI expose no cleanup, delete, move, quarantine, restore, purge, or
   permission-escalation action; scan and classification reports remain
   read-only.
@@ -282,9 +293,9 @@ FSEvents result. The selected recoverable-quarantine policy therefore preserves
 `unknown(.notCollected)` and carries an explicit pending precondition. The
 Core-only `CleanupQuarantineAuthorization` now binds the exact approval to an
 attempt-scoped caller assertion and a shared single-use lifecycle; only its
-internal handoff may reach a future executor. It still grants no standalone
-mutation authority. A prior observation, review acknowledgement, or elapsed-
-time test is never execution authority.
+internal handoff may reach the Core-internal npm executor. It still grants no
+standalone mutation authority. A prior observation, review acknowledgement, or
+elapsed-time test is never execution authority.
 
 Cancellation is safe but may not be instantaneous. A blocking filesystem call
 can finish before the next cancellation checkpoint is reached. The scanner
@@ -371,11 +382,12 @@ human review, authenticity, attestation, or freshness. The revalidator is a
 read-only diagnostic that consumes only the approval and reopens its stored
 root. The Core authorizer now combines that exact approval with an explicit
 attempt-scoped caller assertion and produces a process-local single-use
-`CleanupQuarantineAuthorization`. A future executor must accept only its
-internal handoff and establish policy and object evidence inline while holding
-verified descriptors before any mutation. See the
+`CleanupQuarantineAuthorization`. The internal npm executor accepts only its
+internal handoff and establishes policy and object evidence inline while
+holding verified descriptors through its atomic move. See the
 [planning contract](PLANNING.md), [revalidation contract](REVALIDATION.md), and
-[authorization contract](AUTHORIZATION.md).
+[authorization contract](AUTHORIZATION.md), plus the
+[quarantine execution contract](QUARANTINE.md).
 
 The internal review encoder accepts only Core manifest contract version 3 and
 emits CLI schema `devsift.cleanup-manifest-review` version 2. A per-entry

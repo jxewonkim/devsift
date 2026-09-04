@@ -28,7 +28,9 @@ caller must confirm every entry and acknowledge every pending condition for
 review before Core issues approval. That acknowledgement is not an activity
 attestation. Core can separately bind that exact approval to one explicit
 caller assertion in a process-local, single-use quarantine authorization
-attempt. The CLI target can internally project one draft into a privacy-
+attempt. A Core-internal npm-only kernel can consume that authorization and
+atomically quarantine one exact `_cacache`, but its result is not durable or
+crash-recoverable. The CLI target can internally project one draft into a privacy-
 profiled, review-only JSON schema, but no command or file export exposes it. No
 frontend exposes approval, attestation, authorization, or execution, and job 5
 remains later product direction.
@@ -70,8 +72,9 @@ Custom locations, other generated markers, and other unavailable required facts
 remain Protected.
 
 The corresponding current contracts are explainable classification revision 3,
-cleanup manifest 3, manifest diff 2, approval 2, revalidation 2, and quarantine
-authorization 1. Scan JSON remains version 2; classification JSON and the
+cleanup manifest 3, manifest diff 2, approval 2, revalidation 2, quarantine
+authorization 1, and internal execution report 1. Scan JSON remains version 2;
+classification JSON and the
 internal manifest-review JSON are version 2, with the latter pinned to source
 manifest 3.
 
@@ -102,7 +105,8 @@ The long-term workflow is:
 5. **Revalidate** identity, containment, and active-use conditions.
 6. **Authorize** one quarantine attempt with fresh explicit user attestation.
 7. **Quarantine** authorized candidates using a recoverable operation.
-8. **Report** completed, changed, failed, and skipped items.
+8. **Report** bounded outcomes; reserve completed for a durably recorded,
+   crash-recoverable result.
 9. **Purge** quarantined data only as a later, explicit action.
 
 The current planning increment stops at in-memory Core manifest version 3,
@@ -170,13 +174,17 @@ bound assertion, not observed inactivity, human proof, or authentication.
 Process-local identity rejects cross-attempt replay without a clock or TTL.
 Authorization issuance and the shared internal handoff each succeed at most
 once. Contract version 1 is recoverable-quarantine-only, requires inline
-filesystem revalidation, and grants no standalone mutation authority. No public
-consumer or executor exists. See the
+filesystem revalidation, and grants no standalone mutation authority. Neither
+consumer nor executor is public; the sole executor is Core-internal. See the
 [authorization contract](AUTHORIZATION.md).
 
-A future executor must take only the authorization's internal handoff, not a
-bare approval or revalidation report, and revalidate inline while holding
-descriptors before a recoverable operation.
+The internal npm executor takes only the authorization handoff, not a bare
+approval or revalidation report. It validates the exact policy and cacache
+grammar inline while holding descriptors through one exclusive same-volume
+rename into `.devsift-quarantine-v1`. A reconciled move is
+`quarantinedAwaitingReceipt`, not completed; durable intent, receipt, sync,
+recovery, and restore remain later work. See the
+[quarantine execution contract](QUARANTINE.md).
 
 The remaining npm execution fact is activity. The capability review in the
 [activity safety contract](ACTIVITY.md) found no supported, unprivileged macOS
@@ -198,4 +206,6 @@ DevSift is not:
 - an automatic remover of user documents or unfamiliar large files;
 - a wrapper around arbitrary shell deletion commands.
 
-No cleanup operation exists in the current milestone.
+No public or frontend cleanup operation exists in the current milestone. The
+Core-internal npm kernel performs no permanent deletion and is not yet a
+durable, crash-recoverable product workflow.

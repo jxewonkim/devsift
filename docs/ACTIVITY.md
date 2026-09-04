@@ -37,8 +37,10 @@ attempt attestation. Core now exposes a process-local authorization attempt;
 its `CleanupQuarantineUserAttestation` is an explicit caller assertion for one
 exact canonical pending set, not activity evidence, human proof, or
 authentication. The resulting single-use authorization grants no standalone
-mutation authority. There is still no executor or filesystem mutation API. See
-the [authorization contract](AUTHORIZATION.md).
+mutation authority. A Core-internal npm-only executor now consumes it for one
+descriptor-held atomic quarantine move; no public or frontend mutation API
+exists. See the [authorization contract](AUTHORIZATION.md) and
+[quarantine execution contract](QUARANTINE.md).
 
 This conclusion is scoped to the current local, unprivileged, dependency-free
 product. It is not a claim that macOS has no privileged security mechanism.
@@ -129,12 +131,12 @@ The required statement is
 Supplying it is the caller's assertion that npm work was stopped and the
 unobserved-activity risk was accepted. It does not change
 `unknown(.notCollected)`, prove who supplied it, or prevent a new access. The
-public API exposes no consume method; its only handoff is reserved internally
-for the future executor described below.
+public API exposes no consume method; its only handoff is consumed by the
+internal executor described below.
 
-## Future executor boundary
+## Current internal executor boundary
 
-Under the selected narrow policy, a future executor must:
+Under the selected narrow policy, the current executor must:
 
 - accept only `CleanupQuarantineAuthorization`, never a bare
   `CleanupApproval`, `CleanupRevalidationReport`, caller-supplied root,
@@ -146,22 +148,22 @@ Under the selected narrow policy, a future executor must:
   selected activity policy while descriptors remain held;
 - open and validate a trusted quarantine parent whose containment, device,
   identity, ownership, permissions, and no-follow traversal remain stable;
-  choose a bounded valid leaf that is absent, then let an exclusive descriptor-
-  relative rename such as `renameatx_np` with `RENAME_EXCL` atomically claim
-  it, retrying collisions only within a fixed bound and only after separately
-  validating every required runtime flag and volume capability;
-- after the rename linearizes, finish destination validation and durable
-  outcome recording even if cancellation arrives; cancellation may stop only
-  before the rename or between entries;
-- write and sync crash-consistent quarantine metadata sufficient for restore
-  before reporting completion;
+  generate a bounded valid leaf, then require its absence atomically through a
+  descriptor-relative rename such as `renameatx_np` with `RENAME_EXCL`, retrying
+  collisions only within a fixed bound and only after separately validating
+  every required runtime flag and volume capability;
+- after the rename is invoked, finish source and destination reconciliation
+  even if cancellation arrives, and record late cancellation in its report;
 - attempt rollback only when both parent bindings remain stable, the source
   name is absent, the destination still names the held candidate, and an
   exclusive reverse rename succeeds; never overwrite a newly recreated source,
   and report manual recovery when those conditions do not hold;
-- report completed, skipped, changed, rollback-required, and failed entries
-  individually; and
-- provide restore before any separately reviewed permanent purge.
+- report bounded not-moved, `quarantinedAwaitingReceipt`, rolled-back, or
+  manual-recovery-required outcomes without calling a move completed.
+
+The next increment must write and sync crash-consistent intent and receipt
+metadata and provide startup recovery. Restore must exist before any separately
+reviewed permanent purge.
 
 The operation and its immediate revalidation must share one non-escaping
 descriptor-held scope. Returning a Boolean and performing the rename later is
@@ -173,7 +175,8 @@ Current authorization tests use synthetic approvals and cover complete
 canonical subjects, unsupported policy, the exact required statement policy,
 attestation substitution, cross-attempt replay, concurrent issuance, shared-
 copy double consumption, terminal cancellation, and fixture-boundary integrity.
-Any future activity observer or executor still requires adversarial tests for
+Any future activity observer, public activation, or durability layer still
+requires adversarial tests for
 positive-use detection, negative-result fail-closure, permissions, PID and
 descriptor churn, enumeration limits, pre-existing references, event coverage
 and gaps,
@@ -192,10 +195,12 @@ This decision adds policy behavior but no runtime activity evidence. The
 explainable-classification contract is revision 3, npm is rule revision 5, and
 the built-in catalog is version 6. Cleanup manifest is version 3, manifest diff
 is version 2, approval is version 2, revalidation is version 2, and quarantine
-authorization is version 1. Scan JSON remains version 2; classification JSON
+authorization and internal execution report are version 1. Scan JSON remains
+version 2; classification JSON
 and internal manifest-review JSON are version 2, with the latter pinned to
 source manifest version 3.
 
 Older manifests, approvals, and exports are regenerated rather than migrated;
-there is no import path. Executor, quarantine, receipt, recovery, restore,
-purge, and deletion remain unimplemented.
+there is no import path. The executor and atomic quarantine kernel are internal;
+durable receipt, recovery, restore, purge, deletion, public API, and frontend
+actions remain unimplemented.
