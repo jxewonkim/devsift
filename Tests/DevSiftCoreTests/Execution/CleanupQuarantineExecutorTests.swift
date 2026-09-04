@@ -153,9 +153,12 @@ struct CleanupQuarantineExecutorTests {
     let fixture = try NPMQuarantinePreflightFixture()
     defer { fixture.remove() }
     let authorization = try await fixture.makeAuthorization()
-    let gate = ExecutorBlockingGate()
     let hooks = DescriptorExclusiveQuarantineMoverHooks(
-      afterFinalSourceValidationBeforeRename: { _ in gate.pause() }
+      afterFinalSourceValidationBeforeRename: { _ in
+        withUnsafeCurrentTask { current in
+          current?.cancel()
+        }
+      }
     )
     let executor = CleanupQuarantineExecutor(
       preflight: fixture.preflight(),
@@ -166,9 +169,6 @@ struct CleanupQuarantineExecutorTests {
     )
 
     let task = Task { try await executor.execute(authorization) }
-    await gate.waitUntilPaused()
-    task.cancel()
-    gate.release()
     let report = try await task.value
 
     #expect(report.status == .notMoved(.cancelled))
@@ -182,10 +182,13 @@ struct CleanupQuarantineExecutorTests {
     let fixture = try NPMQuarantinePreflightFixture()
     defer { fixture.remove() }
     let authorization = try await fixture.makeAuthorization()
-    let gate = ExecutorBlockingGate()
     let hooks = DescriptorExclusiveQuarantineMoverHooks(
       afterRenameReturn: { _, result in
-        if result == .succeeded { gate.pause() }
+        if result == .succeeded {
+          withUnsafeCurrentTask { current in
+            current?.cancel()
+          }
+        }
       }
     )
     let executor = CleanupQuarantineExecutor(
@@ -198,9 +201,6 @@ struct CleanupQuarantineExecutorTests {
     )
 
     let task = Task { try await executor.execute(authorization) }
-    await gate.waitUntilPaused()
-    task.cancel()
-    gate.release()
     let report = try await task.value
     let location = try executorQuarantinedLocation(from: report)
 
@@ -288,41 +288,6 @@ private enum ExecutorTestError: Error {
 
 extension Array {
   fileprivate var only: Element? { count == 1 ? self[0] : nil }
-}
-
-private final class ExecutorBlockingGate: @unchecked Sendable {
-  private let lock = NSLock()
-  private let releaseSemaphore = DispatchSemaphore(value: 0)
-  private var isPaused = false
-  private var arrivalContinuation: CheckedContinuation<Void, Never>?
-
-  func pause() {
-    lock.lock()
-    isPaused = true
-    let continuation = arrivalContinuation
-    arrivalContinuation = nil
-    lock.unlock()
-
-    continuation?.resume()
-    releaseSemaphore.wait()
-  }
-
-  func waitUntilPaused() async {
-    await withCheckedContinuation { continuation in
-      lock.lock()
-      if isPaused {
-        lock.unlock()
-        continuation.resume()
-      } else {
-        arrivalContinuation = continuation
-        lock.unlock()
-      }
-    }
-  }
-
-  func release() {
-    releaseSemaphore.signal()
-  }
 }
 
 private final class ExecutorTwoPartyBarrier: @unchecked Sendable {
