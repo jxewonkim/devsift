@@ -3,6 +3,9 @@
 enum CleanupQuarantineRestoreNotRestoredReason: Equatable, Sendable {
   case cancelled
   case invalidClaim
+  case invalidCurrentAccount
+  case trustedRootUnavailable(CleanupQuarantineSystemFailure)
+  case trustedRootChanged
   case unsupported
   case originalTransactionUnavailable
   case originalTransactionNotRestorable

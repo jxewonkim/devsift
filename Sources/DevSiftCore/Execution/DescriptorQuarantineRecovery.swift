@@ -1865,7 +1865,7 @@ func descriptorJournalRecoverLocked(
       return .failure(.unavailable(.resourceLimit))
     }
 
-    switch descriptorJournalValidateParents(
+    switch descriptorJournalValidateHistoricalReceiptParents(
       request,
       expectedRoot: intentRecord.value.npmRootBinding,
       expectedQuarantineRoot: intentRecord.value.quarantineRootBinding,
@@ -1899,7 +1899,7 @@ func descriptorJournalRecoverLocked(
     else {
       return .failure(.recoveryRequired(transactionID: restoreTransactionID))
     }
-    switch descriptorJournalValidateParents(
+    switch descriptorJournalValidateHistoricalReceiptParents(
       request,
       expectedRoot: intentRecord.value.npmRootBinding,
       expectedQuarantineRoot: intentRecord.value.quarantineRootBinding,
@@ -1961,7 +1961,7 @@ func descriptorJournalRecoverLocked(
       return .failure(.recoveryRequired(transactionID: restoreTransactionID))
     }
 
-    switch descriptorJournalValidateParents(
+    switch descriptorJournalValidateHistoricalReceiptParents(
       request,
       expectedRoot: intentRecord.value.npmRootBinding,
       expectedQuarantineRoot: intentRecord.value.quarantineRootBinding,
@@ -2221,7 +2221,7 @@ private func descriptorJournalCompleteStagedRestoreReceipt(
   dependencies: DescriptorQuarantineJournalDependencies
 ) -> Result<Void, DescriptorQuarantineJournalFailure> {
   let expectedOutcome = descriptorJournalRestoreTerminalOutcome(for: receiptRecord.value)
-  switch descriptorJournalValidateParents(
+  switch descriptorJournalValidateHistoricalReceiptParents(
     request,
     expectedRoot: intentRecord.value.npmRootBinding,
     expectedQuarantineRoot: intentRecord.value.quarantineRootBinding,
@@ -2255,7 +2255,7 @@ private func descriptorJournalCompleteStagedRestoreReceipt(
   else {
     return .failure(.recoveryRequired(transactionID: intentRecord.value.restoreTransactionID))
   }
-  switch descriptorJournalValidateParents(
+  switch descriptorJournalValidateHistoricalReceiptParents(
     request,
     expectedRoot: intentRecord.value.npmRootBinding,
     expectedQuarantineRoot: intentRecord.value.quarantineRootBinding,
@@ -2304,7 +2304,7 @@ private func descriptorJournalCompleteStagedRestoreReceipt(
     return .failure(.recoveryRequired(transactionID: intentRecord.value.restoreTransactionID))
   }
 
-  switch descriptorJournalValidateParents(
+  switch descriptorJournalValidateHistoricalReceiptParents(
     request,
     expectedRoot: intentRecord.value.npmRootBinding,
     expectedQuarantineRoot: intentRecord.value.quarantineRootBinding,
@@ -2625,6 +2625,7 @@ private func descriptorJournalObserveName(
   parentDescriptor: Int32,
   componentBytes: [UInt8],
   expected: QuarantineJournalFileBindingV1,
+  matchHistoricalIdentityOnly: Bool = false,
   dependencies: DescriptorQuarantineJournalDependencies
 ) -> Result<DescriptorJournalObservedName, DescriptorQuarantineJournalFailure> {
   guard let component = DescriptorPathComponent(componentBytes) else {
@@ -2640,13 +2641,11 @@ private func descriptorJournalObserveName(
   } catch {
     return .failure(.unavailable(.unspecified))
   }
-  guard
-    descriptorJournalMatches(
-      named.snapshot,
-      expected: expected,
-      includeLinkCount: true
-    )
-  else {
+  let matchesExpected =
+    matchHistoricalIdentityOnly
+    ? descriptorJournalMatchesHistoricalParent(named.snapshot, expected: expected)
+    : descriptorJournalMatches(named.snapshot, expected: expected, includeLinkCount: true)
+  guard matchesExpected else {
     return .success(.other(named))
   }
   guard named.snapshot.kind == .directory,
@@ -2682,13 +2681,13 @@ private func descriptorJournalObserveName(
       at: parentDescriptor,
       component: component
     )
+    let heldMatchesExpected =
+      matchHistoricalIdentityOnly
+      ? descriptorJournalMatchesHistoricalParent(held.snapshot, expected: expected)
+      : descriptorJournalMatches(held.snapshot, expected: expected, includeLinkCount: true)
     guard held == named,
       namedAgain == held,
-      descriptorJournalMatches(
-        held.snapshot,
-        expected: expected,
-        includeLinkCount: true
-      )
+      heldMatchesExpected
     else {
       return .failure(.unsafe)
     }
@@ -3055,10 +3054,9 @@ private func descriptorJournalValidateRestoreItemTree(
   }
   guard
     heldBefore == namedBefore,
-    descriptorJournalMatches(
+    descriptorJournalMatchesHistoricalParent(
       heldBefore.snapshot,
-      expected: intent.candidateBinding,
-      includeLinkCount: true
+      expected: intent.candidateBinding
     ),
     heldBefore.snapshot.kind == .directory,
     heldBefore.snapshot.ownerUID == request.accountUID,
@@ -3091,7 +3089,9 @@ private func descriptorJournalValidateRestoreItemTree(
     return .failure(.cancelled)
   } catch DescriptorNPMQuarantinePreflightFailure.traversalLimitExceeded {
     return .failure(.traversalLimitExceeded)
-  } catch DescriptorNPMQuarantinePreflightFailure.candidateUnsafe {
+  } catch DescriptorNPMQuarantinePreflightFailure.candidateUnsafe,
+    DescriptorNPMQuarantinePreflightFailure.layoutMismatch
+  {
     return .failure(.quarantinedItemUnsafe)
   } catch {
     return .failure(.quarantinedItemChanged)
@@ -3277,6 +3277,31 @@ func descriptorJournalBeginRestore(
   case .failure(let failure):
     return .failure(failure)
   }
+  // Selection-time validation is stale evidence. Re-run the complete current
+  // cache-tree policy while the mixed journal lock is held and before the
+  // durable restore intent is admitted. The restorer repeats this after intent
+  // publication because publishing the record mutates the parent namespace.
+  switch descriptorJournalValidateRestoreItemTree(
+    intent,
+    request: recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(failure)
+  }
+  switch descriptorJournalValidateHeldRestoreItem(
+    request.quarantinedItemDescriptor,
+    intent: intent,
+    request: recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(failure)
+  }
 
   guard
     let intentStageName = descriptorJournalRecordName(
@@ -3389,10 +3414,9 @@ private func descriptorJournalValidateHeldRestoreItem(
     )
     guard
       held == named,
-      descriptorJournalMatches(
+      descriptorJournalMatchesHistoricalParent(
         held.snapshot,
-        expected: intent.candidateBinding,
-        includeLinkCount: true
+        expected: intent.candidateBinding
       ),
       held.snapshot.kind == .directory,
       held.snapshot.ownerUID == request.accountUID,
@@ -3521,7 +3545,7 @@ func descriptorJournalFinishRestore(
     return recoveryResult()
   }
 
-  switch descriptorJournalValidateParents(
+  switch descriptorJournalValidateHistoricalReceiptParents(
     request,
     expectedRoot: session.intent.npmRootBinding,
     expectedQuarantineRoot: session.intent.quarantineRootBinding,
@@ -3552,7 +3576,7 @@ private func descriptorJournalValidateRestoreTerminalOutcome(
   dependencies: DescriptorQuarantineJournalDependencies
 ) -> Result<DescriptorRestoreJournalNamespaceTruth, DescriptorQuarantineJournalFailure> {
   let request = context.recoveryRequest
-  switch descriptorJournalValidateParents(
+  switch descriptorJournalValidateHistoricalReceiptParents(
     request,
     expectedRoot: session.intent.npmRootBinding,
     expectedQuarantineRoot: session.intent.quarantineRootBinding,
@@ -3586,7 +3610,7 @@ private func descriptorJournalValidateRestoreTerminalOutcome(
   {
     return .failure(.recoveryRequired(transactionID: session.restoreTransactionID))
   }
-  switch descriptorJournalValidateParents(
+  switch descriptorJournalValidateHistoricalReceiptParents(
     request,
     expectedRoot: session.intent.npmRootBinding,
     expectedQuarantineRoot: session.intent.quarantineRootBinding,
@@ -3616,7 +3640,7 @@ private func descriptorJournalRestoreFinishFailureIsRecoveryAdmissible(
 ) -> Bool {
   let request = context.recoveryRequest
   guard
-    case .success = descriptorJournalValidateParents(
+    case .success = descriptorJournalValidateHistoricalReceiptParents(
       request,
       expectedRoot: session.intent.npmRootBinding,
       expectedQuarantineRoot: session.intent.quarantineRootBinding,
@@ -3663,12 +3687,14 @@ private func descriptorJournalObserveRestoreNamespace(
     parentDescriptor: request.rootDescriptor,
     componentBytes: intent.sourceComponents[0],
     expected: intent.candidateBinding,
+    matchHistoricalIdentityOnly: true,
     dependencies: dependencies
   )
   let item = descriptorJournalObserveName(
     parentDescriptor: request.quarantineRootDescriptor,
     componentBytes: intent.quarantineItemComponent,
     expected: intent.candidateBinding,
+    matchHistoricalIdentityOnly: true,
     dependencies: dependencies
   )
   switch (source, item) {

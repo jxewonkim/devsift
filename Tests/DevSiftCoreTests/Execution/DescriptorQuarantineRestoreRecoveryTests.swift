@@ -164,6 +164,89 @@ struct DescriptorQuarantineRestoreRecoveryTests {
         )) == .failure(.alreadyRestored)
     )
   }
+
+  @Test("Safe current metadata drift does not poison a pending restore")
+  func safeCurrentMetadataDriftRemainsRecoverable() throws {
+    let fixture = try DescriptorRestoreRecoveryFixture()
+    defer { fixture.remove() }
+    try descriptorJournalTestChmod(fixture.filesystem.rootURL, mode: 0o750)
+    try descriptorJournalTestChmod(fixture.quarantineItemURL, mode: 0o500)
+
+    let summary = try requireRestoreRecovery(
+      fixture.journal.recover(fixture.filesystem.recoveryRequest())
+    )
+
+    #expect(summary.recoveredRestoreReceipts.count == 1)
+    #expect(summary.recoveredRestoreReceipts.first?.outcome == .notRestored)
+    #expect(summary.recoveredRestoreReceipts.first?.producedByRecovery == true)
+  }
+
+  @Test("An unsafe tree cannot publish a restore intent")
+  func unsafeTreeIsRejectedBeforeRestoreIntentPublication() async throws {
+    let fixture = try DescriptorRestoreRecoveryFixture(publishRestoreIntent: false)
+    defer { fixture.remove() }
+    let restoreJournal = DescriptorQuarantineRestoreJournal(dependencies: fixture.dependencies)
+    let preparation = restoreJournal.prepare(
+      DescriptorQuarantineRestorePreparationRequest(
+        recoveryRequest: fixture.filesystem.recoveryRequest(),
+        quarantineTransactionID: fixture.quarantineIntent.transactionID,
+        restoreTransactionID: fixture.restoreTransactionID
+      ))
+    let evidence: CleanupQuarantineRestorePreparedEvidence
+    switch preparation {
+    case .success(let value):
+      evidence = value
+    case .failure(let failure):
+      Issue.record("restore preparation unexpectedly failed: \(failure)")
+      return
+    }
+    let authorizationSession = try CleanupQuarantineRestoreAuthorizer().beginAttempt(for: evidence)
+    let confirmation = CleanupQuarantineRestoreUserConfirmation(
+      request: authorizationSession.confirmationRequest,
+      statement: authorizationSession.confirmationRequest.requiredStatement
+    )
+    let authorization = try await authorizationSession.authorize(using: confirmation)
+    let claim = try await authorization.consumeForExecution()
+
+    let unexpected = fixture.quarantineItemURL.appendingPathComponent(
+      "unexpected-entry",
+      isDirectory: false
+    )
+    try Data([0x01]).write(to: unexpected, options: [])
+    try descriptorJournalTestChmod(unexpected, mode: 0o600)
+    let itemDescriptor = Darwin.open(
+      fixture.quarantineItemURL.path,
+      O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+    )
+    guard itemDescriptor >= 0 else {
+      throw RestoreRecoveryTestError.posix(errno)
+    }
+    defer { descriptorCloseIgnoringErrors(itemDescriptor) }
+
+    let result = restoreJournal.begin(
+      DescriptorQuarantineRestoreJournalBeginRequest(
+        recoveryRequest: fixture.filesystem.recoveryRequest(),
+        quarantinedItemDescriptor: itemDescriptor,
+        claim: claim
+      ))
+
+    switch result {
+    case .failure(.quarantinedItemUnsafe):
+      break
+    case .success:
+      Issue.record("unsafe tree unexpectedly published a restore intent")
+    case .failure(let failure):
+      Issue.record("unexpected restore begin failure: \(failure)")
+    }
+    #expect(!FileManager.default.fileExists(atPath: fixture.restoreIntentURL.path))
+    #expect(
+      !FileManager.default.fileExists(
+        atPath:
+          fixture.filesystem.recordURL(
+            ".restore-intent-stage-v1-\(fixture.restoreTransactionID)"
+          ).path
+      ))
+  }
 }
 
 enum RestoreRecoveryTerminalScenario: CaseIterable, Sendable {
@@ -223,7 +306,7 @@ private final class DescriptorRestoreRecoveryFixture {
     filesystem.recordURL(".restore-receipt-v1-\(restoreTransactionID)")
   }
 
-  init() throws {
+  init(publishRestoreIntent: Bool = true) throws {
     let filesystem = try DescriptorJournalTestFixture()
     for requiredName in ["content-v2", "index-v5"] {
       let requiredDirectory = filesystem.candidateURL.appendingPathComponent(
@@ -287,10 +370,12 @@ private final class DescriptorRestoreRecoveryFixture {
       matchingQuarantineIntentBytes: quarantineIntentBytes,
       matchingQuarantineReceiptBytes: quarantineReceiptBytes
     )
-    try restoreRecoveryWriteRecord(
-      restoreIntentBytes,
-      to: filesystem.recordURL(".restore-intent-v1-\(restoreTransactionID)")
-    )
+    if publishRestoreIntent {
+      try restoreRecoveryWriteRecord(
+        restoreIntentBytes,
+        to: filesystem.recordURL(".restore-intent-v1-\(restoreTransactionID)")
+      )
+    }
 
     self.filesystem = filesystem
     self.dependencies = dependencies
@@ -348,6 +433,7 @@ private enum RestoreRecoveryTestError: Error {
   case invalidRecord
   case unexpectedResult(String)
   case recovery(DescriptorQuarantineJournalFailure)
+  case posix(Int32)
 }
 
 private func restoreRecoveryURL(parent: URL, componentBytes: [UInt8]) throws -> URL {

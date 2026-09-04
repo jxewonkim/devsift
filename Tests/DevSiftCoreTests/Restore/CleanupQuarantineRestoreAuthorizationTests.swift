@@ -119,9 +119,13 @@ struct CleanupQuarantineRestoreAuthorizationTests {
       evidence.canonicalQuarantineReceiptBytes,
       matchingIntentBytes: evidence.canonicalQuarantineIntentBytes
     )
+    guard let selectedDestinationOrdinal = originalReceipt.selectedDestinationOrdinal else {
+      Issue.record("Expected a quarantined receipt destination ordinal")
+      return
+    }
     let replacement = try QuarantineJournalV1Codec.makeReceipt(
       outcome: .quarantined,
-      selectedDestinationOrdinal: try #require(originalReceipt.selectedDestinationOrdinal),
+      selectedDestinationOrdinal: selectedDestinationOrdinal,
       sourceNameWasRecreated: originalReceipt.sourceNameWasRecreated,
       producedByRecovery: true,
       canonicalIntentBytes: evidence.canonicalQuarantineIntentBytes
@@ -416,7 +420,7 @@ struct CleanupQuarantineRestoreAuthorizationTests {
   }
 }
 
-private func restoreAuthorizationEvidence(
+func restoreAuthorizationEvidence(
   quarantineTransactionID: String = String(repeating: "1", count: 32),
   restoreTransactionID: String = String(repeating: "a", count: 32),
   selectedDestinationOrdinal: Int = 3,
@@ -477,7 +481,7 @@ private func restoreAuthorizationItemComponent(_ ordinal: Int) -> [UInt8] {
   return Array("item-v1-\(String(repeating: "0", count: 32 - suffix.count))\(suffix)".utf8)
 }
 
-private func restoreConfirmation(
+func restoreConfirmation(
   for session: CleanupQuarantineRestoreAuthorizationSession
 ) -> CleanupQuarantineRestoreUserConfirmation {
   CleanupQuarantineRestoreUserConfirmation(
