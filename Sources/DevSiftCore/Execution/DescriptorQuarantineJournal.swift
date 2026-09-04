@@ -50,6 +50,20 @@ enum DescriptorQuarantineJournalFinishResult: Equatable, Sendable {
 struct DescriptorQuarantineJournalRecoverySummary: Equatable, Sendable {
   let recoveredReceipts: [QuarantineJournalReceiptV1]
   let validatedTransactionCount: Int
+  let recoveredRestoreReceipts: [QuarantineRestoreJournalReceiptV1]
+  let validatedRestoreTransactionCount: Int
+
+  init(
+    recoveredReceipts: [QuarantineJournalReceiptV1],
+    validatedTransactionCount: Int,
+    recoveredRestoreReceipts: [QuarantineRestoreJournalReceiptV1] = [],
+    validatedRestoreTransactionCount: Int = 0
+  ) {
+    self.recoveredReceipts = recoveredReceipts
+    self.validatedTransactionCount = validatedTransactionCount
+    self.recoveredRestoreReceipts = recoveredRestoreReceipts
+    self.validatedRestoreTransactionCount = validatedRestoreTransactionCount
+  }
 }
 
 enum DescriptorQuarantineJournalRecoveryResult: Equatable, Sendable {
