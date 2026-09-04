@@ -236,7 +236,9 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
   recovery, restore, purge, deletion, public API, or frontend action
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
-- Supported platform target: macOS 14 or newer
+- Supported platform target: macOS 14 or newer for scanning and read-only
+  surfaces; the internal quarantine mutation kernel requires macOS 26 or newer
+  and fails closed before mutation on older systems
 - Implementation language: Swift 6
 
 See [CHANGELOG.md](CHANGELOG.md) for changes and

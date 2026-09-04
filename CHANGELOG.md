@@ -214,6 +214,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `RENAME_NOFOLLOW_ANY`, and `RENAME_RESOLVE_BENEATH`. Destination collisions
   are bounded; copy, unlink, shell, npm invocation, and permanent deletion are
   absent.
+- The quarantine mutation path requires macOS 26 or newer for
+  `RENAME_RESOLVE_BENEATH`. On older supported macOS versions it rejects the
+  attempt before creating quarantine state or invoking a mutation syscall.
 - Post-rename source/destination reconciliation, non-overwriting reverse-rename
   rollback, and bounded manual-recovery outcomes. Cancellation after rename is
   latched into the report while reconciliation and rollback continue.

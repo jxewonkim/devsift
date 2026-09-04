@@ -62,11 +62,59 @@ struct DescriptorExclusiveQuarantineMoverTests {
       fixture: fixture,
       mover: DescriptorExclusiveQuarantineMover()
     )
+
+    let supportsResolveBeneathRename = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+      OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+    )
+    guard supportsResolveBeneathRename else {
+      #expect(report.status == .notMoved(.exclusiveRenameUnsupported))
+      #expect(report.quarantineRootMutation == .none)
+      #expect(FileManager.default.fileExists(atPath: fixture.candidate.path))
+      #expect(
+        !FileManager.default.fileExists(
+          atPath: fixture.root.appendingPathComponent(".devsift-quarantine-v1").path
+        ))
+      return
+    }
+
     let location = try quarantinedLocation(from: report, sourceNameWasRecreated: false)
 
     #expect(!FileManager.default.fileExists(atPath: fixture.candidate.path))
     #expect(
       FileManager.default.fileExists(atPath: try locationURL(location, root: fixture.root).path))
+  }
+
+  @Test("Missing beneath-root rename support blocks every namespace mutation")
+  func unsupportedResolveBeneathRename() async throws {
+    let fixture = try NPMQuarantinePreflightFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.makeClaim()
+    let mkdirState = MoverTestState()
+    let renameState = MoverTestState()
+    let mover = supportedExecutionTestMover(
+      supportsResolveBeneathRename: { false },
+      makeQuarantineRoot: { _, _ in
+        mkdirState.incrementCallCount()
+        return .created
+      },
+      renameExclusive: { _, _, _, _, _ in
+        renameState.incrementCallCount()
+        return .succeeded
+      }
+    )
+
+    let report = try move(claim, fixture: fixture, mover: mover)
+
+    #expect(report.status == .notMoved(.exclusiveRenameUnsupported))
+    #expect(report.quarantineRootMutation == .none)
+    #expect(mkdirState.callCount == 0)
+    #expect(renameState.callCount == 0)
+    #expect(FileManager.default.fileExists(atPath: fixture.candidate.path))
+    #expect(!report.performedPermanentDeletion)
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: fixture.root.appendingPathComponent(".devsift-quarantine-v1").path
+      ))
   }
 
   @Test("Cancellation immediately before rename cannot move the source")
@@ -1035,6 +1083,7 @@ enum UnsafeQuarantineRootKind: Sendable {
 }
 
 func supportedExecutionTestMover(
+  supportsResolveBeneathRename: @escaping @Sendable () -> Bool = { true },
   makeQuarantineRoot:
     @escaping @Sendable (
       Int32,
@@ -1070,6 +1119,7 @@ func supportedExecutionTestMover(
   if let renameExclusive {
     return DescriptorExclusiveQuarantineMover(
       dependencies: DescriptorExclusiveQuarantineMoverDependencies(
+        supportsResolveBeneathRename: supportsResolveBeneathRename,
         makeQuarantineRoot: makeQuarantineRoot,
         nonceBytes: nonceBytes,
         volumeCapabilities: { _ in volumeCapabilities() },
@@ -1082,6 +1132,7 @@ func supportedExecutionTestMover(
   }
   return DescriptorExclusiveQuarantineMover(
     dependencies: DescriptorExclusiveQuarantineMoverDependencies(
+      supportsResolveBeneathRename: supportsResolveBeneathRename,
       makeQuarantineRoot: makeQuarantineRoot,
       nonceBytes: nonceBytes,
       volumeCapabilities: { _ in volumeCapabilities() },

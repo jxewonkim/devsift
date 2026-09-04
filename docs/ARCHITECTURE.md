@@ -55,8 +55,10 @@ Core layers are:
 - **Execution:** an internal npm-only kernel that consumes only the
   authorization's internal handoff, descriptor-revalidates the sole exact
   `_cacache` candidate, and can make one exclusive same-volume rename into a
-  verified private quarantine directory. Its report is process-local and not
-  crash-recoverable;
+  verified private quarantine directory on macOS 26 or newer. Older systems
+  reject before namespace mutation because the safety boundary requires
+  `RENAME_RESOLVE_BENEATH`. Its report is process-local and not crash-
+  recoverable;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 Current Core semantic versions are explainable classification revision 3,

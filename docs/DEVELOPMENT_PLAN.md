@@ -513,6 +513,9 @@ Implemented ninth increment:
   `RENAME_EXCL`, `RENAME_NOFOLLOW_ANY`, and `RENAME_RESOLVE_BENEATH`. Retry only
   a reconciled destination collision, within a bounded random-name budget, and
   never overwrite or pre-create a destination leaf.
+- Require macOS 26 or newer for the mutation kernel because older kernels lack
+  `RENAME_RESOLVE_BENEATH`; reject before quarantine-root creation or rename on
+  older supported systems while retaining macOS 14 read-only surfaces.
 - Reconcile source, destination, and parent bindings after every rename result.
   Attempt only a non-overwriting reverse rename when rollback is safe;
   otherwise return a bounded manual-recovery outcome. Once rename is invoked,

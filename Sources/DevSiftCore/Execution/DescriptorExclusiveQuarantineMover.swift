@@ -72,6 +72,7 @@ struct DescriptorExclusiveQuarantineMoverHooks: Sendable {
 /// every namespace operation with descriptor-relative Darwin syscalls.
 struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
   var currentAccountUID: @Sendable () -> uid_t?
+  var supportsResolveBeneathRename: @Sendable () -> Bool
   var makeQuarantineRoot:
     @Sendable (
       Int32,
@@ -100,6 +101,8 @@ struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
   init(
     currentAccountUID: @escaping @Sendable () -> uid_t? =
       descriptorQuarantineCurrentAccountUID,
+    supportsResolveBeneathRename: @escaping @Sendable () -> Bool =
+      descriptorQuarantineSupportsResolveBeneathRename,
     makeQuarantineRoot:
       @escaping @Sendable (
         Int32,
@@ -128,6 +131,7 @@ struct DescriptorExclusiveQuarantineMoverDependencies: Sendable {
     hooks: DescriptorExclusiveQuarantineMoverHooks = DescriptorExclusiveQuarantineMoverHooks()
   ) {
     self.currentAccountUID = currentAccountUID
+    self.supportsResolveBeneathRename = supportsResolveBeneathRename
     self.makeQuarantineRoot = makeQuarantineRoot
     self.nonceBytes = nonceBytes
     self.volumeCapabilities = volumeCapabilities
@@ -145,9 +149,13 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
   static let quarantineRootBytes = Array(".devsift-quarantine-v1".utf8)
   static let destinationPrefixBytes = Array("item-v1-".utf8)
   static let maximumDestinationAttempts = 16
-  static let renameFlags = UInt32(
-    RENAME_EXCL | RENAME_NOFOLLOW_ANY | RENAME_RESOLVE_BENEATH
-  )
+  // This flag entered the platform SDK in macOS 26. Keep its stable kernel ABI
+  // value local so DevSift can still compile its read-only surfaces with older
+  // SDKs; the runtime gate below never passes it to an older kernel.
+  static let resolveBeneathRenameFlag = UInt32(0x0000_0020)
+  static let renameFlags =
+    UInt32(RENAME_EXCL | RENAME_NOFOLLOW_ANY)
+    | resolveBeneathRenameFlag
 
   private let dependencies: DescriptorExclusiveQuarantineMoverDependencies
 
@@ -198,6 +206,14 @@ struct DescriptorExclusiveQuarantineMover: Sendable {
 
     guard !dependencies.cancellationIsRequested() else {
       return report(.notMoved(.cancelled))
+    }
+
+    // Both rename operands are rooted at the approved npm descriptor and the
+    // destination contains the quarantine directory as an intermediate path.
+    // Older kernels cannot bind that traversal beneath the held root, so they
+    // must remain mutation-free rather than fall back to weaker semantics.
+    guard dependencies.supportsResolveBeneathRename() else {
+      return report(.notMoved(.exclusiveRenameUnsupported))
     }
 
     switch validateSource(
@@ -1198,6 +1214,12 @@ private func descriptorQuarantineVolumeCapabilities(
       supportsPOSIXPermissions: validFormat & noPermissionsMask == noPermissionsMask
         && capabilitiesFormat & noPermissionsMask == 0
     )
+  )
+}
+
+private func descriptorQuarantineSupportsResolveBeneathRename() -> Bool {
+  ProcessInfo.processInfo.isOperatingSystemAtLeast(
+    OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
   )
 }
 

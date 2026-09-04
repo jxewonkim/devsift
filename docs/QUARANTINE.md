@@ -6,6 +6,12 @@ single-use `CleanupQuarantineAuthorization`, revalidates the approved object
 while descriptors remain held, and can perform one same-volume, exclusive
 namespace move. The app, CLI, and public package API do not expose this kernel.
 
+The scanner, classifier, and read-only surfaces support macOS 14 or newer. The
+internal quarantine mutation kernel has a stricter runtime requirement: it
+requires macOS 26 or newer because its safety boundary depends on
+`RENAME_RESOLVE_BENEATH`. On older macOS versions, execution fails closed before
+creating the quarantine directory or invoking any mutation syscall.
+
 This is not a completed cleanup transaction. The current report is
 process-local and non-`Codable`; there is no durable intent, receipt, directory
 sync, startup recovery, restore workflow, purge, or permanent deletion.
