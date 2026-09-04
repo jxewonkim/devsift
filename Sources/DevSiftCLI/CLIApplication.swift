@@ -360,7 +360,7 @@ enum CLIHelp {
       classify    Classify top-level items with explainable, fail-closed rules
       scan        Analyze one explicit directory without changing it
       status      Show the current safety mode (default)
-      version     Show the development version
+      version     Show the product version
       help        Show this help
 
     Run 'devsift scan --help' for scan options.
