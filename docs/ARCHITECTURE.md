@@ -5,10 +5,13 @@ DevSift uses one safety-critical Swift core shared by its native app and CLI.
 ```text
 DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
                               |
-        scan -> rules -> plan -> diff -> approve -> revalidate -> authorize -> executor
-          now      now    now    Core      Core        Core        Core       internal
-                                                                            |
-                                                                    journal/recovery
+        scan -> rules -> plan -> diff -> approve -> revalidate -> authorize -> quarantine
+          now      now    now    Core      Core        Core        Core        internal
+                                                                              |
+                                                               mixed journal/recovery
+                                                                              |
+                                                                   manual restore
+                                                                      internal
                                    |
                                    +-> app review now
 ```
@@ -61,18 +64,23 @@ Core layers are:
   reject before namespace mutation because the safety boundary requires
   `RENAME_RESOLVE_BENEATH`;
 - **Durability and recovery:** a private canonical intent/receipt journal that
-  serializes cooperating attempts, applies required `F_FULLFSYNC` record and
-  namespace barriers, and reconciles receipt-less intents from current
-  descriptor-bound namespace truth without resuming, reversing, overwriting, or
-  deleting them. The root-only recovery entry point is internal and is not yet
-  wired to app launch;
+  serializes cooperating quarantine and restore attempts, applies required
+  `F_FULLFSYNC` record and namespace barriers, and reconciles receipt-less
+  intents from current descriptor-bound namespace truth without retrying a
+  rename, overwriting, or deleting. The root-only recovery entry point is
+  internal and is not wired to app launch;
+- **Manual restore:** a separate Core-internal npm-only selector, confirmation,
+  single-use authorization, descriptor preflight, and executor for one exact
+  final-receipt-bound quarantine item. It can make at most one non-overwriting
+  reverse rename and returns bounded process-local diagnostics;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 Current Core semantic versions are explainable classification revision 3,
 cleanup manifest version 3, manifest diff version 2, approval version 2, and
-revalidation version 2. Quarantine authorization and the internal execution
-report are contract version 1 and version 2 respectively. Private intent and receipt
-wire records are version 1. The
+revalidation version 2. Quarantine authorization and its internal execution
+report are contract version 1 and version 2 respectively. Restore authorization
+and its internal report are contract version 1. Private quarantine and restore
+intent/receipt wire records are version 1. The
 built-in catalog is version 6 and npm is rule revision 5. Older manifests and
 approvals are regenerated rather than migrated.
 
@@ -229,6 +237,24 @@ state. See the
 [quarantine execution contract](QUARANTINE.md), plus the
 [durability contract](DURABILITY.md).
 
+Manual restore is a distinct internal authority chain. Its preflight accepts
+only a quarantine transaction identifier, discovers the canonical final intent
+and matching `quarantined` receipt through the journal, generates the new
+restore transaction identifier inside Core, and returns a process-local
+confirmation session. A matching confirmation can issue one version-1 restore
+authorization, whose internal handoff is consumable once.
+
+The restore executor reopens the real account's passwd-home `.npm` and fixed
+quarantine namespace with no-follow, beneath-root descriptors. It revalidates
+historical bindings, current ownership and containment, the receipt-selected
+item and bounded cacache tree, and source-name absence. Under the shared journal
+lock it publishes and synchronizes a separate restore intent before invoking at
+most one exclusive reverse rename. It then reconciles both names and publishes a
+terminal restore receipt only for conclusive state. Mixed recovery may complete
+a receipt from namespace truth but never invokes the rename. These types and
+entry points remain internal and non-`Codable`; neither frontend can reach them.
+See the [manual restore contract](RESTORE.md).
+
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
 profile removes paths, time, free-form text, and the complete rule roster while
@@ -290,10 +316,11 @@ only. A Core approval review session instead owns its exact planning request,
 source root, manifest, and session-bound entry and pending-precondition
 references; it cannot be rebuilt from either projection. The approval retains
 the exact root, manifest, and review acknowledgements but does not make either
-projection approvable. Core review, caller-created attestation, and
-single-attempt authorization now exist only as process-local values. User-facing
-export, import, persistence, diffing, frontend approval and attestation flows,
-and user-facing execution remain future boundaries. The CLI projection's sorted
+projection approvable. Core review, caller-created quarantine attestation,
+restore confirmation, and both single-attempt authorizations now exist only as
+process-local values. User-facing export, import, persistence, diffing,
+frontend approval and attestation flows, and user-facing execution remain
+outside the current boundary. The CLI projection's sorted
 `JSONEncoder` output targets
 repeatability only for the same input, privacy profile, implementation build,
 and Swift/Foundation runtime; it is not a cryptographic canonical form, stable
@@ -334,8 +361,9 @@ pending condition, not observed inactivity.
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
 not persistent object identities or deletion authority. Copying them into a
 draft manifest does not establish trusted location, ownership, approval, or
-cleanup authority. The internal executor therefore revalidates containment,
-kind, identity, and policy evidence immediately before mutation.
+cleanup authority. The internal quarantine and restore executors therefore
+revalidate containment, kind, identity, and policy evidence immediately before
+their respective mutations.
 Any observer added for the remaining facts must preserve descriptor-relative
 traversal and identity checks rather than reconstructing descendant `URL`
 values from untrusted names. See the [rules contract](RULES.md) and

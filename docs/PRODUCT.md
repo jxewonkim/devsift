@@ -30,11 +30,13 @@ attestation. Core can separately bind that exact approval to one explicit
 caller assertion in a process-local, single-use quarantine authorization
 attempt. A Core-internal npm-only kernel can consume that authorization and
 atomically quarantine one exact `_cacache` behind a durable intent/receipt
-journal and recovery engine. The CLI target can internally project one draft
-into a privacy-profiled, review-only JSON schema, but no command or file export
-exposes it. No frontend exposes approval, attestation, authorization, execution,
-or recovery; automatic app-launch recovery is not wired, restore is absent, and
-job 5 remains later product direction.
+journal and recovery engine. A separate Core-internal workflow can explicitly
+confirm, authorize, and durably restore one exact receipt-bound quarantine item.
+The CLI target can internally project one draft into a privacy-profiled,
+review-only JSON schema, but no command or file export exposes it. No frontend
+exposes approval, attestation, authorization, execution, restore, or recovery;
+automatic app-launch recovery and automatic restore are not wired, and job 5
+remains later product direction.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -215,4 +217,6 @@ DevSift is not:
 No public or frontend cleanup operation exists in the current milestone. The
 Core-internal npm kernel performs no permanent deletion. Its journal and
 recovery engine are durable internals, not yet a user-facing product workflow;
-restore, manual recovery, and automatic app-launch wiring remain absent.
+single-item manual restore exists only inside Core, while restore UI, public
+mutation API, purge, and automatic app-launch wiring remain absent. See the
+[manual restore contract](RESTORE.md).

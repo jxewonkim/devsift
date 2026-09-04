@@ -239,6 +239,36 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   no record, durable intent, durable terminal receipt, and unresolved state;
   only a receipt is durably recorded, and unresolved state is not declared
   crash-recoverable even when it carries a transaction identifier.
+- A separate Core-internal canonical version-1 restore journal. Restore intents
+  bind one exact final `quarantined` transaction, its canonical record digests,
+  the receipt-selected item, historical filesystem bindings, and current
+  restore-policy revision; immutable receipts record only conclusive `restored`
+  or `not-restored` namespace truth.
+- Process-local restore authorization contract version 1. Core discovers the
+  exact transaction from its bounded journal, generates a fresh 128-bit restore
+  identifier, requires a separate exact confirmation, and permits one internal
+  execution claim across all copies. It accepts no arbitrary root, path, item
+  name, or caller-created journal authority.
+- Descriptor-held npm restore preflight and executor for one item at a time.
+  They reopen the account's passwd-home `.npm` and fixed quarantine namespace,
+  revalidate the exact receipt-bound cacache tree and absent `_cacache` name,
+  publish and fully synchronize the restore intent, and invoke at most one
+  same-volume `RENAME_EXCL | RENAME_NOFOLLOW_ANY | RENAME_RESOLVE_BENEATH`
+  reverse rename.
+- Mixed quarantine/restore admission and observational recovery under the same
+  validated lock. Capacity arithmetic reserves the worst-case record peak, at
+  most one mutation intent may remain receipt-less, and recovery may publish a
+  receipt from conclusive namespace truth but never retries either rename.
+- Internal, non-`Codable` restore report contract version 1 with bounded
+  not-restored, restored, durability, late-cancellation, and manual-recovery
+  diagnostics. Only a terminal restore receipt is durably recorded; canonical
+  intent evidence is crash-recoverable, while unresolved state is not.
+- Restore remains Core-internal and manual. No public restore API, app or CLI
+  action, automatic or launch-time restore, batch operation, purge, overwrite,
+  unlink, permanent deletion, networking, or telemetry was added.
+- A repository-internal focused manual-restore security review recording the
+  reviewed boundary, closed historical-binding and pre-intent-validation
+  findings, verification commands, and the next review boundaries.
 
 ### Changed
 
@@ -247,8 +277,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   revision 2 and every other built-in rule remains at revision 1.
 - Cleanup manifest is contract version 3, manifest diff is contract version 2,
   approval is contract version 2, revalidation is contract version 2, and
-  quarantine authorization is contract version 1. Older in-memory manifests
-  and approvals must be regenerated; there is no import migration.
+  quarantine and restore authorization are contract version 1. The quarantine
+  execution report is version 2 and the restore report is version 1. Older
+  in-memory manifests and approvals must be regenerated; there is no import
+  migration.
 - Scan JSON remains version 2. Classification JSON is version 2, and the
   internal cleanup-manifest-review JSON is version 2 pinned to source manifest
   version 3. Both projections always carry the sorted deferred-precondition
@@ -259,10 +291,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   single-use lifecycle. It authorizes no permanent deletion, still requires
   inline filesystem revalidation, and grants no standalone mutation authority.
   The Core-internal npm executor can consume that handoff for one atomic
-  quarantine move. The later durability increment advances its process-local
-  report to contract version 2 and adds private durable intent, receipt, sync,
-  and recovery. Restore, purge, deletion, public API, frontend actions, and
-  automatic app-launch recovery remain absent.
+  quarantine move. Its process-local report is contract version 2 and the
+  private journal provides durable intent, receipt, sync, and recovery. A
+  separate internal confirmation and authorization can now drive one exact
+  durable manual restore; purge, deletion, public mutation API, frontend
+  actions, automatic restore, and automatic app-launch recovery remain absent.
 - New journal intents require the exact current policy tuple, while canonical
   records carrying supported earlier revisions remain readable. Unknown, zero,
   and future revisions fail closed, preventing routine policy upgrades from

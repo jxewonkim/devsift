@@ -265,6 +265,10 @@ command, analytics, or network access. Core has an internal root-only recovery
 entry point, and journal admission reconciles earlier state, but neither app nor
 CLI automatically invokes recovery at launch in this increment.
 
+The later eleventh increment adds a separate Core-internal manual restore
+record family and authority without changing this quarantine transaction's
+meaning. See the [manual restore contract](RESTORE.md).
+
 ## Verification gate
 
 Tests must cover canonical wire bytes, future-version and malformed-record

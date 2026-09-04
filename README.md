@@ -8,10 +8,11 @@ folder, shows where apparent allocation is concentrated, and applies
 explainable read-only policy rules to recognized development caches.
 
 > [!IMPORTANT]
-> DevSift is pre-alpha. The app and CLI remain read-only. A Core-internal,
-> npm-only kernel can make one non-overwriting atomic quarantine move backed by
-> a durable intent/receipt journal and recovery engine, but execution and
-> recovery are not wired to either frontend or exposed publicly.
+> DevSift is pre-alpha. The app and CLI remain read-only. Core-internal,
+> npm-only kernels can durably quarantine one exact `_cacache` and manually
+> restore one exact receipt-bound item after a separate explicit confirmation.
+> No mutation or recovery workflow is wired to a frontend or exposed as public
+> API.
 
 ## Why DevSift?
 
@@ -62,8 +63,8 @@ application data are never treated as disposable merely because they are large.
   classification, policy-provenanced in-memory draft manifests, and
   deterministic compatible-manifest diffing, plus exact review-bound approval,
   revalidation, process-local quarantine-attempt authorization, and an
-  internal npm-only atomic quarantine kernel with a durable journal and
-  recovery engine;
+  internal npm-only atomic quarantine kernel, durable mixed journal and
+  observational recovery engine, and single-item manual restore workflow;
 - `devsift`: a scriptable command-line interface;
 - `DevSift`: a native SwiftUI dashboard with explicit folder selection,
   cancellable scans, observation results, policy explanations, explicit draft
@@ -130,6 +131,16 @@ move into a private quarantine namespace. See the
 [authorization contract](docs/AUTHORIZATION.md) and
 [quarantine contract](docs/QUARANTINE.md).
 
+Core also implements a separate internal manual restore authority for one exact
+canonical quarantine intent and matching final `quarantined` receipt. After a
+fresh process-local confirmation it reopens and revalidates the fixed npm
+namespace, publishes a separate durable restore intent, and performs at most one
+non-overwriting reverse rename of the receipt-bound item to `_cacache` before
+recording a conclusive restore receipt. Restore selection, authorization,
+execution, recovery, and reports are internal and non-`Codable`; there is no
+app action, CLI command, arbitrary-path entry point, or automatic restore. See
+the [manual restore contract](docs/RESTORE.md).
+
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v2 encoder pinned to Core manifest contract
 version 3, but no command invokes it and it never writes a file. The app review
@@ -141,8 +152,9 @@ mutation.
 Current semantic contracts are explainable classification revision 3, cleanup
 manifest version 3, manifest diff version 2, approval version 2, and
 revalidation version 2. Quarantine authorization and the internal process-local
-execution report are contract version 1 and version 2 respectively. The private
-quarantine intent and receipt wire records are version 1. CLI
+quarantine execution report are contract version 1 and version 2 respectively.
+Restore authorization and its internal report are contract version 1. The
+private quarantine and restore intent/receipt wire records are version 1. CLI
 scan JSON remains version 2; classification JSON is version 2, and the internal
 manifest-review JSON is version 2 over source manifest version 3. The built-in
 catalog is version 6, with npm at rule revision 5.
@@ -164,20 +176,22 @@ grant standalone mutation authority. A wall-clock TTL is not freshness. See the
 
 ## Safety first
 
-The app and CLI remain read-only. Core's internal npm-only kernel performs no
-deletion: it revalidates through held descriptors and uses one non-overwriting,
-same-volume rename into `.devsift-quarantine-v1`. Before mutation it publishes
-a canonical immutable intent, synchronizes records and namespace parents with
-`F_FULLFSYNC`, and publishes an immutable terminal receipt when the namespace
-state is conclusive. Its internal recovery engine reconciles receipt-less
-intents without resuming, reversing, or deleting anything. Restore and
-permanent removal remain later, separately reviewed work.
+The app and CLI remain read-only. Core's internal npm-only kernels perform no
+deletion: quarantine uses one non-overwriting same-volume rename into
+`.devsift-quarantine-v1`, while a separately confirmed manual restore can use
+one non-overwriting reverse rename for the exact receipt-bound item. Each
+mutation publishes its own canonical immutable intent first, requires the
+specified `F_FULLFSYNC` record and namespace barriers, and records a terminal
+receipt only for conclusive state. Internal recovery observes receipt-less
+intents and may complete a provable receipt, but never retries a rename.
+Permanent removal remains absent.
 
 Read the full [rules contract](docs/RULES.md),
 [planning contract](docs/PLANNING.md), [revalidation contract](docs/REVALIDATION.md),
 [authorization contract](docs/AUTHORIZATION.md),
 [quarantine contract](docs/QUARANTINE.md),
 [durability contract](docs/DURABILITY.md),
+[manual restore contract](docs/RESTORE.md),
 [activity safety contract](docs/ACTIVITY.md), [safety model](docs/SAFETY.md),
 and [privacy contract](docs/PRIVACY.md).
 
@@ -204,7 +218,8 @@ DevSiftCore contains a read-only allocated-size scanner, rule classifier,
 Core-only draft-manifest planner, fail-closed manifest differ, in-memory
 approval sessions, a read-only approval revalidator, a Core-only in-memory
 quarantine-attempt authorizer, and an internal npm-only atomic quarantine
-kernel with durable journal and recovery components. The CLI exposes the
+kernel with durable journal and recovery components, plus an internal
+single-item manual npm restore workflow. The CLI exposes the
 scanner and classifier as
 deterministic text and separately versioned JSON. It also owns an internal,
 non-importable review projection for privacy-contract testing; this is not a
@@ -219,7 +234,8 @@ inactivity claim. See the
 [rules contract](docs/RULES.md), [planning contract](docs/PLANNING.md),
 [authorization contract](docs/AUTHORIZATION.md), and
 [quarantine contract](docs/QUARANTINE.md), plus the
-[durability contract](docs/DURABILITY.md).
+[durability contract](docs/DURABILITY.md) and
+[manual restore contract](docs/RESTORE.md).
 
 Development uses small Conventional Commits. Every code commit must build and
 pass tests before it is pushed. Filesystem tests operate only inside temporary,
@@ -232,21 +248,23 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
   acknowledgement, and an approval-only, point-in-time Core revalidation
   diagnostic, plus Core-only process-local, single-use quarantine-attempt
   authorization and an internal npm-only atomic quarantine kernel with durable
-  intent/receipt journaling and recovery; app and CLI remain read-only
+  intent/receipt journaling and recovery, plus Core-internal single-item durable
+  manual npm restore; app and CLI remain read-only
 - Current behavior: Core scanner, rule classifier, in-memory draft planner,
   compatible-manifest differ, approver, revalidator, and quarantine-attempt
   authorizer, plus the existing text/JSON CLI and native analysis dashboard
   with explicit in-memory draft review of pending execution conditions; no
   manifest-review CLI command, persistence, import, or user-facing export; no
   frontend diff, approval, attestation, authorization, or revalidation
-  workflow; the internal executor and recovery engine can durably record and
-  reconcile one exact npm quarantine transaction, but there is no restore,
-  purge, deletion, public API, frontend action, or automatic app-launch recovery
+  workflow; the internal executors and recovery engine can durably record and
+  reconcile one exact npm quarantine or separately confirmed restore
+  transaction, but there is no purge, deletion, public mutation API, frontend
+  action, automatic restore, or automatic app-launch recovery
 - First tagged release target: `v0.1.0-alpha.1`, read-only scan and
   classification surfaces
 - Supported platform target: macOS 14 or newer for scanning and read-only
-  surfaces; the internal quarantine mutation kernel requires macOS 26 or newer
-  and fails closed before mutation on older systems
+  surfaces; the internal quarantine and restore mutation kernels require macOS
+  26 or newer and fail closed before mutation on older systems
 - Implementation language: Swift 6
 
 See [CHANGELOG.md](CHANGELOG.md) for changes and

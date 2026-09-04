@@ -91,8 +91,6 @@ struct DescriptorNPMQuarantinePreflight: Sendable {
 
   private static let npmRootComponent = Array(".npm".utf8)
   private static let candidateName = Array("_cacache".utf8)
-  private static let contentDirectoryName = Array("content-v2".utf8)
-  private static let indexDirectoryName = Array("index-v5".utf8)
   private static let minimumAgeSeconds: Int64 = 7 * 24 * 60 * 60
 
   private let checkpoint: Checkpoint
@@ -441,26 +439,19 @@ struct DescriptorNPMQuarantinePreflight: Sendable {
       return .failure(.candidateUnsafe)
     }
 
-    var state = TraversalState(
-      limits: limits,
-      accountUID: accountUID,
-      rootDevice: rootSnapshot.identity.device,
-      seenDirectoryIdentities: [candidateSnapshot.identity],
-      newestModificationUnixSeconds: candidateSnapshot.conservativeModificationUnixSeconds
-    )
-    guard state.newestModificationUnixSeconds != nil else {
-      return .failure(.candidateUnsafe)
-    }
+    let validation: DescriptorNPMCacheTreeValidation
     do {
-      try traverseDirectory(
+      validation = try DescriptorNPMCacheTreeValidator(
+        checkpoint: { try cancellationCheckpoint() },
+        limits: limits,
+        beforeTraversalEntry: beforeTraversalEntry
+      ).validate(
         descriptor: candidateDescriptor,
         namedAt: rootDescriptor,
         component: candidateComponent,
         expected: candidateSnapshot,
-        format: .cacheRoot,
-        childDepth: 1,
-        isCacheRoot: true,
-        state: &state
+        rootDevice: rootSnapshot.identity.device,
+        accountUID: accountUID
       )
     } catch is CancellationError {
       throw CancellationError()
@@ -470,13 +461,6 @@ struct DescriptorNPMQuarantinePreflight: Sendable {
       return .failure(.candidateChanged)
     }
 
-    guard state.requiredCacheRootNames == [Self.contentDirectoryName, Self.indexDirectoryName]
-    else {
-      return .failure(.layoutMismatch)
-    }
-    guard let newestModificationUnixSeconds = state.newestModificationUnixSeconds else {
-      return .failure(.candidateUnsafe)
-    }
     let referenceUnixSeconds = clock()
     let (oldestPermitted, underflow) = referenceUnixSeconds.subtractingReportingOverflow(
       Self.minimumAgeSeconds
@@ -484,8 +468,8 @@ struct DescriptorNPMQuarantinePreflight: Sendable {
     guard
       !underflow,
       referenceUnixSeconds >= 0,
-      newestModificationUnixSeconds <= referenceUnixSeconds,
-      newestModificationUnixSeconds <= oldestPermitted
+      validation.newestModificationUnixSeconds <= referenceUnixSeconds,
+      validation.newestModificationUnixSeconds <= oldestPermitted
     else {
       return .failure(.ageRequirementNotSatisfied)
     }
@@ -533,178 +517,6 @@ struct DescriptorNPMQuarantinePreflight: Sendable {
     )
   }
 
-  private func traverseDirectory(
-    descriptor: Int32,
-    namedAt parentDescriptor: Int32,
-    component: DescriptorPathComponent,
-    expected: DescriptorStatSnapshot,
-    format: NPMCacheDirectoryFormat,
-    childDepth: Int,
-    isCacheRoot: Bool,
-    state: inout TraversalState
-  ) throws {
-    try cancellationCheckpoint()
-    let before = try DescriptorStatSnapshot.read(from: descriptor)
-    guard stableSnapshot(before, equals: expected) else {
-      throw DescriptorNPMQuarantinePreflightFailure.candidateChanged
-    }
-    guard try !descriptorHasExtendedACL(descriptor) else {
-      throw DescriptorNPMQuarantinePreflightFailure.candidateUnsafe
-    }
-
-    let enumerationDescriptor = try descriptorOpenCurrentDirectory(descriptor)
-    guard let stream = Darwin.fdopendir(enumerationDescriptor) else {
-      let code = errno
-      descriptorCloseIgnoringErrors(enumerationDescriptor)
-      throw DescriptorObservationError.posix(code)
-    }
-    defer { _ = Darwin.closedir(stream) }
-
-    var interruptedAttempts = 0
-    while true {
-      try cancellationCheckpoint()
-      errno = 0
-      guard let entry = Darwin.readdir(stream) else {
-        let code = errno
-        if code == EINTR, interruptedAttempts + 1 < 3 {
-          interruptedAttempts += 1
-          continue
-        }
-        guard code == 0 else {
-          throw DescriptorObservationError.posix(code)
-        }
-        break
-      }
-      interruptedAttempts = 0
-
-      let rawName = descriptorRawName(from: entry)
-      if rawName == [0x2E] || rawName == [0x2E, 0x2E] {
-        continue
-      }
-      try state.record(rawName: rawName, depth: childDepth)
-      try beforeTraversalEntry(state.entryCount, childDepth)
-      try cancellationCheckpoint()
-      guard
-        let childComponent = DescriptorPathComponent(rawName),
-        let expectation = format.expectation(for: rawName)
-      else {
-        throw DescriptorNPMQuarantinePreflightFailure.layoutMismatch
-      }
-      if isCacheRoot,
-        rawName == Self.contentDirectoryName || rawName == Self.indexDirectoryName
-      {
-        state.requiredCacheRootNames.insert(rawName)
-      }
-      try traverseEntry(
-        parentDescriptor: descriptor,
-        component: childComponent,
-        expectation: expectation,
-        childDepth: childDepth,
-        state: &state
-      )
-    }
-
-    let finalOpened = try DescriptorStatSnapshot.read(from: descriptor)
-    let finalNamed = try DescriptorStatSnapshot.read(
-      at: parentDescriptor,
-      component: component
-    )
-    guard
-      stableSnapshot(finalOpened, equals: expected),
-      stableSnapshot(finalNamed, equals: expected)
-    else {
-      throw DescriptorNPMQuarantinePreflightFailure.candidateChanged
-    }
-  }
-
-  private func traverseEntry(
-    parentDescriptor: Int32,
-    component: DescriptorPathComponent,
-    expectation: NPMCacheEntryExpectation,
-    childDepth: Int,
-    state: inout TraversalState
-  ) throws {
-    let namedBefore = try DescriptorStatSnapshot.read(
-      at: parentDescriptor,
-      component: component
-    )
-    guard
-      let modificationUnixSeconds = namedBefore.conservativeModificationUnixSeconds,
-      namedBefore.kind == expectation.expectedKind,
-      namedBefore.identity.device == state.rootDevice,
-      namedBefore.ownerUID == state.accountUID,
-      descriptorAccountOwnsWriteAccess(namedBefore)
-    else {
-      throw DescriptorNPMQuarantinePreflightFailure.candidateUnsafe
-    }
-    state.recordModification(modificationUnixSeconds)
-
-    switch namedBefore.kind {
-    case .regularFile:
-      guard namedBefore.linkCount == 1 else {
-        throw DescriptorNPMQuarantinePreflightFailure.candidateUnsafe
-      }
-      let descriptor = try openRegularFile(
-        at: parentDescriptor,
-        component: component
-      )
-      defer { descriptorCloseIgnoringErrors(descriptor) }
-      let opened = try DescriptorStatSnapshot.read(from: descriptor)
-      let namedAfter = try DescriptorStatSnapshot.read(
-        at: parentDescriptor,
-        component: component
-      )
-      guard
-        stableSnapshot(opened, equals: namedBefore),
-        stableSnapshot(namedAfter, equals: namedBefore),
-        opened.kind == .regularFile,
-        opened.ownerUID == state.accountUID,
-        opened.linkCount == 1,
-        descriptorAccountOwnsWriteAccess(opened)
-      else {
-        throw DescriptorNPMQuarantinePreflightFailure.candidateChanged
-      }
-      guard try !descriptorHasExtendedACL(descriptor) else {
-        throw DescriptorNPMQuarantinePreflightFailure.candidateUnsafe
-      }
-    case .directory:
-      guard
-        let childFormat = expectation.childDirectoryFormat,
-        state.seenDirectoryIdentities.insert(namedBefore.identity).inserted
-      else {
-        throw DescriptorNPMQuarantinePreflightFailure.candidateUnsafe
-      }
-      let descriptor = try descriptorOpenTrustedDirectory(
-        at: parentDescriptor,
-        component: component
-      )
-      defer { descriptorCloseIgnoringErrors(descriptor) }
-      let opened = try DescriptorStatSnapshot.read(from: descriptor)
-      guard
-        stableSnapshot(opened, equals: namedBefore),
-        descriptorAccountOwnsWriteAccess(opened)
-      else {
-        throw DescriptorNPMQuarantinePreflightFailure.candidateChanged
-      }
-      let (nextDepth, overflow) = childDepth.addingReportingOverflow(1)
-      guard !overflow else {
-        throw DescriptorNPMQuarantinePreflightFailure.traversalLimitExceeded
-      }
-      try traverseDirectory(
-        descriptor: descriptor,
-        namedAt: parentDescriptor,
-        component: component,
-        expected: opened,
-        format: childFormat,
-        childDepth: nextDepth,
-        isCacheRoot: false,
-        state: &state
-      )
-    case .symbolicLink, .other:
-      throw DescriptorNPMQuarantinePreflightFailure.candidateUnsafe
-    }
-  }
-
   private func cancellationCheckpoint() throws {
     do {
       try checkpoint()
@@ -714,37 +526,6 @@ struct DescriptorNPMQuarantinePreflight: Sendable {
     } catch {
       throw DescriptorNPMQuarantinePreflightFailure.cancelled
     }
-  }
-}
-
-private struct TraversalState {
-  let limits: DescriptorNPMQuarantineTraversalLimits
-  let accountUID: uid_t
-  let rootDevice: UInt64
-  var seenDirectoryIdentities: Set<FileIdentity>
-  var newestModificationUnixSeconds: Int64?
-  var requiredCacheRootNames: Set<[UInt8]> = []
-  var entryCount = 0
-  var rawNameBytes = 0
-
-  mutating func record(rawName: [UInt8], depth: Int) throws {
-    let (newEntryCount, entryOverflow) = entryCount.addingReportingOverflow(1)
-    let (newRawNameBytes, byteOverflow) = rawNameBytes.addingReportingOverflow(rawName.count)
-    guard
-      !entryOverflow,
-      !byteOverflow,
-      newEntryCount <= limits.maximumEntries,
-      depth <= limits.maximumDepth,
-      newRawNameBytes <= limits.maximumRawNameBytes
-    else {
-      throw DescriptorNPMQuarantinePreflightFailure.traversalLimitExceeded
-    }
-    entryCount = newEntryCount
-    rawNameBytes = newRawNameBytes
-  }
-
-  mutating func recordModification(_ unixSeconds: Int64) {
-    newestModificationUnixSeconds = max(newestModificationUnixSeconds ?? unixSeconds, unixSeconds)
   }
 }
 
@@ -775,29 +556,6 @@ private func openSlash() throws -> Int32 {
     )
     guard descriptor >= 0 else {
       throw DescriptorObservationError.posix(errno)
-    }
-  }
-  return descriptor
-}
-
-private func openRegularFile(
-  at parentDescriptor: Int32,
-  component: DescriptorPathComponent
-) throws -> Int32 {
-  var descriptor: Int32 = -1
-  try descriptorRetryingInterrupted {
-    var failureCode: Int32 = EINVAL
-    descriptor = component.withCString { pointer in
-      let result = Darwin.openat(
-        parentDescriptor,
-        pointer,
-        O_EVTONLY | O_CLOEXEC | O_NOFOLLOW | O_RESOLVE_BENEATH
-      )
-      if result < 0 { failureCode = errno }
-      return result
-    }
-    guard descriptor >= 0 else {
-      throw DescriptorObservationError.posix(failureCode)
     }
   }
   return descriptor
