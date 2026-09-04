@@ -23,6 +23,30 @@ Thank you for helping build a safer storage tool for macOS developers.
 `main` must remain buildable and testable. Do not force-push public shared
 branches.
 
+Run the same repository checks used by normal CI before opening a pull request:
+
+```shell
+swift package describe
+swift format lint --recursive --strict Package.swift Sources Tests
+sh -n scripts/release/*.sh
+scripts/release/verify-metadata.sh
+swift build --build-tests
+swift test --parallel
+swift build --configuration release
+git diff --check
+git diff --exit-code
+```
+
+Release-only changes must also follow the [release contract](docs/RELEASE.md).
+Do not create or move a public tag from a feature branch. The release packager
+requires macOS and a fresh output path; the official artifact is built only by
+the pinned tag workflow after normal `main` CI succeeds.
+
+DevSift is pre-alpha. Public Swift APIs and unversioned presentation may change
+before 1.0. Versioned JSON, policy, manifest, authorization, report, and journal
+contracts must change only through their documented compatibility rules, with
+matching tests and documentation.
+
 ## Filesystem-test rules
 
 Filesystem behavior is security-sensitive. Tests must:

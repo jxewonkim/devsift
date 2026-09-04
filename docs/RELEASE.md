@@ -146,6 +146,6 @@ not move an existing public tag to different source.
 
 This phase adds no new scan root, filesystem permission, network behavior in the
 CLI, telemetry, background service, privileged helper, cleanup command, restore
-command, purge, deletion, automatic recovery, or frontend mutation action. See
-the [safety model](SAFETY.md), [privacy contract](PRIVACY.md), [quarantine
+command, purge, deletion, automatic app-launch recovery, or frontend mutation
+action. See the [safety model](SAFETY.md), [privacy contract](PRIVACY.md), [quarantine
 contract](QUARANTINE.md), and [manual restore contract](RESTORE.md).

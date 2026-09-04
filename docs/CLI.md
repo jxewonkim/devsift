@@ -14,13 +14,17 @@ itself.
 ## Usage
 
 ```text
+devsift --version
+devsift status
 devsift scan [--format text|json] [--json] [--] <path>
 devsift classify [--format text|json] [--json] [--] <path>
 ```
 
-Text is the default format. `--json` is an alias for `--format json`. A path is
-always required; DevSift never silently substitutes the current directory or a
-home directory. Use `--` before a path whose first character is `-`.
+`--version` prints the product release version. `status` prints that version
+and the read-only capability boundary. Text is the default scan and classify
+format. `--json` is an alias for `--format json`. A path is always required by
+`scan` and `classify`; DevSift never silently substitutes the current directory
+or a home directory. Use `--` before a path whose first character is `-`.
 
 Relative paths are interpreted from the process's starting directory. DevSift
 preserves `.` and `..` components until the operating system opens the path; it
@@ -187,7 +191,7 @@ A minimal synthetic envelope has this shape:
 
 ```json
 {
-  "devsiftVersion": "0.0.0-dev",
+  "devsiftVersion": "0.3.0-alpha.1",
   "limits": {
     "maximumDepth": "128",
     "maximumEntries": "10000000",
