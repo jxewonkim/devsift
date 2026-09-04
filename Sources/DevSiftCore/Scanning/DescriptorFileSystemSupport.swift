@@ -67,10 +67,29 @@ enum DescriptorObservationError: Error {
   case posix(Int32)
 }
 
+/// Descriptor reads normally cooperate with task cancellation. A filesystem
+/// mutation that may already have linearized must explicitly ignore task
+/// cancellation until its outcome has been reconciled and recorded.
+enum DescriptorCancellationPolicy: Sendable {
+  case observeTaskCancellation
+  case ignoreTaskCancellation
+
+  func checkpoint() throws {
+    switch self {
+    case .observeTaskCancellation:
+      try Task.checkCancellation()
+    case .ignoreTaskCancellation:
+      break
+    }
+  }
+}
+
 struct DescriptorStatSnapshot: Sendable {
   let identity: FileIdentity
   let kind: FileSystemEntryKind
   let ownerUID: uid_t
+  let permissionMode: mode_t
+  let flags: UInt32
   let linkCount: UInt64
   let generation: UInt32
   let birthSeconds: Int
@@ -80,9 +99,12 @@ struct DescriptorStatSnapshot: Sendable {
   let modificationSeconds: Int
   let modificationNanoseconds: Int
 
-  static func read(from descriptor: Int32) throws -> DescriptorStatSnapshot {
+  static func read(
+    from descriptor: Int32,
+    cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
+  ) throws -> DescriptorStatSnapshot {
     var information = stat()
-    try descriptorRetryingInterrupted {
+    try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
       guard Darwin.fstat(descriptor, &information) == 0 else {
         throw DescriptorObservationError.posix(errno)
       }
@@ -92,10 +114,11 @@ struct DescriptorStatSnapshot: Sendable {
 
   static func read(
     at parentDescriptor: Int32,
-    component: DescriptorPathComponent
+    component: DescriptorPathComponent,
+    cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
   ) throws -> DescriptorStatSnapshot {
     var information = stat()
-    try descriptorRetryingInterrupted {
+    try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
       try component.withCString { pointer in
         guard
           Darwin.fstatat(
@@ -119,6 +142,8 @@ struct DescriptorStatSnapshot: Sendable {
     )
     kind = descriptorEntryKind(for: information.st_mode)
     ownerUID = information.st_uid
+    permissionMode = information.st_mode & mode_t(0o7777)
+    flags = information.st_flags
     linkCount = UInt64(information.st_nlink)
     generation = information.st_gen
     birthSeconds = information.st_birthtimespec.tv_sec
@@ -150,11 +175,32 @@ struct DescriptorStatSnapshot: Sendable {
       && ownerUID == other.ownerUID
       && linkCount == other.linkCount
   }
+
+  /// Whole-second upper bound used by age policy. Subsecond timestamps round
+  /// upward so truncation can never make an entry appear older than observed.
+  var conservativeModificationUnixSeconds: Int64? {
+    guard
+      let seconds = Int64(exactly: modificationSeconds),
+      seconds >= 0,
+      modificationNanoseconds >= 0,
+      modificationNanoseconds < 1_000_000_000
+    else {
+      return nil
+    }
+    guard modificationNanoseconds > 0 else {
+      return seconds
+    }
+    let (ceiling, overflow) = seconds.addingReportingOverflow(1)
+    return overflow ? nil : ceiling
+  }
 }
 
-func descriptorOpenRoot(_ url: URL) throws -> Int32 {
+func descriptorOpenRoot(
+  _ url: URL,
+  cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
+) throws -> Int32 {
   var descriptor: Int32 = -1
-  try descriptorRetryingInterrupted {
+  try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
     var failureCode: Int32 = EINVAL
     descriptor = url.withUnsafeFileSystemRepresentation { pointer in
       guard let pointer else { return -1 }
@@ -172,9 +218,12 @@ func descriptorOpenRoot(_ url: URL) throws -> Int32 {
   return descriptor
 }
 
-func descriptorOpenCurrentDirectory(_ descriptor: Int32) throws -> Int32 {
+func descriptorOpenCurrentDirectory(
+  _ descriptor: Int32,
+  cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
+) throws -> Int32 {
   var opened: Int32 = -1
-  try descriptorRetryingInterrupted {
+  try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
     var failureCode: Int32 = EINVAL
     opened = Darwin.openat(
       descriptor,
@@ -198,10 +247,11 @@ func descriptorRawName(from entry: UnsafeMutablePointer<dirent>) -> [UInt8] {
 
 func descriptorOpenDirectory(
   at parentDescriptor: Int32,
-  component: DescriptorPathComponent
+  component: DescriptorPathComponent,
+  cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
 ) throws -> Int32 {
   var descriptor: Int32 = -1
-  try descriptorRetryingInterrupted {
+  try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
     var failureCode: Int32 = EINVAL
     descriptor = component.withCString { pointer in
       let result = Darwin.openat(
@@ -221,10 +271,11 @@ func descriptorOpenDirectory(
 
 func descriptorOpenTrustedDirectory(
   at parentDescriptor: Int32,
-  component: DescriptorPathComponent
+  component: DescriptorPathComponent,
+  cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
 ) throws -> Int32 {
   var descriptor: Int32 = -1
-  try descriptorRetryingInterrupted {
+  try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
     var failureCode: Int32 = EINVAL
     descriptor = component.withCString { pointer in
       let result = Darwin.openat(
@@ -244,14 +295,15 @@ func descriptorOpenTrustedDirectory(
 
 func descriptorSnapshot(
   atAbsoluteComponents components: [DescriptorPathComponent],
-  homeComponentCount: Int
+  homeComponentCount: Int,
+  cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation
 ) throws -> DescriptorStatSnapshot {
   guard homeComponentCount > 0, homeComponentCount < components.count else {
     throw DescriptorObservationError.posix(EINVAL)
   }
 
   var descriptor: Int32 = -1
-  try descriptorRetryingInterrupted {
+  try descriptorRetryingInterrupted(cancellationPolicy: cancellationPolicy) {
     descriptor = Darwin.open(
       "/",
       O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
@@ -265,10 +317,11 @@ func descriptorSnapshot(
     var homeDevice: UInt64?
     var finalSnapshot: DescriptorStatSnapshot?
     for (index, component) in components.enumerated() {
-      try Task.checkCancellation()
+      try cancellationPolicy.checkpoint()
       let childDescriptor = try descriptorOpenTrustedDirectory(
         at: descriptor,
-        component: component
+        component: component,
+        cancellationPolicy: cancellationPolicy
       )
       descriptorCloseIgnoringErrors(descriptor)
       descriptor = childDescriptor
@@ -277,7 +330,10 @@ func descriptorSnapshot(
       guard openedComponentCount >= homeComponentCount else {
         continue
       }
-      let snapshot = try DescriptorStatSnapshot.read(from: descriptor)
+      let snapshot = try DescriptorStatSnapshot.read(
+        from: descriptor,
+        cancellationPolicy: cancellationPolicy
+      )
       if openedComponentCount == homeComponentCount {
         homeDevice = snapshot.identity.device
       } else {
@@ -459,11 +515,12 @@ func boundedCStringBytes(
 
 func descriptorRetryingInterrupted(
   maximumAttempts: Int = 3,
+  cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation,
   _ operation: () throws -> Void
 ) throws {
   var attempt = 0
   while true {
-    try Task.checkCancellation()
+    try cancellationPolicy.checkpoint()
     do {
       try operation()
       return
@@ -475,6 +532,30 @@ func descriptorRetryingInterrupted(
 
 func descriptorCloseIgnoringErrors(_ descriptor: Int32) {
   _ = Darwin.close(descriptor)
+}
+
+/// Returns whether Darwin exposes any extended ACL for a held descriptor.
+///
+/// This bounded read intentionally does not observe task cancellation: callers
+/// also use it while reconciling a namespace mutation that may have linearized.
+func descriptorHasExtendedACL(_ descriptor: Int32) throws -> Bool {
+  for attempt in 0..<3 {
+    errno = 0
+    if let acl = Darwin.acl_get_fd_np(descriptor, ACL_TYPE_EXTENDED) {
+      _ = Darwin.acl_free(UnsafeMutableRawPointer(acl))
+      return true
+    }
+
+    let failureCode = errno
+    if failureCode == ENOENT {
+      return false
+    }
+    if failureCode == EINTR, attempt + 1 < 3 {
+      continue
+    }
+    throw DescriptorObservationError.posix(failureCode)
+  }
+  throw DescriptorObservationError.posix(EINTR)
 }
 
 func descriptorEntryKind(for mode: mode_t) -> FileSystemEntryKind {
