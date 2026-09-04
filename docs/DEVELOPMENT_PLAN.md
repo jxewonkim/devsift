@@ -568,6 +568,50 @@ Implemented tenth increment:
   API, app action, or CLI action. Record the contract in the
   [quarantine durability contract](DURABILITY.md).
 
+Proposed eleventh increment:
+`feat(core): add durable manual npm restore`.
+
+- Add a Core-internal, npm-only manual workflow that discovers one exact
+  restorable item only from a canonical final quarantine intent and its matching
+  final `quarantined` receipt. Accept no arbitrary path, root, item name, or
+  caller-created journal value.
+- Keep quarantine authorization version 1 consumed and one-way. Bind a fresh,
+  process-local, single-use restore claim to one exact durable transaction after
+  an explicit caller confirmation; the claim is not authentication, durable
+  authority, or a public filesystem capability.
+- Reopen the real account's exact `~/.npm` and quarantine roots through held
+  descriptors. Immediately before mutation, revalidate historical parent and
+  candidate bindings plus current containment, kind, identity, ownership,
+  same-device, metadata, ACL, bounded cacache-tree, restore-policy, and exact
+  destination-absence requirements.
+- Add separate canonical immutable restore intent and receipt records without
+  rewriting the historical quarantine pair. Bind the exact source transaction
+  and record digests, publish and fully synchronize the restore intent before
+  rename, synchronize both namespace parents afterward, and publish a terminal
+  `restored` or `not-restored` receipt only for conclusive state.
+- Perform at most one descriptor-relative reverse rename from the receipt-bound
+  `item-v1-*` name to its original exact `_cacache` name with `RENAME_EXCL`,
+  `RENAME_NOFOLLOW_ANY`, and `RENAME_RESOLVE_BENEATH`. Never overwrite, copy,
+  unlink, remove, or use a path-based fallback.
+- Extend the bounded journal inventory and recovery state machine before the
+  restore executor can publish intents. Permit at most one receipt-less mutation
+  intent across quarantine and restore, reserve the worst-case record capacity,
+  and recover an interrupted restore only by observing namespace truth and
+  completing a receipt, never by retrying its rename.
+- Add deterministic, bounded, per-transaction manual-recovery diagnostics for
+  completed, failed, changed, recovered, restored, skipped, and unresolved
+  states. Diagnostics cannot suppress a blocker, edit or delete records, adopt
+  an occupant, or create mutation authority.
+- Keep supported historical quarantine records restorable while requiring the
+  exact current restore-policy revision for each new restore intent. Unknown,
+  zero, future, malformed, or unsupported history remains fail-closed.
+- Keep every restore model, selection, claim, executor, recovery entry point,
+  and report internal and non-`Codable`. Add no public API, app or CLI action,
+  automatic launch recovery, batch or background restore, custom-root or
+  multi-rule support, purge, permanent deletion, journal compaction, analytics,
+  or network access. Record the full proposed contract in the
+  [manual quarantine restore contract](RESTORE.md).
+
 Current boundary after the durability increment:
 
 - Add restore and a bounded manual-recovery workflow before any permanent-
