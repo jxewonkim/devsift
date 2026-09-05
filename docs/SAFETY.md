@@ -26,10 +26,12 @@ evidence nor operation authority.
 Cleanup functionality must preserve this ordering:
 
 ```text
-scan -> classify -> plan -> approve -> revalidate -> authorize attempt
-  -> durable quarantine -> recover/report
+scan -> classify -> plan -> review/approve -> authorize attempt
+  -> inline descriptor revalidation -> durable quarantine -> recover/report
 canonical quarantined receipt -> confirm restore -> authorize restore
-  -> durable manual restore -> recover/report
+  -> inline descriptor revalidation -> durable manual restore -> recover/report
+
+optional read-only diagnostic: approval -> CleanupRevalidator -> report
 ```
 
 Current versions are classifier contract 3, cleanup manifest 3, manifest diff
@@ -50,38 +52,48 @@ and the Core differ compares only compatible drafts. An explicit
 rule revision, but selection and diff output are not approval. Core can now
 record explicit intent for one fully confirmed reviewed manifest and its
 pending execution conditions. Core now has an approval-only, read-only
-revalidation diagnostic, a Core-only in-memory quarantine-attempt authorizer,
+revalidation diagnostic, a Core-defined in-memory quarantine-attempt authorizer,
 and an internal npm-only atomic quarantine kernel. The kernel now surrounds its
 rename with canonical immutable intent/receipt publication, required
 `F_FULLFSYNC` barriers, and descriptor-bound recovery. Core also has a separate
 internal, explicitly confirmed, single-item npm restore path with its own
-authorization, intent, receipt, and bounded diagnostics. Restore UI, purge,
-deletion, public mutation API, frontend actions, automatic restore, and
-automatic app-launch recovery do not exist in this phase.
+authorization, intent, receipt, and bounded diagnostics. Purge, permanent
+deletion, public mutation API, automatic restore, and automatic app-launch
+recovery do not exist. The source-run app can reach both kernels only through
+narrow package-scoped facades for one exact npm cache at the current non-root
+account's passwd-home `~/.npm/_cacache`; the CLI and public Core API remain
+read-only.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
 and is independent from table-row focus. The app's exact current-session
 path-and-rule-revision whitelist is only a UI restriction; it cannot weaken or
 replace the planner's complete fail-closed validation. The review has no save,
-load, import, export, diff, approval, execution, live-filesystem revalidation,
-attestation, authorization, or mutation operation. A pending npm condition is
-shown as unobserved policy metadata, never as proof that npm is inactive.
+load, import, export, or diff operation. A pending npm condition is shown as
+unobserved policy metadata, never as proof that npm is inactive.
 
-The Core approval boundary is not wired to the app or CLI. It prepares an
-opaque review session from the exact source-bound planning request, retaining
-the exact source root and Core-built manifest. Every entry reference and
-confirmation is bound to that process-local session. The session separately
-issues a canonical reference for each deferred execution precondition, and
-approval requires all entry confirmations and precondition review
-acknowledgements. Foreign, mismatched, missing, duplicate, or reordered input
-rejects the request. A precondition review acknowledgement records only that
-the condition and risk were reviewed; it is copyable, replayable review intent,
-not an attestation that npm stopped. Approval never grants a
-partial subset: changing the set requires a new draft and review session. The
-resulting approval retains the exact root and manifest in memory, is non-
-`Codable`, performs no filesystem I/O, and is neither fresh evidence,
-authentication, nor execution authority.
+For the sole supported npm transaction, the app retains the opaque Core review
+session separately from its lossy presentation. Every entry reference and
+confirmation is bound to that process-local session. Approval requires the
+complete canonical entry confirmations and pending-condition review
+acknowledgements; foreign, mismatched, missing, duplicate, or reordered input
+rejects the request. A review acknowledgement says only that the condition and
+risk were reviewed. Before quarantine, the app then requires two independent
+confirmation gates: a stopped-npm/unobserved-risk value and a final confirmation
+of the same-volume move. Only after the final action does the app-local workflow
+derive the approval, begin a fresh Core attempt, and construct the attestation
+from Core's exact requested statement. It passes only the resulting
+authorization to the package-scoped executor. Neither confirmation is activity
+evidence, authentication, or general filesystem authority.
+
+The resulting approval retains the exact root and manifest in memory, is non-
+`Codable`, and is not itself mutation authority. After final confirmation, the
+app-local workflow derives and briefly holds the Core approval, authorization
+session, attestation, and authorization before passing the authorization to the
+package-scoped executor. The UI and presentation receive none of those values;
+the app cannot supply a raw root, path, transaction identifier, journal record,
+or execution claim. Core performs fresh descriptor-held validation before any
+rename.
 
 The CLI target has an internal one-way review JSON encoder over an already
 constructed manifest. No command or file-writing workflow invokes it. It is
@@ -126,16 +138,26 @@ authority. No consumer or executor is public; the internal npm executor is
 the sole consumer. See the [authorization contract](AUTHORIZATION.md) and
 [quarantine execution contract](QUARANTINE.md).
 
-Manual restore does not reuse quarantine authorization. Core first selects one
-exact canonical final `quarantined` transaction, generates a new restore
-transaction identifier, and requires a separate process-local confirmation.
+Manual restore does not reuse quarantine authorization. An explicit inventory
+load first runs recovery, final reread/revalidation, and projection under one
+validated exclusive lock. It admits only canonical durable `quarantined`
+receipts not already restored. Malformed or unresolved journal state, unsafe
+parents, and aggregate resource exhaustion fail the entire request. Individual
+item failures remain visible as non-restorable rows. The UI receives
+deterministic bounded rows, honest source/item readiness, and opaque process-
+local references—not paths, record bytes, or transaction identifiers.
+
+From one ready opaque reference, Core selects the exact canonical transaction,
+generates a new restore transaction identifier, and requires a separate
+process-local confirmation.
 Restore authorization version 1 is single-use and grants no standalone,
 overwrite, purge, or deletion authority. Its internal executor reopens the
 fixed account-owned npm namespace, validates the receipt-bound item and current
 cacache tree through held descriptors, publishes a durable restore intent, and
 may invoke one exclusive reverse rename only while `_cacache` is absent.
 Observational recovery may finish a conclusive restore receipt but never retries
-that rename. See the [manual restore contract](RESTORE.md).
+that rename. Neither recovery nor restore runs automatically at app launch. See
+the [manual restore contract](RESTORE.md).
 
 ## Hard invariants
 
@@ -212,7 +234,8 @@ that rename. See the [manual restore contract](RESTORE.md).
   attestation, authorization, or execution state. It may retain the fixed
   pending-precondition identifier and policy revision as disclosure metadata.
   Its raw relative path is only an in-memory row identity; the UI renders
-  escaped text.
+  escaped text. The opaque Core review session is retained separately and
+  cannot be reconstructed from that projection.
 - All seven displayed size and uncertainty quantities are point-in-time
   observations, not promised reclaimed bytes. A legitimate current scan can
   expose zero eligible candidates.
@@ -254,6 +277,19 @@ that rename. See the [manual restore contract](RESTORE.md).
   roots, matches their historical bindings, validates the current held item and
   bounded cacache tree, and refuses an occupied `_cacache`; no caller-selected
   path or item name reaches the rename.
+- Initial inventory loading and manual refresh require an explicit action and
+  never run at app launch. When a restore execution returns to the still-current,
+  uncancelled view-model operation, it schedules one reconciliation and
+  inventory refresh. Dismissal, cancellation, or superseding work can prevent or
+  cancel that refresh and suppresses stale UI publication.
+  Recovery, complete canonical reread/revalidation, and projection share one
+  validated exclusive lock. Malformed or unresolved journal state, unsafe
+  parents, and aggregate resource exhaustion fail the whole request.
+- Inventory contains only canonical durable quarantined receipts not already
+  restored, in deterministic bounded order. Its opaque process-local references
+  cannot cross sessions. Source readiness distinguishes a missing original name,
+  the previously expected object, and another occupant. Item readiness reports
+  available, missing, changed, unsafe, and over-bound contents.
 - Restore uses a fresh process-local confirmation and single-use authorization,
   then at most one same-volume, no-follow, beneath-root, exclusive reverse
   rename. It cannot overwrite, copy, link, unlink, purge, or delete.
@@ -286,9 +322,17 @@ that rename. See the [manual restore contract](RESTORE.md).
   layers cannot mutate files. Only the internal npm quarantine and manual-
   restore executors own their narrow atomic namespace operations; their
   authorizations grant no standalone filesystem capability.
-- The app and CLI expose no cleanup, delete, move, quarantine, restore, purge, or
-  permission-escalation action; scan and classification reports remain
-  read-only.
+- The source-run app's package-scoped facade is the sole frontend mutation
+  surface, fixed to one exact npm cache at the current non-root account's
+  passwd-home `~/.npm/_cacache`. The CLI and public Core API expose no cleanup,
+  move, quarantine, restore, purge, or permission-escalation action.
+- Quarantine and restore mutation require macOS 26 or newer. Older supported
+  systems fail before namespace creation, durable intent publication, or rename
+  and retain all read-only analysis surfaces.
+- Quarantine is a same-volume namespace rename, not storage reclamation. It
+  deallocates no file data and guarantees exactly 0 B of freed capacity.
+- No purge, permanent deletion, retention policy, background cleanup, batch or
+  custom-path mutation, network access, telemetry, or distributed app exists.
 - The app never presents a partial, bounded, or overflowed observation as
   complete or as evidence that an item can be cleaned.
 - Core logic does not construct or execute shell commands.
@@ -343,7 +387,7 @@ preserve that result until a later operation. DevSift must not infer
 `inactive` from a quiet interval, empty process query, advisory lock, kqueue, or
 FSEvents result. The selected recoverable-quarantine policy therefore preserves
 `unknown(.notCollected)` and carries an explicit pending precondition. The
-Core-only `CleanupQuarantineAuthorization` now binds the exact approval to an
+Core-defined `CleanupQuarantineAuthorization` now binds the exact approval to an
 attempt-scoped caller assertion and a shared single-use lifecycle; only its
 internal handoff may reach the Core-internal npm executor. It still grants no
 standalone mutation authority. A prior observation, review acknowledgement, or
@@ -481,7 +525,11 @@ and report reuse, off-main planning, frozen selection, cancellation, stale
 results, lifecycle invalidation, bounded generic failures, escaped display,
 identity omission, canonical ordering, and all seven observed quantities.
 They also verify that deferred npm activity remains displayed as unobserved and
-that no approval, attestation, safety, or execution claim is introduced.
+that the presentation itself introduces no approval, attestation, safety, or
+execution claim. Separate app workflow tests cover retained opaque sessions,
+the two confirmation gates, macOS rejection, single-attempt execution, stale
+result suppression, late cancellation, bounded durability projection, and 0 B
+guaranteed freed capacity.
 
 Approval tests use source-bound synthetic planning requests and cover opaque
 session preparation, exact root and manifest retention, complete entry
@@ -497,7 +545,7 @@ canonical subjects, no-pending and mixed-set rejection, cross-attempt
 substitution, retryable statement mismatch, atomic concurrent issuance and
 internal consumption across copies, terminal cancellation, non-`Codable`
 values, and the absence of process, npm, clock, filesystem, persistence,
-frontend, and CLI operations.
+public mutation, and CLI operations.
 
 Durability and restore tests use only synthetic temporary journal namespaces.
 They cover canonical quarantine and restore record bytes, exclusive
@@ -505,7 +553,10 @@ publication, lock contention, sync failures, staged and orphan records, mixed
 bounded inventory, capacity boundaries, destination-plan collisions, both
 receipt-less recovery tables, single-use restore confirmation and execution,
 descriptor/path races, non-overwriting reverse rename, and preservation outside
-the exact journal namespace.
+the exact journal namespace. Package-facade tests additionally cover explicit
+same-lock reconciliation and inventory validation, deterministic bounded rows,
+atomic failure, readiness distinctions, opaque-reference isolation, exact
+confirmation, and single-use restore without touching a real home.
 
 Any future permanent-removal feature requires a separate design review, threat
 model, and release milestone.

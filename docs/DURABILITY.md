@@ -20,7 +20,10 @@ The durability layer may:
 
 It may not resume an interrupted move, recreate process-local authorization,
 automatically restore or roll back a candidate, overwrite a record or item,
-delete or compact anything, or expose execution through the app or CLI.
+delete or compact anything. Its raw recovery entry points, records, and reports
+remain unavailable to the app and CLI. The source-run app can request only the
+package-scoped explicit recovery/inventory projection; the CLI and public Core
+API expose no mutation path.
 
 ## Transaction invariants
 
@@ -38,7 +41,7 @@ There is no mutable `rename-started` flag. A crash can therefore leave only
 one of these durable states:
 
 - no final intent, which can never authorize a candidate rename;
-- an intent without a receipt, which startup reconciliation must inspect;
+- an intent without a receipt, which later reconciliation must inspect;
 - an intent and its matching terminal receipt; or
 - malformed or inconsistent state, which blocks later mutation.
 
@@ -128,7 +131,7 @@ binds:
 - the selected destination ordinal and expected destination binding when the
   outcome is `quarantined`;
 - whether the source name was recreated; and
-- whether startup reconciliation inferred the terminal outcome and constructed
+- whether recovery inferred the terminal outcome and constructed
   the receipt bytes.
 
 Recovery may finish publishing a canonical receipt stage that the original
@@ -193,18 +196,24 @@ intent leaves recovery-required state and preserves every observed object.
 best-effort at the hardware boundary; DevSift claims only that every required
 call returned successfully, not absolute survival on defective storage.
 
-## Startup reconciliation
+## Recovery reconciliation
 
-Recovery runs under the same exclusive session before a new intent is allowed.
-It strictly validates and pairs every final intent and receipt, rejects orphan
-receipts and unmanaged `item-v1-*` entries, and rejects destination reuse
-across intents. It applies the staged-record rules above before reconciling
-receipt-less intents. A valid existing terminal receipt is never rewritten.
-It is immutable historical evidence, not a claim that the same source or
-destination names still exist later. Validating a final receipt requires its
-record metadata, canonical bytes, filename, transaction pairing, and digest;
-live namespace truth is required only for a receipt-less intent or receipt-stage
-promotion.
+Recovery runs under the same exclusive session during quarantine transaction
+admission, restore preparation, restore transaction admission, an explicit
+inventory load or refresh, and the follow-up refresh when a restore execution
+returns to the still-current, uncancelled view-model operation. Dismissal,
+cancellation, or superseding work can prevent or cancel that UI refresh without
+bypassing Core's transaction-level durability handling. Recovery can therefore
+run later in the same process or after restart, but never merely because the app
+launched. It strictly
+validates and pairs every final intent and receipt, rejects orphan receipts and
+unmanaged `item-v1-*` entries, and rejects destination reuse across intents. It
+applies the staged-record rules above before reconciling receipt-less intents. A
+valid existing terminal receipt is never rewritten. It is immutable historical
+evidence, not a claim that the same source or destination names still exist
+later. Validating a final receipt requires its record metadata, canonical bytes,
+filename, transaction pairing, and digest; live namespace truth is required only
+for a receipt-less intent or receipt-stage promotion.
 
 For each receipt-less intent, all root, quarantine-root, record, source, and
 planned-destination observations must be available and safe. Let `expected`
@@ -242,11 +251,12 @@ even when it includes a transaction identifier; that identifier is diagnostic,
 not proof that a valid intent crossed its publication barrier.
 `performedPermanentDeletion` remains unconditionally false.
 
-`isCrashRecoverable` does not promise that startup reconciliation can always
-publish a receipt. It means the canonical journal contains authoritative
-evidence that restart recovery can safely inspect and then either complete,
-preserve, or block. A detached journal, malformed or conflicting inventory, or
-another state whose canonical evidence cannot be validated is `unresolved`.
+`isCrashRecoverable` does not promise that later reconciliation, including after
+restart, can always publish a receipt. It means the canonical journal contains
+authoritative evidence that recovery can safely inspect and then either
+complete, preserve, or block. A detached journal, malformed or conflicting
+inventory, or another state whose canonical evidence cannot be validated is
+`unresolved`.
 
 Cancellation before rename may produce a durable `not-moved` receipt. Once a
 rename is invoked, cancellation is only latched into the report; it cannot skip
@@ -258,16 +268,20 @@ Intent and receipt files contain sensitive exact raw relative paths, filesystem
 bindings, and policy revisions. They remain local inside the account-owned
 quarantine directory and are not logs, exports, credentials, or authentication.
 
-This increment adds no restore, purge, permanent deletion, journal compaction,
-record deletion, automatic rollback during startup, approval or attestation
-persistence, custom-root support, multi-rule execution, frontend action, CLI
-command, analytics, or network access. Core has an internal root-only recovery
-entry point, and journal admission reconciles earlier state, but neither app nor
-CLI automatically invokes recovery at launch in this increment.
+The original durability increment added no restore or frontend action. The later
+restore increment adds a separate internal record family and authority without
+changing this quarantine transaction's meaning. Phase 9 exposes only bounded
+package-scoped app facades: an explicit recovery request performs recovery,
+final journal reread/revalidation, and inventory projection under the same
+validated exclusive lock, and a separate receipt-bound confirmation can restore
+one item without overwrite. Neither operation runs automatically at app launch.
 
-The later eleventh increment adds a separate Core-internal manual restore
-record family and authority without changing this quarantine transaction's
-meaning. See the [manual restore contract](RESTORE.md).
+Purge, permanent deletion, journal compaction, record deletion, automatic
+rollback, retention, batch or background action, custom-root or multi-rule
+execution, public or CLI mutation, distributed app packaging, analytics,
+telemetry, and network access remain absent. Quarantine is a same-volume rename
+that deallocates no data and guarantees exactly 0 B of freed capacity. See the
+[manual restore contract](RESTORE.md).
 
 ## Verification gate
 

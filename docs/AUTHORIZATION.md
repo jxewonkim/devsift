@@ -1,12 +1,18 @@
 # Quarantine attempt authorization contract
 
-`CleanupQuarantineAuthorizer` is the Core-only, in-memory boundary that binds
+`CleanupQuarantineAuthorizer` is the Core-defined, public, in-memory boundary that binds
 one exact `CleanupApproval` to one explicit caller assertion for one
 recoverable-quarantine attempt. `CleanupQuarantineAuthorization` contract
 version 1 is implemented. A Core-internal npm-only executor now consumes its
 single-use handoff and surrounds its atomic move with an internal durable
 intent/receipt journal and recovery engine. Restore, purge, deletion, public
-execution API, app action, and CLI action do not exist.
+execution API, and CLI action are not part of this authorization. The source-run
+app can drive one exact npm quarantine attempt only through an app-local
+workflow and package-scoped executor. After the final UI confirmation, that
+workflow derives and briefly holds Core's process-local approval, attempt,
+attestation, and authorization values. The UI and presentation never receive
+them, and the internal execution claim remains Core-only. Receipt-bound restore
+uses a separate confirmation and authority.
 
 Authorization is not filesystem access. The public contract performs no scan,
 process inspection, npm invocation, clock read, network request, or filesystem
@@ -81,11 +87,16 @@ was accepted. DevSift still reports activity as
 `unknown(.notCollected)`: it did not observe inactivity, cannot prevent a new
 access, and cannot authenticate who supplied the value.
 
-Future user-facing wording must convey both parts without making a safety
-claim. The intended meaning is: “I stopped npm work that may use every listed
-cache, and I understand DevSift did not observe npm inactivity and another
-process may access the cache.” There is currently no UI or CLI surface that
-asks for or constructs this assertion.
+User-facing wording conveys both parts without making a safety claim. The
+source-run app's review surface separately asks the user to state that npm work
+using the cache was stopped and acknowledge that DevSift did not observe
+inactivity and another process could still access it. The UI does not display or
+construct the raw Core request. After the independent review and stopped-risk
+values plus a separate final move confirmation, the app-local
+`CleanupQuarantineWorkflow` derives the approval from the retained review
+session, begins a fresh Core attempt, and constructs the attestation from Core's
+exact requested statement. It then passes the issued authorization as the sole
+input to the package-scoped executor. The CLI has no such surface.
 
 ## Process-local freshness and lifecycle
 
@@ -139,9 +150,10 @@ quarantine-destination facts while verified descriptors remain held. See the
 [quarantine execution contract](QUARANTINE.md).
 
 The scope is recoverable quarantine only. Durable quarantine intent, receipt,
-and recovery do not broaden it. Restore remains separate work, and permanent
-deletion and purge require a later policy, authorization design, and explicit
-user action.
+and recovery do not broaden it. Receipt-bound restore is implemented through a
+separate confirmation and single-use authority; it never reuses this
+authorization. Permanent deletion and purge require a later policy,
+authorization design, and explicit user action.
 
 ## Privacy, persistence, and failures
 

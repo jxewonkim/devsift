@@ -1,16 +1,21 @@
 # Native app contract
 
-The DevSift macOS app is a read-only SwiftUI projection of DevSiftCore. It lets
-the user choose exactly one folder, observes filesystem metadata, applies the
-same versioned rule classifier as the CLI, and presents observation and policy
-results separately. It can also create and display an unapproved in-memory
-draft from explicitly selected eligible results. It has no persistence,
-import, export, diff, approval, activity-attestation, authorization, execution,
-cleanup, move, quarantine, restore, purge, or deletion action.
-Core's internal npm quarantine kernel, durable journal, and recovery engine are
-intentionally unreachable from the app. Frontend transaction design, restore
-and manual-recovery flows, security review, and release checks must precede any
-wiring; the app does not automatically invoke recovery on launch.
+The DevSift macOS app is a SwiftUI projection of DevSiftCore. Its analysis
+surfaces let the user choose exactly one folder, observe filesystem metadata,
+apply the same versioned rule classifier as the CLI, and review an explicitly
+selected in-memory draft. Those stages remain read-only. The source-run app can
+also use package-scoped Core workflows to durably quarantine one exact npm cache
+at the current non-root account's passwd-home `~/.npm/_cacache` after explicit
+review and two confirmation gates, explicitly reconcile and load a bounded
+recovery inventory, and separately confirm a receipt-bound, non-overwriting
+restore.
+
+The app has no manifest persistence, import, export, or diff action. It has no
+purge, permanent deletion, retention, background cleanup, batch operation,
+custom-path mutation, network, or telemetry feature. It never invokes recovery
+automatically on launch. The low-level journal, descriptor scopes, transaction
+identifiers, and execution claims remain behind Core's package boundary, and
+the CLI and public Core API remain read-only.
 
 Run the development executable on macOS 14 or newer:
 
@@ -19,7 +24,8 @@ swift run DevSiftApp
 ```
 
 The current Swift Package product is an unsigned development executable, not a
-distributed `.app` bundle.
+distributed `.app` bundle. Scanning and review are available on macOS 14 or
+newer; every quarantine or restore mutation requires macOS 26 or newer.
 
 ## Explicit scope
 
@@ -36,9 +42,13 @@ are already readable can return `false` because no scope was granted; the
 scanner still attempts its descriptor-based validation and reports a typed read
 failure if access is unavailable.
 
-Folder choices, table focus, candidate inclusion, reports, and draft reviews
-are not persisted. Closing a window cancels its active task and discards that
-window's in-memory state.
+Folder choices, table focus, candidate inclusion, reports, drafts, review
+sessions, confirmations, and inventory action references are not persisted.
+Canonical transaction intents and receipts are durable workflow metadata inside
+the fixed quarantine namespace, where the moved cache also remains. Closing a
+window asks its active task to cancel and discards window state, but Core may
+finish post-rename reconciliation and receipt publication when the mutation
+boundary has already been crossed.
 
 ## States and transitions
 
@@ -61,6 +71,11 @@ selecting --review nonempty selection--------> preparing --success--> review
                                                   +--failure----> failed
 review --back-----------------------------------------------> selecting
 failed --edit selection or retry--------------------> selecting/preparing
+
+review --explicit review + stopped-risk confirmation--> final confirmation
+final confirmation --confirm--> executing --> quarantine result
+any stable state --explicit recovery action--> reconcile/load --> inventory
+inventory --select one ready receipt + confirm--> restoring --> restore result
 ```
 
 Core does not expose a known total or progress callback, so scanning and policy
@@ -161,94 +176,117 @@ If a manifest entry carries
 `requires-user-attestation-that-responsible-tool-is-stopped@1`, the review
 displays “Activity remains unobserved” at both review and entry level. It says
 that the pending condition is policy metadata, not evidence that npm is
-inactive; any recoverable operation requires fresh revalidation and a separate
-attempt-scoped authorization. The draft is not that authorization and cannot
-be executed. There is no approval, acknowledgement, or attestation CTA.
+inactive. The draft is not authorization. For the sole supported npm workflow,
+continuation requires explicit review, a separate confirmation that npm work
+using the cache was stopped while acknowledging that inactivity was not
+observed, and a final confirmation of the quarantine move. Core still performs
+fresh inline revalidation before mutation.
 
-The view is explicitly labeled an unapproved, non-executable in-memory draft.
-Returning to selection discards only the presentation and preserves the user's
-included set for editing. Rescanning, choosing another folder, or closing the
-window discards both selection and review. Nothing is saved, imported,
-exported, diffed, approved, acknowledged, attested, authorized, executed,
-checked against the live filesystem, or changed on disk. Because the runtime
-classifier still lacks several required facts, an honest real scan can show
-zero eligible draft candidates. An exact npm candidate whose non-deferred facts
-all pass may instead appear as Review required with the pending condition; that
-does not make it safe to operate.
+The view is explicitly labeled an unapproved in-memory draft. Returning to
+selection discards the presentation and its Core review session while preserving
+the included set for editing. Rescanning, choosing another folder, or closing
+the window discards selection, review, and unused authority. Before review and
+both confirmations complete, nothing is authorized, revalidated for execution,
+or changed on disk. Because the runtime classifier still lacks several required
+facts, an honest real scan can show zero eligible draft candidates. An exact
+npm candidate whose non-deferred facts all pass may instead appear as Review
+required with the pending condition; that state can begin only the narrow
+confirmation workflow and is not itself a safety verdict.
 
-DevSiftCore now has a separate approval-review session contract prepared from
-an exact source-bound planning request, but this app increment does not invoke
-it. The app continues to discard the Core manifest after making its
-identity-free presentation, exposes no approval button or state, and cannot
-reconstruct the opaque session, its exact root, or its session-bound entry
-or precondition references from that lossy presentation.
+DevSiftCore prepares the approval-review session from the exact source-bound
+planning request, and the app retains that opaque session alongside its separate
+identity-free presentation. It never reconstructs the session, root, entries,
+or pending conditions from display text. After final confirmation, an app-local
+workflow derives and briefly holds Core's approval, attempt, attestation, and
+authorization values, then passes the authorization to the package-scoped
+executor. The UI and presentation never receive those values. No frontend-
+created path, transaction identifier, journal record, or execution claim enters
+the executor.
 
-Core also has an in-memory `CleanupQuarantineAuthorizer`, but the app neither
-begins an attempt nor constructs `CleanupQuarantineUserAttestation`. It exposes
-no attestation request, statement, authorization state, cancellation, or
-filesystem action. Authorization contract version 1 is not a UI safety verdict
-and grants no standalone mutation authority. The internal execution report is
-not app presentation state. Its contract-version-2 durability state and the
-private journal are likewise not app inventory or completion UI; see the
-[authorization contract](AUTHORIZATION.md),
+After final confirmation, the same facade binds the exact review to a fresh
+attempt-scoped stopped-npm assertion and consumes its single-use authority. The
+assertion is not observed inactivity, authentication, or a general filesystem
+capability. The app projects only bounded transaction outcomes and durability
+states, and it calls a terminal receipt successful rather than treating a move
+alone as completion.
+See the [authorization contract](AUTHORIZATION.md),
 [quarantine execution contract](QUARANTINE.md), and
 [durability contract](DURABILITY.md).
 
-## Prospective Phase 9 transaction contract
+## Implemented Phase 9 transaction contract
 
-Status: planned and not implemented. This section defines the boundary that
-must be satisfied before the app's current read-only contract can change. It
-does not describe a capability in the current build.
+Status: implemented for the source-run native app. The distributed CLI archive
+and public DevSiftCore API have no mutation surface.
 
-The first native mutation workflow will remain restricted to one exact npm
-`_cacache` selected from a scan of the current account's exact passwd-home
-`~/.npm`. The app will reach it only through a package-scoped DevSiftCore facade;
+The native mutation workflow is restricted to one exact npm
+`_cacache` selected from a scan of the current non-root account's exact
+passwd-home `~/.npm`. The app reaches it only through a package-scoped
+DevSiftCore facade;
 the low-level executor, descriptor-held scopes, journal codecs, recovery engine,
-and restore claims will remain unavailable to the app and to public library
-clients. The CLI will remain read-only.
+and restore claims remain unavailable to the app and to public library
+clients. The CLI remains read-only.
 
-Draft preparation will retain the exact Core-issued approval review session in
+Draft preparation retains the exact Core-issued approval review session in
 memory while separately rendering the identity-free review presentation. To
-continue, the user will explicitly confirm every session entry and acknowledge
-every pending condition from that same session. The app will not rebuild those
-values from displayed paths or policy text. A separate confirmation surface
-will then present the complete attempt-scoped attestation request and require
-the user to state that npm work using the cache is stopped and that DevSift did
-not observe inactivity. Checking that statement will not be described as
-observed activity evidence or proof that the operation is safe.
+continue, the review surface records two independent values: confirmation that
+every displayed entry and pending requirement was reviewed, and the assertion
+that npm work using the cache was stopped while accepting that DevSift did not
+observe inactivity. The UI does not display or reconstruct a raw Core
+attestation-request identifier or statement from display text. A separate final
+confirmation dialog then names the recoverable move. Only after that action does
+the app-local `CleanupQuarantineWorkflow` derive the approval, begin a fresh
+Core attempt, and construct the attestation from the exact statement requested
+by Core. It passes only the issued authorization into the package-scoped
+executor. None of these controls is described as observed activity evidence or
+proof that the operation is safe.
 
-The final action will request exactly one recoverable quarantine attempt. It
-will be unavailable below macOS 26 and will make no request for elevated
+The final action requests exactly one recoverable quarantine attempt. It is
+unavailable below macOS 26 and makes no request for elevated
 permissions. Once execution may have crossed its rename boundary, dismissal or
-cancellation will not prevent Core from reconciling the namespace, applying its
+cancellation does not prevent Core from reconciling the namespace, applying its
 durability barriers, and publishing a safe terminal receipt when possible. The
-app will distinguish not moved, durably quarantined, rolled back, and manual-
-recovery-required outcomes. It will not call an intent-only or unresolved
+app distinguishes not moved, durably quarantined, rolled back, and manual-
+recovery-required outcomes. It does not call an intent-only or unresolved
 transaction complete.
 
-Before another transaction is enabled after restart, the app will ask the
-package-scoped facade to reconcile the fixed npm journal and prepare a bounded
-inventory. Inventory rows will originate only from canonical Core journal
-relationships and will carry opaque process-local action references rather
-than frontend-provided paths, quarantine names, or transaction identifiers. An
-unresolved global blocker will remain visible and will disable conflicting
-actions.
+Recovery is never an app-launch side effect. The initial inventory load and a
+manual refresh require an explicit user action. Core also runs locked recovery
+as a fail-closed prerequisite during quarantine transaction admission, restore
+preparation, and restore transaction admission. When a restore execution
+returns to the still-current, uncancelled view-model operation, that view model performs one fresh
+reconciliation and inventory refresh while preserving the bounded result.
+Dismissal, cancellation, or a superseding operation suppresses stale UI
+publication and can prevent or cancel that follow-up refresh. Each inventory
+load runs fixed-npm recovery, journal reread, validation, and bounded projection
+under the same validated exclusive lock. Inventory rows originate only from canonical durable
+quarantine receipts that have not been restored and carry opaque process-local
+action references rather than frontend-provided paths, quarantine names, record
+bytes, or transaction identifiers. Malformed or unresolved journal state, an
+unsafe trusted parent, or aggregate resource exhaustion rejects the complete
+load instead of returning a partial list. Source readiness distinguishes a clear
+original name, the previously expected object, and another occupant. Item
+readiness preserves missing, changed, unsafe, and per-item over-bound contents as
+visible non-restorable rows rather than hiding them.
 
-One receipt-bound inventory row may start a separate explicit manual restore.
-The restore confirmation will identify the original and quarantine locations,
-state that npm is stopped, and explain that post-quarantine contents may have
-changed. Restore will never overwrite a recreated `_cacache`, run
-automatically, or infer eligibility from presentation state. Core will reopen
-and revalidate the fixed roots, journal pair, exact item, complete tree, and
-destination absence before its one non-overwriting reverse rename.
+One ready receipt-bound inventory row can start a separate explicit manual
+restore. The restore confirmation identifies the fixed original name and exact
+receipt-bound selection, states that npm is stopped, and explains that post-
+quarantine contents may have changed. Restore never overwrites a recreated
+`_cacache`, never runs automatically, and never infers eligibility from
+presentation state. Core reopens and revalidates the fixed roots, journal pair,
+exact item, complete tree, and destination absence before its one non-
+overwriting reverse rename.
 
-Quarantine is a same-volume rename into `.devsift-quarantine-v1`; it does not
-free disk space. The UI will label the displayed bytes as observed allocation,
-not reclaimed capacity, and will explain that permanent removal is required to
-increase free space. Phase 9 will add no purge, deletion, retention policy,
-batch or background cleanup, custom path, non-npm mutation, automatic restore,
-CLI mutation, application-bundle packaging, signing, notarization, installer,
-or updater.
+Quarantine is a same-volume rename into `.devsift-quarantine-v1`; it deallocates
+no data and guarantees exactly 0 B of freed capacity. The UI labels displayed
+bytes as observed allocation, not reclaimed capacity. Phase 9 adds no purge,
+permanent deletion, retention policy, batch or background cleanup, custom path,
+non-npm mutation, launch-time or unattended recovery or restore, CLI or public-
+Core mutation, networking, telemetry, distributed application bundle, signing,
+notarization, installer, or updater. The bounded post-attempt inventory refresh
+described above is the only recovery follow-up scheduled by the UI; mandatory
+quarantine admission, restore preparation, and restore admission still perform
+locked recovery inside explicitly initiated operations.
 
 ## Observation and policy language
 
@@ -325,10 +363,19 @@ quantities, deferred-precondition fail-closed boundaries, explicit unobserved
 activity disclosure, absence of authorization or safety claims, and window-
 lifecycle invalidation.
 
+Transaction tests cover retained Core review-session binding, the independent
+review and stopped-npm confirmations, the final quarantine confirmation,
+single-attempt execution, macOS-version rejection, bounded durability outcomes,
+late cancellation, and guaranteed freed capacity of 0 B. Recovery and restore
+tests use only synthetic journal fixtures and cover explicit (never launch-time)
+reconciliation, atomic inventory rejection, deterministic receipt-bound rows,
+honest source/item readiness, opaque-reference isolation, exact restore
+confirmation, single use, and non-overwriting outcomes.
+
 The optional native snapshot harness renders representative empty, scanning,
-classifying, light and dark results, 900 x 620 complete and partial results,
-expanded policy evidence, draft selection, and light and dark draft review at
-default and minimum sizes without scanning a real directory:
+classifying, complete, partial, policy, selection, and draft-review states. It
+also renders light and dark npm quarantine review/results, recovery inventory,
+restore confirmation, and restore results without scanning a real directory:
 
 ```shell
 env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots \
@@ -336,5 +383,6 @@ env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots \
 ```
 
 The Swift Package does not yet define an Xcode UI-testing bundle. Keyboard and
-VoiceOver interaction remain a local manual acceptance check; build and value-
+VoiceOver interaction for scanning, confirmations, quarantine, recovery
+inventory, and restore remains a local manual acceptance check; build and value-
 based behavior are the CI gate.
