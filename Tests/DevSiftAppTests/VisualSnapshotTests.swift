@@ -1,10 +1,10 @@
 import AppKit
-import DevSiftCore
 import Foundation
 import SwiftUI
 import Testing
 
 @testable import DevSiftApp
+@testable import DevSiftCore
 
 @MainActor
 @Suite("Opt-in native visual snapshots")
@@ -141,7 +141,7 @@ struct VisualSnapshotTests {
       throw SnapshotError.couldNotPrepareDraft
     }
     let selections = planningPresentation.items.compactMap(\.cleanupSelection)
-    guard selections.count == 2 else {
+    guard selections.count == 1 else {
       throw SnapshotError.couldNotPrepareDraft
     }
     for selection in selections {
@@ -167,7 +167,7 @@ struct VisualSnapshotTests {
       throw SnapshotError.couldNotPrepareDraft
     }
     let reviewSelections = reviewPresentation.items.compactMap(\.cleanupSelection)
-    guard reviewSelections.count == 2 else {
+    guard reviewSelections.count == 1 else {
       throw SnapshotError.couldNotPrepareDraft
     }
     for selection in reviewSelections {
@@ -198,7 +198,7 @@ struct VisualSnapshotTests {
       throw SnapshotError.couldNotPrepareDraft
     }
     let darkReviewSelections = darkReviewPresentation.items.compactMap(\.cleanupSelection)
-    guard darkReviewSelections.count == 2 else {
+    guard darkReviewSelections.count == 1 else {
       throw SnapshotError.couldNotPrepareDraft
     }
     for selection in darkReviewSelections {
@@ -216,10 +216,152 @@ struct VisualSnapshotTests {
       appearance: .darkAqua,
       to: outputDirectory.appendingPathComponent("draft-review-dark.png")
     )
+
+    let npmReviewRoot = URL(
+      fileURLWithPath: "/private/tmp/DevSiftVisualFixture/.npm",
+      isDirectory: true
+    )
+    for (appearance, suffix) in snapshotAppearances {
+      let npmReviewModel = ScanViewModel(
+        scanner: ImmediateScanner(outcome: .report(representativeNPMReport())),
+        classifier: SnapshotNPMRuleClassifier(),
+        securityScope: SecurityScopeSpy(),
+        referenceUnixSeconds: { 1_000_000 },
+        supportsCleanupQuarantine: { true }
+      )
+      await npmReviewModel.startScan(at: npmReviewRoot).value
+      guard case .result(_, let npmPresentation) = npmReviewModel.phase,
+        let npmSelection = npmPresentation.items.first?.cleanupSelection
+      else {
+        throw SnapshotError.couldNotPrepareDraft
+      }
+      npmReviewModel.setCleanupCandidate(npmSelection, isIncluded: true)
+      guard let npmReviewTask = npmReviewModel.prepareCleanupReview() else {
+        throw SnapshotError.couldNotPrepareDraft
+      }
+      await npmReviewTask.value
+      guard case .review = npmReviewModel.cleanupReviewPhase,
+        npmReviewModel.cleanupQuarantineAvailability == .available
+      else {
+        throw SnapshotError.couldNotPrepareDraft
+      }
+      try render(
+        ScanDashboardView(viewModel: npmReviewModel),
+        appearance: appearance,
+        size: CGSize(width: 1_000, height: 900),
+        to: outputDirectory.appendingPathComponent("npm-quarantine-review-\(suffix).png")
+      )
+    }
+
+    let quarantineResult = CleanupQuarantineResultPresentation(
+      result: CleanupQuarantineFrontendExecutionResult(
+        outcome: .durablyQuarantined(sourceNameWasRecreated: false),
+        durabilityEvidence: .terminalReceiptRecorded(
+          transactionID: String(repeating: "a", count: 32),
+          producedByRecovery: false
+        ),
+        namespaceMutation: .quarantineRootCreated,
+        cancellationWasObservedAfterRename: false
+      )
+    )
+    for (appearance, suffix) in snapshotAppearances {
+      try render(
+        CleanupQuarantineResultView(
+          root: npmReviewRoot,
+          result: quarantineResult,
+          rescan: {},
+          openRecovery: {}
+        )
+        .background(Color(nsColor: .windowBackgroundColor)),
+        appearance: appearance,
+        size: CGSize(width: 900, height: 620),
+        to: outputDirectory.appendingPathComponent("quarantine-result-\(suffix).png")
+      )
+    }
+
+    for (appearance, suffix) in snapshotAppearances {
+      let inventoryModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [.success(snapshotRecoveryInventory())]
+        )
+      )
+      await inventoryModel.loadInventory().value
+      try render(
+        QuarantineRecoveryView(viewModel: inventoryModel),
+        appearance: appearance,
+        size: CGSize(width: 800, height: 700),
+        to: outputDirectory.appendingPathComponent("recovery-inventory-\(suffix).png")
+      )
+
+      let confirmationModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [.success(snapshotRecoveryInventory())],
+          preparation: .success(snapshotPreparedRestore())
+        )
+      )
+      await confirmationModel.loadInventory().value
+      guard case .loaded(let confirmationInventory) = confirmationModel.inventoryState,
+        let confirmationRow = confirmationInventory.rows.first,
+        let preparation = confirmationModel.requestRestore(
+          for: confirmationRow.id
+        )
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await preparation.value
+      guard case .awaitingConfirmation = confirmationModel.restoreState else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      try render(
+        QuarantineRecoveryView(viewModel: confirmationModel),
+        appearance: appearance,
+        size: CGSize(width: 800, height: 760),
+        to: outputDirectory.appendingPathComponent("restore-confirmation-\(suffix).png")
+      )
+
+      let resultModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [
+            .success(snapshotRecoveryInventory()),
+            .success(QuarantineRecoveryWorkflowInventory(items: [])),
+          ],
+          preparation: .success(snapshotPreparedRestore()),
+          execution: .success(snapshotRestoreResult())
+        )
+      )
+      await resultModel.loadInventory().value
+      guard case .loaded(let resultInventory) = resultModel.inventoryState,
+        let resultRow = resultInventory.rows.first,
+        let resultPreparation = resultModel.requestRestore(for: resultRow.id)
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await resultPreparation.value
+      guard case .awaitingConfirmation(let confirmation) = resultModel.restoreState,
+        let restore = resultModel.confirmAndRestore(
+          confirmationID: confirmation.id,
+          exactStatementWasConfirmed: true,
+          npmWasStopped: true,
+          postQuarantineChangesWereAccepted: true
+        )
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await restore.value
+      guard case .finished = resultModel.restoreState else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      try render(
+        QuarantineRecoveryView(viewModel: resultModel),
+        appearance: appearance,
+        size: CGSize(width: 800, height: 700),
+        to: outputDirectory.appendingPathComponent("restore-result-\(suffix).png")
+      )
+    }
   }
 
-  private func render(
-    _ view: ScanDashboardView,
+  private func render<Content: View>(
+    _ view: Content,
     appearance: NSAppearance.Name,
     size: CGSize = CGSize(width: 1_200, height: 760),
     to destination: URL
@@ -364,6 +506,32 @@ struct VisualSnapshotTests {
     )
   }
 
+  private func representativeNPMReport() -> ScanReport {
+    let device: UInt64 = 126
+    let candidate = AppTestReportFactory.item(
+      rawComponents: [Array("_cacache".utf8)],
+      scanTimeIdentity: FileIdentity(device: device, inode: 2),
+      logicalBytes: gibibytes(3.5),
+      allocatedBytes: gibibytes(3.1),
+      hardLinkExclusiveAllocatedBytes: gibibytes(2.9),
+      counts: AppTestReportFactory.counts(regularFiles: 719, directories: 1),
+      possibleSharedContentFileCount: 2,
+      newestContentModificationUnixSeconds: 0
+    )
+    return AppTestReportFactory.report(
+      root: AppTestReportFactory.item(
+        scanTimeIdentity: FileIdentity(device: device, inode: 1),
+        logicalBytes: gibibytes(3.5),
+        allocatedBytes: gibibytes(3.1),
+        hardLinkExclusiveAllocatedBytes: gibibytes(2.9),
+        counts: AppTestReportFactory.counts(regularFiles: 719, directories: 2),
+        possibleSharedContentFileCount: 2,
+        newestContentModificationUnixSeconds: 0
+      ),
+      topLevelItems: [candidate]
+    )
+  }
+
   private func row(
     _ name: String,
     gibibytes: Double,
@@ -391,10 +559,150 @@ struct VisualSnapshotTests {
   private func gibibytes(_ value: Double) -> UInt64 {
     UInt64(value * 1_024 * 1_024 * 1_024)
   }
+
+  private var snapshotAppearances: [(NSAppearance.Name, String)] {
+    [(.aqua, "light"), (.darkAqua, "dark")]
+  }
 }
 
 private enum SnapshotError: Error {
   case couldNotCreateBitmap
   case couldNotEncodePNG
   case couldNotPrepareDraft
+  case couldNotPrepareRecovery
+}
+
+private struct SnapshotNPMRuleClassifier: RuleClassifying, Sendable {
+  func classify(
+    _ request: RuleClassificationRequest
+  ) async throws -> RuleClassificationReport {
+    let observations = request.report.topLevelItems.map { summary in
+      RuleObservation(
+        summary: summary,
+        selectedRootBasename: .known(Array(".npm".utf8)),
+        integrity: RuleScanIntegrity(
+          reportIsComplete: true,
+          itemIsComplete: true,
+          topLevelItemsWereSuppressed: false,
+          traversalDetailsWereDiscarded: false,
+          suppressedIssueCount: 0,
+          unknownAllocatedItemCount: 0,
+          sizeOverflowed: false,
+          hardLinkAccountingIsComplete: true,
+          identityMatchesScan: .known(true)
+        ),
+        facts: RuleObservationFacts(
+          trustedLocation: .known(true),
+          accountOwnedCacheNamespace: .known(true),
+          generatedContentMarker: .known(true),
+          newestContentModificationUnixSeconds: .known(
+            summary.newestContentModificationUnixSeconds ?? 0
+          ),
+          activity: .unknown(.notCollected),
+          protectedDescendantPresent: .known(false)
+        )
+      )
+    }
+    return try await ExplainableRuleClassifier().classify(
+      observations: observations,
+      referenceUnixSeconds: request.referenceUnixSeconds
+    ).binding(to: request)
+  }
+}
+
+private actor SnapshotRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
+  private var inventories:
+    [Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>]
+  private let preparation:
+    Result<
+      QuarantineRecoveryPreparedRestore,
+      QuarantineRestorePreparationFailure
+    >
+  private let execution:
+    Result<
+      QuarantineRecoveryWorkflowExecutionResult,
+      QuarantineRecoveryWorkflowExecutionFailure
+    >
+
+  init(
+    inventories: [Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>],
+    preparation: Result<
+      QuarantineRecoveryPreparedRestore,
+      QuarantineRestorePreparationFailure
+    > = .failure(.inventoryChanged),
+    execution: Result<
+      QuarantineRecoveryWorkflowExecutionResult,
+      QuarantineRecoveryWorkflowExecutionFailure
+    > = .failure(.execution(.cancelled))
+  ) {
+    self.inventories = inventories
+    self.preparation = preparation
+    self.execution = execution
+  }
+
+  func reconcileAndLoadInventory()
+    -> Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>
+  {
+    guard !inventories.isEmpty else {
+      return .success(QuarantineRecoveryWorkflowInventory(items: []))
+    }
+    return inventories.removeFirst()
+  }
+
+  func beginRestore(
+    for item: QuarantineRecoveryWorkflowItemHandle
+  ) -> Result<QuarantineRecoveryPreparedRestore, QuarantineRestorePreparationFailure> {
+    preparation
+  }
+
+  func authorizeAndRestore(
+    _ preparedRestore: QuarantineRecoveryPreparedRestoreHandle,
+    statement: QuarantineRestoreConfirmationStatement
+  ) -> Result<
+    QuarantineRecoveryWorkflowExecutionResult,
+    QuarantineRecoveryWorkflowExecutionFailure
+  > {
+    execution
+  }
+
+  func cancelPendingRestore() {}
+}
+
+private func snapshotRecoveryInventory() -> QuarantineRecoveryWorkflowInventory {
+  let identity = QuarantineRecoveryInventoryIdentity()
+  return QuarantineRecoveryWorkflowInventory(
+    items: [
+      QuarantineRecoveryWorkflowInventoryItem(
+        handle: QuarantineRecoveryWorkflowItemHandle(identity: identity, ordinal: 0),
+        responsibleTool: "npm",
+        originalName: "_cacache",
+        readiness: QuarantineInventoryRestoreReadiness(
+          originalSource: .missing,
+          quarantinedItem: .available
+        ),
+        quarantineReceiptWasProducedByRecovery: true
+      )
+    ]
+  )
+}
+
+private func snapshotPreparedRestore() -> QuarantineRecoveryPreparedRestore {
+  QuarantineRecoveryPreparedRestore(
+    handle: QuarantineRecoveryPreparedRestoreHandle(
+      identity: QuarantineRecoveryAttemptIdentity()
+    ),
+    requiredStatement:
+      .restoreCurrentQuarantinedContentsWithoutOverwriteWithNPMStoppedAndChangesAccepted,
+    responsibleTool: "npm",
+    originalName: "_cacache"
+  )
+}
+
+private func snapshotRestoreResult() -> QuarantineRecoveryWorkflowExecutionResult {
+  QuarantineRecoveryWorkflowExecutionResult(
+    status: .restored(quarantineNameWasRecreated: false),
+    durability: .receiptRecorded(producedByRecovery: false),
+    cancellationWasObservedAfterRename: false,
+    isDurablyRestored: true
+  )
 }
