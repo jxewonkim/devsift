@@ -5,7 +5,13 @@ import SwiftUI
 struct CleanupManifestReviewView: View {
   let root: URL
   let review: CleanupManifestReviewPresentation
+  let quarantineAvailability: CleanupQuarantineAvailability
   let backToSelection: () -> Void
+  let executeQuarantine: (_ reviewWasConfirmed: Bool, _ npmStoppedRiskWasAccepted: Bool) -> Void
+
+  @State private var reviewWasConfirmed = false
+  @State private var npmStoppedRiskWasAccepted = false
+  @State private var finalConfirmationIsPresented = false
 
   var body: some View {
     ScrollView(.vertical) {
@@ -18,6 +24,7 @@ struct CleanupManifestReviewView: View {
         summary
         uncertaintySummary
         entryList
+        quarantineAction
         reviewFooter
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -64,10 +71,10 @@ struct CleanupManifestReviewView: View {
         .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: 4) {
-        Text("Review only — no files were changed")
+        Text("Review first — no files have changed yet")
           .font(.headline)
         Text(
-          "This in-memory snapshot is not approval and cannot be executed. It may already be stale; any future cleanup must freshly revalidate the root, every item, and its policy evidence."
+          "This in-memory snapshot is not approval and may already be stale. If you continue, Core will bind this exact review to a one-time attempt and freshly revalidate the root, item, and policy evidence before any move."
         )
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -203,12 +210,66 @@ struct CleanupManifestReviewView: View {
 
   private var reviewFooter: some View {
     Label(
-      "Observed values are estimates, not guaranteed reclaimable space. Return to selection or rescan to discard the in-memory draft.",
+      "Observed values are estimates. Quarantine moves an item on the same volume and guarantees 0 B of freed capacity; only a later permanent purge can reclaim disk space.",
       systemImage: "info.circle"
     )
     .font(.caption)
     .foregroundStyle(.secondary)
     .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private var quarantineAction: some View {
+    GroupBox {
+      VStack(alignment: .leading, spacing: 12) {
+        if quarantineAvailability == .available {
+          Toggle(isOn: $reviewWasConfirmed) {
+            Text("I reviewed every selected entry and pending requirement shown above.")
+          }
+          .toggleStyle(.checkbox)
+
+          Toggle(isOn: $npmStoppedRiskWasAccepted) {
+            Text(
+              "I stopped npm work using this cache. I understand DevSift did not observe inactivity and another process could still access it."
+            )
+          }
+          .toggleStyle(.checkbox)
+
+          HStack {
+            Spacer()
+            Button("Final Confirmation…") {
+              finalConfirmationIsPresented = true
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!reviewWasConfirmed || !npmStoppedRiskWasAccepted)
+            .accessibilityHint(
+              "Opens the final confirmation for a recoverable move, not permanent deletion"
+            )
+          }
+        } else if let message = quarantineAvailability.message {
+          Label(message, systemImage: "lock.shield")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .padding(.top, 4)
+    } label: {
+      Label("Recoverable npm quarantine", systemImage: "shippingbox")
+        .font(.headline)
+    }
+    .confirmationDialog(
+      "Move the reviewed npm cache to quarantine?",
+      isPresented: $finalConfirmationIsPresented,
+      titleVisibility: .visible
+    ) {
+      Button("Move to Quarantine") {
+        executeQuarantine(reviewWasConfirmed, npmStoppedRiskWasAccepted)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "This moves one exact _cacache into DevSift's private quarantine. It does not permanently delete files or free disk space."
+      )
+    }
   }
 }
 

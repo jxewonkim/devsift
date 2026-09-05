@@ -84,13 +84,36 @@ struct ScanDashboardView: View {
     case .classifying(let root):
       ClassifyingView(root: root)
     case .result(let root, let presentation):
-      if case .review(let review) = viewModel.cleanupReviewPhase {
+      switch viewModel.cleanupReviewPhase {
+      case .review(let review):
         CleanupManifestReviewView(
           root: root,
           review: review,
-          backToSelection: viewModel.dismissCleanupReview
+          quarantineAvailability: viewModel.cleanupQuarantineAvailability,
+          backToSelection: viewModel.dismissCleanupReview,
+          executeQuarantine: { reviewWasConfirmed, npmStoppedRiskWasAccepted in
+            viewModel.executeReviewedCleanup(
+              reviewWasConfirmed: reviewWasConfirmed,
+              npmStoppedRiskWasAccepted: npmStoppedRiskWasAccepted
+            )
+          }
         )
-      } else {
+      case .executing(let review):
+        CleanupQuarantineProgressView(root: root, review: review)
+      case .executionResult(let result):
+        CleanupQuarantineResultView(
+          root: root,
+          result: result,
+          rescan: { viewModel.rescan() },
+          openRecovery: nil
+        )
+      case .executionFailed(let failure):
+        CleanupQuarantineFailureView(
+          root: root,
+          failure: CleanupQuarantineFailurePresentation(failure: failure),
+          rescan: { viewModel.rescan() }
+        )
+      case .unavailable, .selecting, .preparing, .failed:
         ScanResultView(
           root: root,
           presentation: presentation,
@@ -172,7 +195,7 @@ struct ScanDashboardView: View {
 
   private var safetyFooter: some View {
     HStack(spacing: 8) {
-      Label("Read-only analysis · No files were changed", systemImage: "lock.shield")
+      Label(footerSafetyStatus, systemImage: "lock.shield")
         .foregroundStyle(.secondary)
 
       Spacer()
@@ -191,6 +214,19 @@ struct ScanDashboardView: View {
     .background(Color(nsColor: .windowBackgroundColor))
   }
 
+  private var footerSafetyStatus: String {
+    switch viewModel.cleanupReviewPhase {
+    case .executing:
+      "Recoverable move only · Permanent deletion disabled"
+    case .executionResult:
+      "Quarantine is not deletion · 0 B guaranteed freed"
+    case .executionFailed:
+      "Attempt rejected · Permanent deletion disabled"
+    case .unavailable, .selecting, .preparing, .review, .failed:
+      "Analysis and review · No files changed in this state"
+    }
+  }
+
   private var footerStatus: String {
     switch viewModel.phase {
     case .empty:
@@ -205,6 +241,12 @@ struct ScanDashboardView: View {
         "Draft preparation in progress"
       case .review:
         "Unapproved draft review"
+      case .executing:
+        "Recoverable quarantine in progress"
+      case .executionResult:
+        "Quarantine attempt finished"
+      case .executionFailed:
+        "Quarantine attempt did not start"
       case .failed:
         "Draft unavailable"
       case .unavailable, .selecting:
@@ -218,7 +260,10 @@ struct ScanDashboardView: View {
   }
 
   private var showsHeaderFolderButton: Bool {
-    switch viewModel.phase {
+    guard !viewModel.cleanupReviewPhase.isExecuting else {
+      return false
+    }
+    return switch viewModel.phase {
     case .empty, .scanning, .classifying:
       false
     default:
@@ -227,7 +272,7 @@ struct ScanDashboardView: View {
   }
 
   private var showsHeaderRescanButton: Bool {
-    if case .result = viewModel.phase {
+    if case .result = viewModel.phase, viewModel.canRescan {
       return true
     }
     return false
@@ -438,7 +483,7 @@ private struct ClassifyingView: View {
   }
 }
 
-private struct ScanMessageView: View {
+struct ScanMessageView: View {
   let systemImage: String
   let title: String
   let message: String

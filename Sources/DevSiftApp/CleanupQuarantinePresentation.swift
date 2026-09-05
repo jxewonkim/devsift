@@ -243,3 +243,36 @@ struct CleanupQuarantineResultPresentation: Equatable, Sendable {
     }
   }
 }
+
+struct CleanupQuarantineFailurePresentation: Equatable, Sendable {
+  let title: String
+  let message: String
+
+  init(failure: CleanupQuarantineWorkflowStageFailure) {
+    title = "Quarantine did not start"
+    switch failure {
+    case .cancelled(let stage):
+      message =
+        "The attempt was cancelled during \(Self.name(for: stage)). No execution result was issued; rescan before trying again."
+    case .rejected(let stage):
+      message =
+        "The retained review was rejected during \(Self.name(for: stage)). Rescan and review the current cache again."
+    case .failed(let stage):
+      message =
+        "DevSift could not complete \(Self.name(for: stage)). The underlying error was not retained or displayed."
+    }
+  }
+
+  private static func name(for stage: CleanupQuarantineWorkflowStage) -> String {
+    switch stage {
+    case .reviewConfirmation:
+      "review confirmation"
+    case .approval:
+      "approval"
+    case .authorizationAttempt:
+      "authorization preparation"
+    case .authorizationIssuance:
+      "one-time authorization"
+    }
+  }
+}

@@ -74,6 +74,24 @@ struct CleanupQuarantinePresentationTests {
     }
   }
 
+  @Test("Workflow failures expose only their bounded stage and disposition")
+  func boundedWorkflowFailures() {
+    let cases: [(CleanupQuarantineWorkflowStageFailure, String)] = [
+      (.cancelled(.reviewConfirmation), "cancelled during review confirmation"),
+      (.rejected(.approval), "rejected during approval"),
+      (.failed(.authorizationAttempt), "complete authorization preparation"),
+      (.failed(.authorizationIssuance), "complete one-time authorization"),
+    ]
+
+    for (failure, expectedText) in cases {
+      let presentation = CleanupQuarantineFailurePresentation(failure: failure)
+      #expect(presentation.title == "Quarantine did not start")
+      #expect(presentation.message.localizedCaseInsensitiveContains(expectedText))
+      #expect(!presentation.message.contains("/private/"))
+      #expect(!presentation.message.contains("NSPOSIXErrorDomain"))
+    }
+  }
+
   private func result(
     outcome: CleanupQuarantineFrontendOutcome,
     durability: CleanupQuarantineFrontendDurabilityEvidence,

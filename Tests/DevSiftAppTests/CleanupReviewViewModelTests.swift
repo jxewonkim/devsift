@@ -258,6 +258,40 @@ struct CleanupReviewViewModelTests {
       ) == "Draft review unavailable. No files were changed."
     )
     #expect(
+      CleanupReviewAccessibility.announcement(
+        from: .review(review),
+        to: .executing(review)
+      )
+        == "Recoverable quarantine started. Permanent deletion is disabled. Reconciliation may continue after cancellation."
+    )
+
+    let executionPresentation = CleanupQuarantineResultPresentation(
+      result: CleanupQuarantineFrontendExecutionResult(
+        outcome: .durablyQuarantined(sourceNameWasRecreated: false),
+        durabilityEvidence: .terminalReceiptRecorded(
+          transactionID: "00112233445566778899aabbccddeeff",
+          producedByRecovery: false
+        ),
+        namespaceMutation: .none,
+        cancellationWasObservedAfterRename: false
+      )
+    )
+    let resultAnnouncement = CleanupReviewAccessibility.announcement(
+      from: .executing(review),
+      to: .executionResult(executionPresentation)
+    )
+    #expect(
+      resultAnnouncement
+        == "Quarantine attempt finished. Moved to quarantine. A terminal receipt was durably recorded."
+    )
+    #expect(resultAnnouncement?.contains("00112233445566778899aabbccddeeff") == false)
+    #expect(
+      CleanupReviewAccessibility.announcement(
+        from: .executing(review),
+        to: .executionFailed(.rejected(.authorizationAttempt))
+      ) == "Quarantine did not start. Rescan and review before trying again."
+    )
+    #expect(
       CleanupReviewAccessibility.announcement(from: .unavailable, to: .selecting) == nil
     )
   }

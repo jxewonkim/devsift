@@ -42,15 +42,42 @@ enum CleanupReviewFailure: Equatable, Sendable {
   }
 }
 
+enum CleanupQuarantineAvailability: Equatable, Sendable {
+  case available
+  case requiresSupportedNPMReview
+  case requiresMacOS26
+
+  var message: String? {
+    switch self {
+    case .available:
+      nil
+    case .requiresSupportedNPMReview:
+      "This build can quarantine only one reviewed npm _cacache from the current account's exact ~/.npm folder."
+    case .requiresMacOS26:
+      "Recoverable quarantine requires macOS 26 or newer. Scanning and draft review remain available."
+    }
+  }
+}
+
 enum CleanupReviewPhase: Equatable, Sendable {
   case unavailable
   case selecting
   case preparing(selectedCount: Int)
   case review(CleanupManifestReviewPresentation)
+  case executing(CleanupManifestReviewPresentation)
+  case executionResult(CleanupQuarantineResultPresentation)
+  case executionFailed(CleanupQuarantineWorkflowStageFailure)
   case failed(CleanupReviewFailure)
 
   var isPreparing: Bool {
     if case .preparing = self {
+      return true
+    }
+    return false
+  }
+
+  var isExecuting: Bool {
+    if case .executing = self {
       return true
     }
     return false
@@ -86,32 +113,45 @@ final class ScanViewModel {
   @ObservationIgnored private let scanner: any FileSystemScanning
   @ObservationIgnored private let classifier: any RuleClassifying
   @ObservationIgnored private let cleanupApprover: any CleanupApproving
+  @ObservationIgnored private let cleanupQuarantineWorkflow: any CleanupQuarantineWorkflowExecuting
   @ObservationIgnored private let limits: ScanLimits
   @ObservationIgnored private let securityScope: any SecurityScopedResourceAccessing
   @ObservationIgnored private let referenceUnixSeconds: @Sendable () -> Int64
+  @ObservationIgnored private let supportsCleanupQuarantine: @Sendable () -> Bool
   @ObservationIgnored private var activeScanID: UUID?
   @ObservationIgnored private var scanTask: Task<Void, Never>?
   @ObservationIgnored private var cleanupPlanningContext: CleanupPlanningContext?
   @ObservationIgnored private var cleanupApprovalReviewSession: CleanupApprovalReviewSession?
   @ObservationIgnored private var activeCleanupPlanningID: UUID?
   @ObservationIgnored private var cleanupPlanningTask: Task<Void, Never>?
+  @ObservationIgnored private var activeCleanupExecutionID: UUID?
+  @ObservationIgnored private var cleanupExecutionTask: Task<Void, Never>?
 
   init(
     scanner: any FileSystemScanning = AllocatedSizeScanner(),
     classifier: any RuleClassifying = ExplainableRuleClassifier(),
     cleanupApprover: any CleanupApproving = CleanupApprover(),
+    cleanupQuarantineWorkflow: any CleanupQuarantineWorkflowExecuting =
+      CleanupQuarantineWorkflow(),
     limits: ScanLimits = ScanLimits(),
     securityScope: any SecurityScopedResourceAccessing = FoundationSecurityScopedResourceAccess(),
     referenceUnixSeconds: @escaping @Sendable () -> Int64 = {
       Int64(Date().timeIntervalSince1970)
+    },
+    supportsCleanupQuarantine: @escaping @Sendable () -> Bool = {
+      ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+      )
     }
   ) {
     self.scanner = scanner
     self.classifier = classifier
     self.cleanupApprover = cleanupApprover
+    self.cleanupQuarantineWorkflow = cleanupQuarantineWorkflow
     self.limits = limits
     self.securityScope = securityScope
     self.referenceUnixSeconds = referenceUnixSeconds
+    self.supportsCleanupQuarantine = supportsCleanupQuarantine
   }
 
   var isWorking: Bool {
@@ -131,7 +171,7 @@ final class ScanViewModel {
   }
 
   var canRescan: Bool {
-    phase.root != nil && !isWorking
+    phase.root != nil && !isWorking && !cleanupReviewPhase.isExecuting
   }
 
   var cleanupCandidateCount: Int {
@@ -145,9 +185,27 @@ final class ScanViewModel {
     switch cleanupReviewPhase {
     case .selecting, .failed:
       return true
-    case .unavailable, .preparing, .review:
+    case .unavailable, .preparing, .review, .executing, .executionResult,
+      .executionFailed:
       return false
     }
+  }
+
+  var cleanupQuarantineAvailability: CleanupQuarantineAvailability {
+    guard case .review(let review) = cleanupReviewPhase,
+      review.entryCount == 1,
+      review.reviewRequiredCount == 1,
+      review.entries.count == 1,
+      review.entries[0].responsibleTool == "npm",
+      !review.entries[0].deferredExecutionPreconditions.isEmpty,
+      cleanupApprovalReviewSession != nil
+    else {
+      return .requiresSupportedNPMReview
+    }
+    guard supportsCleanupQuarantine() else {
+      return .requiresMacOS26
+    }
+    return .available
   }
 
   @discardableResult
@@ -350,6 +408,52 @@ final class ScanViewModel {
     cleanupReviewPhase = .selecting
   }
 
+  /// Begins one attempt only after both independent user confirmations are
+  /// present on the currently rendered review. The booleans are UI intent
+  /// gates, not filesystem evidence; Core repeats every safety check inline.
+  @discardableResult
+  func executeReviewedCleanup(
+    reviewWasConfirmed: Bool,
+    npmStoppedRiskWasAccepted: Bool
+  ) -> Task<Void, Never>? {
+    guard
+      reviewWasConfirmed,
+      npmStoppedRiskWasAccepted,
+      cleanupQuarantineAvailability == .available,
+      let context = cleanupPlanningContext,
+      let reviewSession = cleanupApprovalReviewSession,
+      case .review(let review) = cleanupReviewPhase
+    else {
+      return nil
+    }
+
+    let executionID = UUID()
+    activeCleanupExecutionID = executionID
+    cleanupApprovalReviewSession = nil
+    cleanupReviewPhase = .executing(review)
+
+    let workflow = cleanupQuarantineWorkflow
+    let securityScope = securityScope
+    let root = reviewSession.sourceRoot
+    let task = Task { [weak self] in
+      let didStartSecurityScope = securityScope.startAccessing(root)
+      defer {
+        if didStartSecurityScope {
+          securityScope.stopAccessing(root)
+        }
+      }
+
+      let result = await workflow.execute(reviewSession)
+      self?.finishCleanupExecution(
+        executionID: executionID,
+        sessionID: context.sessionID,
+        result: result
+      )
+    }
+    cleanupExecutionTask = task
+    return task
+  }
+
   private func invalidateActiveScan() {
     activeScanID = nil
     let task = scanTask
@@ -431,12 +535,38 @@ final class ScanViewModel {
     switch cleanupReviewPhase {
     case .selecting, .failed:
       return true
-    case .unavailable, .preparing, .review:
+    case .unavailable, .preparing, .review, .executing, .executionResult,
+      .executionFailed:
       return false
     }
   }
 
+  private func finishCleanupExecution(
+    executionID: UUID,
+    sessionID: UUID,
+    result: CleanupQuarantineWorkflowResult
+  ) {
+    guard
+      executionID == activeCleanupExecutionID,
+      cleanupPlanningContext?.sessionID == sessionID
+    else {
+      return
+    }
+
+    activeCleanupExecutionID = nil
+    cleanupExecutionTask = nil
+    switch result {
+    case .execution(let executionResult):
+      cleanupReviewPhase = .executionResult(
+        CleanupQuarantineResultPresentation(result: executionResult)
+      )
+    case .failed(let failure):
+      cleanupReviewPhase = .executionFailed(failure)
+    }
+  }
+
   private func invalidateCleanupReview() {
+    cancelCleanupExecutionTask()
     cancelCleanupPlanningTask()
     cleanupPlanningContext = nil
     cleanupApprovalReviewSession = nil
@@ -448,6 +578,13 @@ final class ScanViewModel {
     activeCleanupPlanningID = nil
     let task = cleanupPlanningTask
     cleanupPlanningTask = nil
+    task?.cancel()
+  }
+
+  private func cancelCleanupExecutionTask() {
+    activeCleanupExecutionID = nil
+    let task = cleanupExecutionTask
+    cleanupExecutionTask = nil
     task?.cancel()
   }
 
