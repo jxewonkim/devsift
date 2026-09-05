@@ -31,7 +31,7 @@ package struct CleanupQuarantineFrontendExecutionResult: Equatable, Sendable {
   /// Moving an item into quarantine does not guarantee any freed disk space.
   package var guaranteedFreedBytes: UInt64 { 0 }
 
-  fileprivate init(
+  package init(
     contractVersion: UInt32 = Self.currentContractVersion,
     outcome: CleanupQuarantineFrontendOutcome,
     durabilityEvidence: CleanupQuarantineFrontendDurabilityEvidence,
