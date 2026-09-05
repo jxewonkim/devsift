@@ -7,6 +7,7 @@ struct ScanDashboardView: View {
   @State private var viewModel: ScanViewModel
   @State private var folderImporterIsPresented = false
   @State private var folderImportFailureIsPresented = false
+  @State private var recoveryIsPresented = false
   private let policyDetailsInitiallyExpanded: Bool
 
   init(
@@ -53,6 +54,9 @@ struct ScanDashboardView: View {
       Button("OK") {}
     } message: {
       Text("DevSift could not open the folder picker result. Select the folder again.")
+    }
+    .sheet(isPresented: $recoveryIsPresented) {
+      QuarantineRecoveryView()
     }
     .onChange(of: viewModel.phase) { _, phase in
       guard let announcement = DashboardAccessibility.announcement(for: phase) else {
@@ -105,7 +109,7 @@ struct ScanDashboardView: View {
           root: root,
           result: result,
           rescan: { viewModel.rescan() },
-          openRecovery: nil
+          openRecovery: { recoveryIsPresented = true }
         )
       case .executionFailed(let failure):
         CleanupQuarantineFailureView(
@@ -161,6 +165,18 @@ struct ScanDashboardView: View {
       .accessibilityElement(children: .combine)
 
       Spacer()
+
+      Button {
+        recoveryIsPresented = true
+      } label: {
+        Label("Recovery…", systemImage: "arrow.uturn.backward.circle")
+      }
+      .disabled(viewModel.cleanupReviewPhase.isExecuting)
+      .accessibilityHint(
+        viewModel.cleanupReviewPhase.isExecuting
+          ? "Wait for the current quarantine reconciliation to finish"
+          : "Explicitly load and reconcile the fixed npm quarantine inventory"
+      )
 
       if showsHeaderRescanButton {
         Button(action: { viewModel.rescan() }) {

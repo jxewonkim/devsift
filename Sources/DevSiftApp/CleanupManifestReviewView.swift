@@ -267,7 +267,7 @@ struct CleanupManifestReviewView: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text(
-        "This moves one exact _cacache into DevSift's private quarantine. It does not permanently delete files or free disk space."
+        "This one-time attempt asserts that npm work using this cache is stopped while DevSift has not observed inactivity. It moves one exact _cacache into private quarantine; it does not permanently delete files or free disk space."
       )
     }
   }
