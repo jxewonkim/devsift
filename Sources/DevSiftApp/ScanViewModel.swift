@@ -85,20 +85,21 @@ final class ScanViewModel {
 
   @ObservationIgnored private let scanner: any FileSystemScanning
   @ObservationIgnored private let classifier: any RuleClassifying
-  @ObservationIgnored private let cleanupPlanner: any CleanupPlanning
+  @ObservationIgnored private let cleanupApprover: any CleanupApproving
   @ObservationIgnored private let limits: ScanLimits
   @ObservationIgnored private let securityScope: any SecurityScopedResourceAccessing
   @ObservationIgnored private let referenceUnixSeconds: @Sendable () -> Int64
   @ObservationIgnored private var activeScanID: UUID?
   @ObservationIgnored private var scanTask: Task<Void, Never>?
   @ObservationIgnored private var cleanupPlanningContext: CleanupPlanningContext?
+  @ObservationIgnored private var cleanupApprovalReviewSession: CleanupApprovalReviewSession?
   @ObservationIgnored private var activeCleanupPlanningID: UUID?
   @ObservationIgnored private var cleanupPlanningTask: Task<Void, Never>?
 
   init(
     scanner: any FileSystemScanning = AllocatedSizeScanner(),
     classifier: any RuleClassifying = ExplainableRuleClassifier(),
-    cleanupPlanner: any CleanupPlanning = CleanupPlanner(),
+    cleanupApprover: any CleanupApproving = CleanupApprover(),
     limits: ScanLimits = ScanLimits(),
     securityScope: any SecurityScopedResourceAccessing = FoundationSecurityScopedResourceAccess(),
     referenceUnixSeconds: @escaping @Sendable () -> Int64 = {
@@ -107,7 +108,7 @@ final class ScanViewModel {
   ) {
     self.scanner = scanner
     self.classifier = classifier
-    self.cleanupPlanner = cleanupPlanner
+    self.cleanupApprover = cleanupApprover
     self.limits = limits
     self.securityScope = securityScope
     self.referenceUnixSeconds = referenceUnixSeconds
@@ -293,15 +294,18 @@ final class ScanViewModel {
     activeCleanupPlanningID = planningID
     cleanupReviewPhase = .preparing(selectedCount: selections.count)
 
-    let planner = cleanupPlanner
+    let approver = cleanupApprover
     let worker = Task.detached(priority: .userInitiated) {
-      let manifest = try planner.makeManifest(request)
+      let session = try approver.beginReview(request)
       try Task.checkCancellation()
-      return try CleanupManifestReviewPresentation.prepare(manifest: manifest)
+      let presentation = try CleanupManifestReviewPresentation.prepare(
+        manifest: session.reviewedManifest
+      )
+      return PreparedCleanupReview(session: session, presentation: presentation)
     }
     let task = Task { [weak self] in
       do {
-        let review = try await withTaskCancellationHandler {
+        let prepared = try await withTaskCancellationHandler {
           try await worker.value
         } onCancel: {
           worker.cancel()
@@ -310,7 +314,7 @@ final class ScanViewModel {
         self?.finishCleanupReview(
           planningID: planningID,
           sessionID: context.sessionID,
-          phase: .review(review)
+          prepared: prepared
         )
       } catch is CancellationError {
         self?.finishCleanupReview(
@@ -342,6 +346,7 @@ final class ScanViewModel {
     guard case .review = cleanupReviewPhase else {
       return
     }
+    cleanupApprovalReviewSession = nil
     cleanupReviewPhase = .selecting
   }
 
@@ -400,7 +405,26 @@ final class ScanViewModel {
 
     activeCleanupPlanningID = nil
     cleanupPlanningTask = nil
+    cleanupApprovalReviewSession = nil
     cleanupReviewPhase = phase
+  }
+
+  private func finishCleanupReview(
+    planningID: UUID,
+    sessionID: UUID,
+    prepared: PreparedCleanupReview
+  ) {
+    guard
+      planningID == activeCleanupPlanningID,
+      cleanupPlanningContext?.sessionID == sessionID
+    else {
+      return
+    }
+
+    activeCleanupPlanningID = nil
+    cleanupPlanningTask = nil
+    cleanupApprovalReviewSession = prepared.session
+    cleanupReviewPhase = .review(prepared.presentation)
   }
 
   private var allowsCleanupSelectionChanges: Bool {
@@ -415,6 +439,7 @@ final class ScanViewModel {
   private func invalidateCleanupReview() {
     cancelCleanupPlanningTask()
     cleanupPlanningContext = nil
+    cleanupApprovalReviewSession = nil
     selectedCleanupCandidates = []
     cleanupReviewPhase = .unavailable
   }
@@ -433,6 +458,11 @@ final class ScanViewModel {
     phase = .classifying(root)
     return true
   }
+}
+
+private struct PreparedCleanupReview: Sendable {
+  let session: CleanupApprovalReviewSession
+  let presentation: CleanupManifestReviewPresentation
 }
 
 private struct CleanupPlanningContext: Sendable {
