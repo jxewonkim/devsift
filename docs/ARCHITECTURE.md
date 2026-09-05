@@ -3,17 +3,18 @@
 DevSift uses one safety-critical Swift core shared by its native app and CLI.
 
 ```text
-DevSift SwiftUI app  --->  DevSiftCore  <---  devsift CLI
-                              |
-        scan -> rules -> plan -> diff -> approve -> revalidate -> authorize -> quarantine
-          now      now    now    Core      Core        Core        Core        internal
-                                                                              |
-                                                               mixed journal/recovery
-                                                                              |
-                                                                   manual restore
-                                                                      internal
-                                   |
-                                   +-> app review now
+source-run DevSift app ---> DevSiftCore <--- devsift CLI (read-only)
+        |                      |
+        +-> scan -> rules -> plan -> review/approve
+                               |
+                               +-> package-scoped npm quarantine facade
+                                      |          |
+                               durable move   explicit reconcile/inventory
+                                                     |
+                                             receipt-bound restore
+
+public DevSiftCore API: read-only analysis/review/authorization values;
+mutation executors, journal records, and raw transaction selectors stay hidden.
 ```
 
 ## Components
@@ -51,7 +52,7 @@ Core layers are:
   rescans its retained root, and reclassifies it with current built-in policy.
   It emits canonical point-in-time entry statuses, including pending execution
   preconditions, and no execution capability;
-- **Authorization:** a Core-only process-local transition that binds one exact
+- **Authorization:** a Core-defined process-local transition that binds one exact
   approval to an explicit caller assertion covering its complete canonical
   pending set. `CleanupQuarantineAuthorization` is single-use and recoverable-
   quarantine-only, requires inline filesystem revalidation, and grants no
@@ -67,12 +68,19 @@ Core layers are:
   serializes cooperating quarantine and restore attempts, applies required
   `F_FULLFSYNC` record and namespace barriers, and reconciles receipt-less
   intents from current descriptor-bound namespace truth without retrying a
-  rename, overwriting, or deleting. The root-only recovery entry point is
-  internal and is not wired to app launch;
+  rename, overwriting, or deleting. Recovery is never wired to app launch. A
+  package-scoped explicit inventory request runs recovery, final journal
+  reread/revalidation, and bounded projection under one validated exclusive
+  lock. Malformed or unresolved journal state, unsafe parents, and aggregate
+  resource exhaustion fail atomically; item-level problems remain visible as
+  non-restorable rows;
 - **Manual restore:** a separate Core-internal npm-only selector, confirmation,
   single-use authorization, descriptor preflight, and executor for one exact
   final-receipt-bound quarantine item. It can make at most one non-overwriting
-  reverse rename and returns bounded process-local diagnostics;
+  reverse rename and returns bounded process-local diagnostics. The UI sees only
+  package-scoped opaque references, readiness, exact confirmation text, and
+  bounded results. The app-local adapter briefly holds the package authorization
+  before passing it back to Core; the internal claim remains Core-only;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 Current Core semantic versions are explainable classification revision 3,
@@ -83,6 +91,17 @@ and its internal report are contract version 1. Private quarantine and restore
 intent/receipt wire records are version 1. The
 built-in catalog is version 6 and npm is rule revision 5. Older manifests and
 approvals are regenerated rather than migrated.
+
+The mutation architecture intentionally contains no purge, permanent deletion,
+storage-reclaim, retention, batch or background executor, custom-root or non-npm
+executor, network, telemetry, or privilege-escalation component. The app remains
+source-run rather than distributed. Core runs locked recovery during quarantine
+transaction admission, restore preparation, and restore transaction admission,
+and during an explicit inventory load or refresh. A restore execution that returns
+to the still-current, uncancelled view-model operation schedules one follow-up
+refresh; dismissal, cancellation, or superseding work can prevent or cancel it
+and suppresses stale UI publication. Recovery never runs merely because the app
+launched or as periodic or background work.
 
 ### devsift CLI
 
@@ -119,13 +138,17 @@ indeterminate scan and policy-analysis states, cancellation, rescan,
 observation results, partial-result details, explainable policy assessments,
 accessibility, explicit eligible-candidate inclusion, and a read-only in-memory
 draft review. Table focus and draft inclusion are separate, and every result
-starts with zero included candidates.
+starts with zero included candidates. For one exact npm `_cacache` in the
+current non-root account's passwd-home, the source-run app also provides an
+explicit reviewed quarantine transaction plus explicit recovery-inventory and
+manual-restore transactions.
+Those are package-scoped integrations, not general frontend filesystem access.
 
-Each window owns a `@MainActor` observable view model with injected
-`FileSystemScanning`, `RuleClassifying`, and `CleanupPlanning` capabilities. It
-passes the file importer's selected URL unchanged to DevSiftCore. A scan UUID
-prevents a cancelled or superseded task from publishing a late result over the
-current state. Security-scoped access is held until Core scanning,
+Each window owns a main-actor observable view model with injected scanning,
+classification, review, and package-scoped transaction capabilities. It passes
+the file importer's selected URL unchanged to DevSiftCore. A scan token prevents
+a cancelled or superseded task from publishing a late result over the current
+state. Security-scoped access is held until Core scanning,
 classification, and result presentation preparation finish, then balanced on
 success, failure, or cancellation; later draft planning uses only retained
 values and holds no filesystem scope.
@@ -159,17 +182,28 @@ The included set is frozen and canonically ordered before the planner runs in a
 detached user-initiated task. A planning UUID plus the source scan UUID prevents
 cancelled, superseded, or closed-window work from publishing a late result.
 
-The manifest is immediately converted to an app-owned, identity-free review
-presentation and discarded. That presentation retains a raw relative path only
-as an in-memory row identity and renders escaped display text. It does not
-retain root or candidate filesystem identities, the source request or manifest,
-reference time, provenance roster, serialization, approval, attestation,
-authorization, or execution state. The visible root scope comes separately
-from the active scan window. The view shows all seven stored observation and
-uncertainty quantities, never guaranteed savings. It also shows pending npm
-activity as unobserved policy metadata and provides no approval or attestation
-action. It has no persistence, import, export, diff, approval, execution,
-execution-time filesystem revalidation, or filesystem capability.
+The manifest is converted to an app-owned, identity-free review presentation.
+That presentation retains a raw relative path only as an in-memory row identity
+and renders escaped display text. It does not retain root or candidate
+filesystem identities, the source request or manifest, reference time,
+provenance roster, serialization, approval, attestation, authorization, or
+execution state. For the supported npm transaction, the app separately retains
+the opaque Core-issued review session; it never reconstructs authority from the
+lossy presentation. The visible root scope comes from active window state. The
+view shows all seven stored observation and uncertainty quantities, never
+guaranteed savings, and shows pending npm activity as unobserved policy
+metadata. It has no persistence, import, export, or diff capability.
+
+After explicit review, the app requires two independent confirmation gates: the
+attempt-scoped stopped-npm/unobserved-risk assertion and a final confirmation of
+the recoverable move. An app-local workflow then derives and briefly holds the
+Core approval, authorization session, attestation, and authorization before
+passing the authorization into the package-scoped executor. None of those values
+enters UI presentation state, and Core alone consumes the internal execution
+claim. Core repeats every descriptor-held safety check and, on macOS 26 or newer,
+may perform one durable, non-overwriting same-volume rename. The projected result
+distinguishes terminal receipt state from unresolved state and reports
+guaranteed freed capacity as 0 B.
 
 The Core differ first rejects manifest-contract, provenance, or expected-root
 identity incompatibility. It then performs an `O(n + m)` merge by exact raw path
@@ -197,9 +231,10 @@ I/O, clock reads, or mutation capability. The
 opaque seal correlates values only inside the current process; it is not a
 secret, authenticity proof, activity attestation, proof of human review, or
 permission to execute.
-Neither frontend invokes this contract. Core revalidation accepts only
-`CleanupApproval` and reopens the root stored within it, rather than accepting a
-separately supplied root, unapproved manifest, diff, or review projection.
+The app invokes this contract only through its retained current review session;
+the CLI does not. Core revalidation accepts only `CleanupApproval` and reopens
+the root stored within it, rather than accepting a separately supplied root,
+unapproved manifest, diff, or review projection.
 
 The first Phase 7 `CleanupRevalidator` now accepts only `CleanupApproval`. It
 performs a fresh scan and fresh built-in classification using the approval's
@@ -251,9 +286,13 @@ item and bounded cacache tree, and source-name absence. Under the shared journal
 lock it publishes and synchronizes a separate restore intent before invoking at
 most one exclusive reverse rename. It then reconciles both names and publishes a
 terminal restore receipt only for conclusive state. Mixed recovery may complete
-a receipt from namespace truth but never invokes the rename. These types and
-entry points remain internal and non-`Codable`; neither frontend can reach them.
-See the [manual restore contract](RESTORE.md).
+a receipt from namespace truth but never invokes the rename. These low-level
+types and entry points remain internal and non-`Codable`. The app can reach only
+a package-scoped facade that explicitly reconciles and validates the complete
+bounded inventory, issues opaque process-local item references, and projects
+honest restore readiness and bounded outcomes. The CLI and public library
+clients cannot reach either mutation path. See the
+[manual restore contract](RESTORE.md).
 
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
@@ -294,7 +333,9 @@ crossing top-level items or leaving the selected root remain explicitly
 non-exclusive. This field does not claim to resolve clone or snapshot sharing.
 APFS clones are not deduplicated because file-level APIs do not expose block
 ownership. A reported allocated size is therefore a point-in-time estimate, not
-a guaranteed reclaimable byte count.
+a guaranteed reclaimable byte count. Phase 9 quarantine is only a same-volume
+namespace rename: it retains all file data and its guaranteed freed capacity is
+exactly 0 B.
 
 ## Evolution rule
 
@@ -318,10 +359,14 @@ references; it cannot be rebuilt from either projection. The approval retains
 the exact root, manifest, and review acknowledgements but does not make either
 projection approvable. Core review, caller-created quarantine attestation,
 restore confirmation, and both single-attempt authorizations now exist only as
-process-local values. User-facing export, import, persistence, diffing,
-frontend approval and attestation flows, and user-facing execution remain
-outside the current boundary. The CLI projection's sorted
-`JSONEncoder` output targets
+process-local values. The app view model retains the Core review session apart
+from presentation and enforces its independent UI gates. After final
+confirmation, the app-local workflow derives approval and fresh authorization,
+then passes only that authorization to the package-scoped executor. Neither
+display state nor the public Core API becomes mutation authority.
+User-facing export, import, persistence, and diffing remain outside the current
+boundary, as do CLI mutation and arbitrary-path execution. The CLI projection's
+sorted `JSONEncoder` output targets
 repeatability only for the same input, privacy profile, implementation build,
 and Swift/Foundation runtime; it is not a cryptographic canonical form, stable
 digest, signature, or authenticity proof.

@@ -41,8 +41,9 @@ The review covered:
   never invokes or retries the reverse rename and preserves ambiguous state.
 - Quarantine and restore share one validated journal lock and permit at most one
   receipt-less mutation intent across both operation types.
-- All restore domain values and execution entry points remain internal and
-  non-`Codable`; the app and CLI remain read-only.
+- At the reviewed Phase 7 snapshot, all restore domain values and execution
+  entry points remained internal and non-`Codable`; the app and CLI were
+  read-only.
 
 ## Findings closed during review
 
@@ -82,7 +83,9 @@ unsafe-tree rejection before intent, mutation races, cancellation on both sides
 of rename, durability failures, every recovery truth-table branch, and
 ambiguous-state preservation using synthetic temporary fixtures only.
 
-Any public or frontend restore surface, automatic app-launch recovery, custom
-root, batch operation, purge, record retention, or permanent deletion remains a
-new review boundary. See the [manual restore contract](RESTORE.md) and
+The later Phase 9 package-scoped app inventory and restore surface was outside
+this historical review and is a separate frontend review boundary. Public or
+CLI mutation, automatic app-launch recovery, custom root, batch operation,
+purge, record retention, and permanent deletion remain additional new review
+boundaries. See the [manual restore contract](RESTORE.md) and
 [safety model](SAFETY.md).

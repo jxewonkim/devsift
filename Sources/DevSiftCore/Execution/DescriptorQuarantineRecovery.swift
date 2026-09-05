@@ -114,6 +114,65 @@ private struct DescriptorRestoreJournalNamespaceTruth: Equatable {
   let quarantineItem: DescriptorJournalObservedName
 }
 
+enum DescriptorQuarantineInventorySourceState: Equatable, Sendable {
+  case missing
+  case expectedObjectPresent
+  case otherObjectPresent
+}
+
+enum DescriptorQuarantineInventoryItemState: Equatable, Sendable {
+  case available
+  case missing
+  case changed
+  case unsafe
+  case traversalLimitExceeded
+}
+
+struct DescriptorQuarantineInventoryEntry: Equatable, Sendable {
+  let quarantineTransactionID: String
+  let canonicalQuarantineIntentBytes: Data
+  let canonicalQuarantineReceiptBytes: Data
+  let sourceState: DescriptorQuarantineInventorySourceState
+  let itemState: DescriptorQuarantineInventoryItemState
+  let quarantineReceiptWasProducedByRecovery: Bool
+}
+
+enum DescriptorQuarantineInventoryFailure: Error, Equatable, Sendable {
+  case cancelled
+  case journal(DescriptorQuarantineJournalFailure)
+}
+
+enum DescriptorQuarantineInventoryResult: Equatable, Sendable {
+  case success([DescriptorQuarantineInventoryEntry])
+  case failure(DescriptorQuarantineInventoryFailure)
+}
+
+private final class DescriptorQuarantineInventoryTraversalBudget: @unchecked Sendable {
+  private let lock = NSLock()
+  private var remainingEntries: Int
+  private var exceeded = false
+
+  init(maximumEntries: Int) {
+    remainingEntries = maximumEntries
+  }
+
+  func consumeEntry() throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard remainingEntries > 0 else {
+      exceeded = true
+      throw DescriptorNPMQuarantinePreflightFailure.traversalLimitExceeded
+    }
+    remainingEntries -= 1
+  }
+
+  var wasExceeded: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return exceeded
+  }
+}
+
 func descriptorJournalValidateBeginBindings(
   _ request: DescriptorQuarantineJournalBeginRequest,
   requireExactParentLinkCounts: Bool = true,
@@ -2829,6 +2888,242 @@ private func descriptorJournalFailureCode(
   descriptorJournalFailure(for: code)
 }
 
+func descriptorJournalReconcileAndLoadInventory(
+  _ request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies,
+  maximumTraversalEntries: Int = DescriptorNPMQuarantineTraversalLimits.defaults.maximumEntries
+) -> DescriptorQuarantineInventoryResult {
+  guard !Task.isCancelled else {
+    return .failure(.cancelled)
+  }
+  guard maximumTraversalEntries >= 0 else {
+    return .failure(.journal(.unavailable(.resourceLimit)))
+  }
+  guard request.accountUID != 0 else {
+    return .failure(.journal(.unsafe))
+  }
+  switch descriptorJournalValidateRecoveryParentsBeforeLock(
+    request,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+
+  let quarantineSnapshot: DescriptorStatSnapshot
+  do {
+    quarantineSnapshot = try DescriptorStatSnapshot.read(
+      from: request.quarantineRootDescriptor,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+  } catch {
+    return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+  }
+
+  let acquiredLock = descriptorJournalAcquireLock(
+    quarantineRootDescriptor: request.quarantineRootDescriptor,
+    expectedDevice: quarantineSnapshot.identity.device,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  )
+  let lockDescriptor: Int32
+  switch acquiredLock {
+  case .success(let descriptor):
+    lockDescriptor = descriptor
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  defer {
+    dependencies.unlock(lockDescriptor)
+    descriptorCloseIgnoringErrors(lockDescriptor)
+  }
+  dependencies.hooks.didAcquireLock()
+
+  switch descriptorJournalRecoverLocked(request, dependencies: dependencies) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+
+  let inventory: DescriptorJournalInventory
+  switch descriptorJournalReadInventory(
+    request,
+    expectedDevice: quarantineSnapshot.identity.device,
+    dependencies: dependencies
+  ) {
+  case .success(let value):
+    inventory = value
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  switch descriptorJournalValidateInventoryStructure(
+    inventory,
+    maximumPendingIntentCount: 0
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+
+  switch descriptorJournalValidateParents(
+    request,
+    expectedRoot: nil,
+    expectedQuarantineRoot: nil,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+
+  let entries: [DescriptorQuarantineInventoryEntry]
+  switch descriptorJournalProjectInventory(
+    inventory,
+    request: request,
+    dependencies: dependencies,
+    maximumTraversalEntries: maximumTraversalEntries
+  ) {
+  case .success(let value):
+    entries = value
+  case .failure(let failure):
+    return .failure(failure)
+  }
+
+  switch descriptorJournalValidateParents(
+    request,
+    expectedRoot: nil,
+    expectedQuarantineRoot: nil,
+    dependencies: dependencies
+  ) {
+  case .success:
+    return .success(entries)
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+}
+
+private func descriptorJournalProjectInventory(
+  _ inventory: DescriptorJournalInventory,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies,
+  maximumTraversalEntries: Int
+) -> DescriptorQuarantineInventoryResult {
+  var entries: [DescriptorQuarantineInventoryEntry] = []
+  entries.reserveCapacity(inventory.intents.count)
+  let traversalBudget = DescriptorQuarantineInventoryTraversalBudget(
+    maximumEntries: maximumTraversalEntries
+  )
+
+  for quarantineTransactionID in inventory.intents.keys.sorted() {
+    guard
+      let quarantineIntentRecord = inventory.intents[quarantineTransactionID],
+      let quarantineReceiptRecord = inventory.receipts[quarantineTransactionID]
+    else {
+      return .failure(.journal(.unsafe))
+    }
+    guard quarantineReceiptRecord.value.outcome == .quarantined else {
+      continue
+    }
+    guard
+      !descriptorJournalHasSuccessfulRestore(
+        for: quarantineTransactionID,
+        inventory: inventory
+      )
+    else {
+      continue
+    }
+
+    let projectionRestoreTransactionID =
+      quarantineTransactionID == String(repeating: "0", count: 32)
+      ? String(repeating: "1", count: 32)
+      : String(repeating: "0", count: 32)
+    let restoreIntent: QuarantineRestoreJournalIntentV1
+    do {
+      restoreIntent = try QuarantineRestoreJournalV1Codec.makeIntent(
+        restoreTransactionID: projectionRestoreTransactionID,
+        canonicalQuarantineIntentBytes: quarantineIntentRecord.bytes,
+        canonicalQuarantineReceiptBytes: quarantineReceiptRecord.bytes
+      )
+    } catch {
+      return .failure(.journal(.unsafe))
+    }
+
+    let truth: DescriptorRestoreJournalNamespaceTruth
+    switch descriptorJournalObserveRestoreNamespace(
+      restoreIntent,
+      request: request,
+      dependencies: dependencies
+    ) {
+    case .success(let value):
+      truth = value
+    case .failure(let failure):
+      return .failure(.journal(failure))
+    }
+
+    let sourceState: DescriptorQuarantineInventorySourceState
+    switch truth.source {
+    case .missing:
+      sourceState = .missing
+    case .expected:
+      sourceState = .expectedObjectPresent
+    case .other:
+      sourceState = .otherObjectPresent
+    }
+
+    let itemState: DescriptorQuarantineInventoryItemState
+    switch truth.quarantineItem {
+    case .missing:
+      itemState = .missing
+    case .other:
+      itemState = .changed
+    case .expected:
+      switch descriptorJournalValidateRestoreItemTree(
+        restoreIntent,
+        request: request,
+        dependencies: dependencies,
+        beforeTraversalEntry: { _, _ in
+          try traversalBudget.consumeEntry()
+        }
+      ) {
+      case .success:
+        itemState = .available
+      case .failure(.cancelled):
+        return .failure(.cancelled)
+      case .failure(.quarantinedItemMissing):
+        itemState = .missing
+      case .failure(.quarantinedItemUnsafe):
+        itemState = .unsafe
+      case .failure(.traversalLimitExceeded):
+        if traversalBudget.wasExceeded {
+          return .failure(.journal(.unavailable(.resourceLimit)))
+        }
+        itemState = .traversalLimitExceeded
+      case .failure:
+        itemState = .changed
+      }
+    }
+
+    entries.append(
+      DescriptorQuarantineInventoryEntry(
+        quarantineTransactionID: quarantineTransactionID,
+        canonicalQuarantineIntentBytes: quarantineIntentRecord.bytes,
+        canonicalQuarantineReceiptBytes: quarantineReceiptRecord.bytes,
+        sourceState: sourceState,
+        itemState: itemState,
+        quarantineReceiptWasProducedByRecovery:
+          quarantineReceiptRecord.value.producedByRecovery
+      )
+    )
+  }
+
+  return .success(entries)
+}
+
 func descriptorJournalPrepareRestore(
   _ request: DescriptorQuarantineRestorePreparationRequest,
   dependencies: DescriptorQuarantineJournalDependencies
@@ -2905,6 +3200,21 @@ func descriptorJournalPrepareRestore(
     let quarantineReceiptRecord = inventory.receipts[request.quarantineTransactionID]
   else {
     return .failure(.transactionNotFound)
+  }
+  if let expectedIntentBytes = request.expectedCanonicalQuarantineIntentBytes,
+    let expectedReceiptBytes = request.expectedCanonicalQuarantineReceiptBytes
+  {
+    guard quarantineIntentRecord.bytes == expectedIntentBytes,
+      quarantineReceiptRecord.bytes == expectedReceiptBytes
+    else {
+      return .failure(.transactionNotRestorable)
+    }
+  } else {
+    guard request.expectedCanonicalQuarantineIntentBytes == nil,
+      request.expectedCanonicalQuarantineReceiptBytes == nil
+    else {
+      return .failure(.invalidClaim)
+    }
   }
   guard quarantineReceiptRecord.value.outcome == .quarantined else {
     return .failure(.transactionNotRestorable)
@@ -3022,7 +3332,8 @@ private func descriptorJournalHasSuccessfulRestore(
 private func descriptorJournalValidateRestoreItemTree(
   _ intent: QuarantineRestoreJournalIntentV1,
   request: DescriptorQuarantineJournalRecoveryRequest,
-  dependencies: DescriptorQuarantineJournalDependencies
+  dependencies: DescriptorQuarantineJournalDependencies,
+  beforeTraversalEntry: @escaping DescriptorNPMCacheTreeValidator.EntryHook = { _, _ in }
 ) -> Result<Void, DescriptorQuarantineRestoreFailure> {
   guard let itemComponent = DescriptorPathComponent(intent.quarantineItemComponent) else {
     return .failure(.quarantinedItemChanged)
@@ -3076,7 +3387,8 @@ private func descriptorJournalValidateRestoreItemTree(
 
   do {
     _ = try DescriptorNPMCacheTreeValidator(
-      checkpoint: { try Task.checkCancellation() }
+      checkpoint: { try Task.checkCancellation() },
+      beforeTraversalEntry: beforeTraversalEntry
     ).validate(
       descriptor: itemDescriptor,
       namedAt: request.quarantineRootDescriptor,
@@ -3993,6 +4305,217 @@ struct DescriptorNPMQuarantineRecovery: Sendable {
         homeComponentCount: homePath.components.count,
         accountUID: accountUID
       ))
+  }
+}
+
+/// Opens only the current non-root account's passwd-home npm quarantine and
+/// keeps every descriptor live while the journal is reconciled and projected.
+/// Missing fixed roots are an empty inventory and are never created here.
+struct DescriptorNPMQuarantineInventoryLoader: Sendable {
+  typealias RawHomeProvider = @Sendable () -> RuleObserved<[UInt8]>
+  typealias AccountUIDProvider = @Sendable () -> RuleObserved<uid_t>
+
+  private let dependencies: DescriptorQuarantineJournalDependencies
+  private let rawHomeProvider: RawHomeProvider
+  private let accountUIDProvider: AccountUIDProvider
+  private let supportsDurableMutation: @Sendable () -> Bool
+
+  init(
+    dependencies: DescriptorQuarantineJournalDependencies =
+      DescriptorQuarantineJournalDependencies(),
+    rawHomeProvider: @escaping RawHomeProvider = { currentUIDRawHome() },
+    accountUIDProvider: @escaping AccountUIDProvider = { currentNonRootAccountUID() },
+    supportsDurableMutation: @escaping @Sendable () -> Bool = {
+      ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+      )
+    }
+  ) {
+    self.dependencies = dependencies
+    self.rawHomeProvider = rawHomeProvider
+    self.accountUIDProvider = accountUIDProvider
+    self.supportsDurableMutation = supportsDurableMutation
+  }
+
+  func reconcileAndLoadInventory() -> DescriptorQuarantineInventoryResult {
+    guard !Task.isCancelled else {
+      return .failure(.cancelled)
+    }
+    let accountUID: uid_t
+    switch accountUIDProvider() {
+    case .known(let value) where value != 0:
+      accountUID = value
+    case .known, .unknown:
+      return .failure(.journal(.unsafe))
+    }
+    guard Darwin.getuid() == accountUID, Darwin.geteuid() == accountUID else {
+      return .failure(.journal(.unsafe))
+    }
+
+    let rawHome: [UInt8]
+    switch rawHomeProvider() {
+    case .known(let value):
+      rawHome = value
+    case .unknown:
+      return .failure(.journal(.unsafe))
+    }
+    guard
+      let homePath = DescriptorAbsolutePath(rawBytes: rawHome),
+      !homePath.components.isEmpty,
+      let npmComponent = DescriptorPathComponent(Array(".npm".utf8)),
+      let quarantineComponent = DescriptorPathComponent(
+        DescriptorExclusiveQuarantineMover.quarantineRootBytes
+      )
+    else {
+      return .failure(.journal(.unsafe))
+    }
+
+    let slashDescriptor: Int32
+    do {
+      slashDescriptor = try descriptorOpenRoot(
+        URL(fileURLWithPath: "/", isDirectory: true),
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+    var traversalDescriptor = slashDescriptor
+    defer { descriptorCloseIgnoringErrors(traversalDescriptor) }
+
+    do {
+      for component in homePath.components {
+        let child = try descriptorOpenTrustedDirectory(
+          at: traversalDescriptor,
+          component: component,
+          cancellationPolicy: .ignoreTaskCancellation
+        )
+        descriptorCloseIgnoringErrors(traversalDescriptor)
+        traversalDescriptor = child
+      }
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+
+    let homeSnapshot: DescriptorStatSnapshot
+    do {
+      homeSnapshot = try DescriptorStatSnapshot.read(
+        from: traversalDescriptor,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+      guard
+        homeSnapshot.kind == .directory,
+        homeSnapshot.ownerUID == accountUID,
+        homeSnapshot.permissionMode & mode_t(0o022) == 0,
+        homeSnapshot.flags == 0
+      else {
+        return .failure(.journal(.unsafe))
+      }
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+
+    let rootDescriptor: Int32
+    do {
+      rootDescriptor = try descriptorOpenTrustedDirectory(
+        at: traversalDescriptor,
+        component: npmComponent,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+    } catch DescriptorObservationError.posix(ENOENT) {
+      return .success([])
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+    defer { descriptorCloseIgnoringErrors(rootDescriptor) }
+
+    do {
+      let root = try DescriptorStatSnapshot.read(
+        from: rootDescriptor,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+      let namedRoot = try DescriptorStatSnapshot.read(
+        at: traversalDescriptor,
+        component: npmComponent,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+      guard
+        root.sameBinding(as: namedRoot),
+        root.sameMutationState(as: namedRoot),
+        root.ownerUID == namedRoot.ownerUID,
+        root.permissionMode == namedRoot.permissionMode,
+        root.flags == namedRoot.flags,
+        root.linkCount == namedRoot.linkCount,
+        root.kind == .directory,
+        root.identity.device == homeSnapshot.identity.device,
+        root.ownerUID == accountUID,
+        root.permissionMode & mode_t(0o022) == 0,
+        root.flags == 0,
+        try !descriptorHasExtendedACL(rootDescriptor)
+      else {
+        return .failure(.journal(.unsafe))
+      }
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+
+    let quarantineDescriptor: Int32
+    do {
+      quarantineDescriptor = try descriptorOpenTrustedDirectory(
+        at: rootDescriptor,
+        component: quarantineComponent,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+    } catch DescriptorObservationError.posix(ENOENT) {
+      return .success([])
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+    defer { descriptorCloseIgnoringErrors(quarantineDescriptor) }
+
+    guard supportsDurableMutation() else {
+      return .failure(.journal(.unavailable(.unsupported)))
+    }
+    do {
+      let quarantine = try DescriptorStatSnapshot.read(
+        from: quarantineDescriptor,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+      let namedQuarantine = try DescriptorStatSnapshot.read(
+        at: rootDescriptor,
+        component: quarantineComponent,
+        cancellationPolicy: .ignoreTaskCancellation
+      )
+      guard
+        quarantine.sameBinding(as: namedQuarantine),
+        quarantine.sameMutationState(as: namedQuarantine),
+        quarantine.ownerUID == namedQuarantine.ownerUID,
+        quarantine.permissionMode == namedQuarantine.permissionMode,
+        quarantine.flags == namedQuarantine.flags,
+        quarantine.linkCount == namedQuarantine.linkCount,
+        quarantine.kind == .directory,
+        quarantine.identity.device == homeSnapshot.identity.device,
+        quarantine.ownerUID == accountUID,
+        quarantine.permissionMode == mode_t(0o700),
+        quarantine.flags == 0,
+        try !descriptorHasExtendedACL(quarantineDescriptor)
+      else {
+        return .failure(.journal(.unsafe))
+      }
+    } catch {
+      return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+    }
+
+    return descriptorJournalReconcileAndLoadInventory(
+      DescriptorQuarantineJournalRecoveryRequest(
+        rootDescriptor: rootDescriptor,
+        quarantineRootDescriptor: quarantineDescriptor,
+        quarantineRootComponent: quarantineComponent,
+        absoluteRootComponents: homePath.components + [npmComponent],
+        homeComponentCount: homePath.components.count,
+        accountUID: accountUID
+      ),
+      dependencies: dependencies
+    )
   }
 }
 

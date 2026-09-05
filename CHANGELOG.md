@@ -7,13 +7,56 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- A source-run native-app workflow for one exact npm cache at the current
+  non-root account's passwd-home `~/.npm/_cacache`. It retains the Core-issued
+  review session,
+  requires explicit review plus separate stopped-npm/risk and final-move
+  confirmations, repeats descriptor-held validation, and can record one durable
+  same-volume quarantine transaction on macOS 26 or newer.
+- An explicit recovery inventory workflow that reconciles, rereads, validates,
+  and projects the fixed npm journal under one exclusive lock. It returns a
+  deterministic bounded set of unrestored canonical quarantine receipts with
+  honest source/item readiness and opaque process-local references. Malformed or
+  unresolved journal state, unsafe trusted parents, and aggregate resource
+  exhaustion fail atomically; item-level failures remain visible as non-
+  restorable rows.
+- A separately confirmed, receipt-bound single-item restore workflow for the
+  source-run app. Core revalidates the canonical records, fixed roots, exact
+  quarantined tree, and absent `_cacache` destination before one single-use,
+  non-overwriting reverse rename.
+
+### Changed
+
+- Phase 9 is implemented for the source-run native app. Initial inventory
+  loading remains explicit and never runs automatically at app launch. A
+  restore execution accepted by the still-current, uncancelled view-model
+  operation schedules one post-attempt reconciliation and refresh; stale or
+  cancelled UI work cannot publish it. Core also runs locked recovery during
+  quarantine transaction admission, restore preparation, and restore
+  transaction admission. The CLI and public DevSiftCore API remain read-only, and no public
+  binary archive is currently available.
+- The package-scoped quarantine result now discards internal journal transaction
+  identifiers before crossing into the app workflow. UI presentation and
+  recovery inventory retain no transaction identifier.
+- Quarantine and restore add no purge, permanent deletion, storage reclamation,
+  retention, batch or background operation, custom-path mutation, network
+  access, telemetry, or distributed app. Same-volume quarantine deallocates no
+  data and guarantees exactly 0 B of freed capacity.
+
 ## [0.3.0-alpha.1] - 2026-09-05
+
+This source tag exists, but its release workflow did not complete. No GitHub
+Release, CLI archive, checksum asset, or public provenance attestation was
+published. A future pre-release must use a new version rather than moving this
+tag.
 
 ### Added
 
-- The first public pre-release distribution: a reproducible, ad-hoc-signed
-  universal macOS CLI archive with `arm64` and `x86_64` slices, a macOS 14
-  deployment floor, `SHA256SUMS`, and GitHub build provenance.
+- Tooling for a reproducible, ad-hoc-signed universal macOS CLI archive with
+  `arm64` and `x86_64` slices, a macOS 14 deployment floor, `SHA256SUMS`, and
+  GitHub build provenance.
 - A least-privilege tag workflow that binds an annotated tag to the current
   `main` commit, uses a pinned Xcode 16.4 toolchain, runs both packaged slices
   natively, and verifies draft release assets before publication.
@@ -186,7 +229,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   internal manifest-review JSON projection, and the native draft review. The
   app says activity remains unobserved and provides no attestation or approval
   action.
-- Core-only, in-memory quarantine-attempt authorization contract version 1.
+- A Core-defined, public, in-memory quarantine-attempt authorization contract
+  version 1.
   `CleanupQuarantineAuthorizer.beginAttempt(for:)` retains one exact canonical
   approval and exposes one `CleanupQuarantineAttestationRequest` covering its
   complete ordered npm pending set. After canonical built-in validation, the
@@ -315,4 +359,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   ambiguous.
 
 [Unreleased]: https://github.com/jxewonkim/devsift/compare/v0.3.0-alpha.1...HEAD
-[0.3.0-alpha.1]: https://github.com/jxewonkim/devsift/releases/tag/v0.3.0-alpha.1
+[0.3.0-alpha.1]: https://github.com/jxewonkim/devsift/tree/v0.3.0-alpha.1

@@ -455,7 +455,8 @@ Implemented seventh increment:
 Implemented eighth increment:
 `feat(core): add single-attempt quarantine authorization`.
 
-- Add Core-only `CleanupQuarantineAuthorizer.beginAttempt(for:)`. Validate and
+- Add public, Core-defined `CleanupQuarantineAuthorizer.beginAttempt(for:)`.
+  Validate and
   retain one exact approval; accept no caller-supplied root, manifest,
   revalidation report, or review projection.
 - After current-built-in canonical validation, independently pin classifier
@@ -548,8 +549,8 @@ Implemented tenth increment:
   proves `not-moved` or `quarantined`; never resume, automatically reverse,
   overwrite, compact, or delete an interrupted transaction.
 - Add a root-only internal recovery entry point that can reopen an existing npm
-  quarantine namespace even when the source `_cacache` name is absent. It is
-  not yet wired to app launch or either frontend.
+  quarantine namespace even when the source `_cacache` name is absent. At that
+  Phase 7 increment, it was not wired to app launch or either frontend.
 - Advance the internal, process-local, non-`Codable`
   `CleanupQuarantineExecutionReport` to contract version 2. Distinguish no
   durability record, intent recorded, terminal receipt recorded, and unresolved
@@ -565,8 +566,9 @@ Implemented tenth increment:
 - Keep final receipts immutable as historical transaction evidence. Current
   live source/destination truth is required when recovering receipt-less intents
   or promoting a receipt stage, not to reinterpret a valid final receipt.
-- Add no restore, manual-recovery user flow, purge, permanent deletion, public
-  API, app action, or CLI action. Record the contract in the
+- That Phase 7 increment added no restore, manual-recovery user flow, purge,
+  permanent deletion, public API, app action, or CLI action. Record the contract
+  in the
   [quarantine durability contract](DURABILITY.md).
 
 Implemented eleventh increment:
@@ -613,16 +615,16 @@ Implemented eleventh increment:
   or network access. Record the implemented contract in the
   [manual quarantine restore contract](RESTORE.md).
 
-Current boundary after the manual-restore increment:
+Phase 7 boundary after the manual-restore increment:
 
 - Core can internally prepare, explicitly authorize, execute, durably record,
   recover, and report one exact receipt-bound npm `_cacache` restore at a time.
   The workflow accepts no arbitrary root, source path, destination path, or
   quarantine item name.
 - Restore selection, authorization, executor, reports, journal facade, and
-  recovery entry points remain internal and non-`Codable`. The app and CLI are
-  read-only and expose no restore action; no automatic, launch-time, batch, or
-  background restore runs.
+  recovery entry points remained internal and non-`Codable`. At that increment,
+  the app and CLI were read-only and exposed no restore action; no automatic,
+  launch-time, batch, or background restore ran.
 - Purge, permanent deletion, overwrite, unlink, journal compaction, and
   retention remain absent. Neither quarantine authorization version 1 nor a
   restore artifact authorizes deletion.
@@ -648,8 +650,10 @@ milestone.
 
 ## Phase 8: verifiable alpha distribution
 
-Status: implemented. This phase packages the completed Phase 7 milestone
-without expanding its product or filesystem authority.
+Status: implementation complete; publication incomplete. This phase added the
+packaging and release workflow without expanding the Phase 7 product or
+filesystem authority, but the tagged workflow did not publish a GitHub Release
+or any downloadable asset.
 
 Target tag: `v0.3.0-alpha.1`.
 
@@ -693,9 +697,186 @@ and that commit's normal CI must be green before the tag is pushed. A failed or
 withdrawn pre-release is superseded by a new version; a published tag is never
 moved to different source.
 
-Milestone: GitHub pre-release `v0.3.0-alpha.1` with a source-bound universal CLI
-archive, checksum, and provenance attestation. The app remains source-only and
-all shipped CLI commands remain read-only.
+Milestone status: not reached. The immutable `v0.3.0-alpha.1` source tag exists,
+but no GitHub Release, universal CLI archive, checksum, or provenance asset was
+published. A future attempt must use a new version. The app remains source-only
+and all available CLI commands remain read-only.
+
+## Phase 9: native recoverable npm quarantine
+
+Status: implemented. The source-run native app now exposes the bounded workflow
+described below. The CLI and public DevSiftCore API remain read-only, no public
+binary archive is currently available, and the low-level mutation and journal
+machinery remains behind package and internal boundaries.
+
+This phase turns the existing Core-internal npm transaction into the first
+user-facing, recoverable native-app workflow without broadening the supported
+filesystem target. It does not make DevSift a general cleaner. The sole
+mutation candidate remains one exact `_cacache` direct child of the current
+non-root account's exact passwd-home `~/.npm` root under the pinned built-in
+policy.
+
+Implementation commit sequence:
+
+- `docs(app): define the native npm quarantine workflow`;
+- `feat(app): retain approval-bound cleanup reviews`;
+- `feat(core): add a package-scoped quarantine workflow facade`;
+- `feat(app): prepare explicit npm quarantine attempts`;
+- `feat(app): present bounded quarantine outcomes`;
+- `feat(core): expose bounded quarantine recovery inventory`;
+- `feat(app): execute explicit npm quarantine attempts`;
+- `feat(app): present quarantine inventory and manual restore`;
+- `test(app): cover native transaction surfaces`;
+- `fix(core): redact frontend transaction identifiers`;
+- `docs(product): record the native quarantine boundary`.
+
+- Add a package-scoped Core facade and bounded presentation DTOs for the native
+  app. Keep descriptor holders, journal codecs, execution claims, and raw
+  executor reports internal. Do not add a public library mutation API or make
+  any mutation path reachable from the CLI.
+- Retain the exact Core-issued approval review session alongside the app's
+  identity-free presentation. Never reconstruct approval from display text,
+  the lossy review projection, a path string, or caller-created transaction
+  metadata.
+- Require explicit confirmation of every canonical entry and explicit review
+  acknowledgement of every pending condition. On the review surface, separately
+  require the user to assert both that npm work using the selected cache is
+  stopped and that DevSift did not observe inactivity. Do not expose a raw Core
+  attestation-request identifier or reconstruct it from presentation state.
+  Require a final confirmation of the quarantine move; only then may the
+  app-local workflow derive approval, begin a fresh Core attempt, and construct
+  the attestation from Core's exact statement before passing only the resulting
+  authorization to the package-scoped executor. Review, stopped-npm/risk
+  confirmation, and final move confirmation remain separate actions and values.
+- Permit exactly one selected npm `_cacache` per attempt. The package facade
+  consumes the single-use authorization and delegates to the existing durable
+  executor, which must repeat its descriptor-held identity, containment,
+  ownership, device, metadata, complete-tree, age, and policy checks inline
+  immediately before its exclusive rename.
+- Enable mutation only on macOS 26 or newer, where the required
+  `RENAME_RESOLVE_BENEATH` primitive is available. Older supported systems keep
+  scanning and planning but must reject the attempt before creating the
+  quarantine root, publishing an intent, or invoking a rename.
+- Present bounded outcomes without treating an in-memory move status as
+  completion. A successful UI state requires a validated terminal receipt;
+  intent-only and unresolved states remain visibly recoverable or blocked and
+  cannot be described as completed cleanup.
+- Reconcile the fixed npm journal when the user explicitly asks for the initial
+  recovery inventory or a manual refresh; app launch does not trigger recovery.
+  Also run locked recovery during quarantine transaction admission, restore
+  preparation, and restore transaction admission. After a restore execution returns to
+  the still-current, uncancelled view-model operation, perform one
+  reconciliation and inventory refresh while preserving the bounded result.
+  Cancellation, dismissal, or superseding work must suppress stale UI
+  publication and may prevent or cancel that follow-up refresh.
+  Perform recovery, final inventory reread and validation, and bounded projection
+  under the same validated exclusive lock. Build inventory only from canonical
+  durable quarantine receipts that have not been restored and issue opaque,
+  process-local item references to the app; do not let the frontend select an
+  arbitrary path, quarantine filename, journal record, or transaction identifier.
+  Reject malformed or unresolved journal state, unsafe parents, and aggregate
+  resource exhaustion atomically. Preserve individual item failures as visible
+  non-restorable rows rather than returning a misleading partial success.
+- Offer an explicit, receipt-bound manual restore for one inventory item at a
+  time. Require the separate restore confirmation, repeat all current
+  descriptor-held safety checks, and never overwrite a recreated `_cacache`.
+  Restart recovery may finish a provable receipt, but it must never retry a
+  rename, automatically restore an item, suppress an unresolved blocker, or
+  adopt an unrelated occupant.
+- Treat window closure and cancellation according to the transaction
+  linearization boundary. Cancellation before durable intent may end without a
+  mutation; after rename may have been invoked, Core must finish reconciliation,
+  required namespace barriers, and safe receipt publication before the app
+  discards its operation state.
+- State plainly that quarantine is a same-volume namespace move. It makes the
+  cache unavailable at its original npm name but deallocates no file data and
+  guarantees exactly 0 B of freed capacity. The app must display observed
+  allocation separately and must not label it as reclaimed or freed storage.
+- Add no purge, permanent deletion, unlink, overwrite, journal compaction,
+  retention policy, background cleanup, automatic restore, batch operation,
+  custom root, non-npm executor, privilege escalation, telemetry, network
+  access, CLI mutation, updater, installer, signed application bundle, or app
+  distribution artifact.
+
+Completion gate: Core and app tests use only synthetic temporary fixtures and
+cover the complete review, acknowledgement, attestation, authorization,
+execution, durability, explicit recovery, inventory, and restore state
+machines. They must also cover stale or foreign sessions, duplicate actions,
+unsupported policies, macOS-version rejection, source and parent swaps,
+occupied restore destinations,
+journal contention and corruption, every bounded result family, cancellation
+on both sides of rename, window closure, and late-result suppression. CLI tests
+must continue to reject mutation and restore commands. Accessibility text must
+distinguish review from attestation, quarantine from deletion, and a terminal
+receipt from unresolved state; light and dark native snapshots must cover the
+confirmation, result, inventory, and restore surfaces. A focused frontend
+transaction and privacy review must find no open priority-zero or priority-one
+issue. Strict formatting, manifest validation, build, the complete test suite,
+and `git diff --check` must pass before merge.
+
+Milestone reached: a source-run native development app can explicitly
+quarantine and later restore one exact durable npm `_cacache` transaction. The
+CLI remains read-only, the SwiftUI executable remains undistributed, and the
+operation has reclaimed no storage. Permanent purge and distributable app
+packaging remain absent and require separate, later phases.
+
+## Phase 10: explicit quarantine purge and observed storage reclamation
+
+Status: planned; no purge or permanent deletion is implemented.
+
+This phase may add the first irreversible operation, restricted to one exact
+canonical npm quarantine receipt already admitted by the recovery inventory. It
+must not accept an arbitrary path, active `_cacache`, caller-created transaction
+identifier, or unjournaled directory.
+
+- Define a separate purge policy, threat model, confirmation statement,
+  single-use authority, journal family, interruption model, and security review.
+- Require an explicit inventory load, explicit single-item selection, prominent
+  permanent-deletion disclosure, and final attempt-specific confirmation. Add no
+  automatic, launch-time, background, batch, or age-only purge.
+- Revalidate the fixed trusted parents, canonical receipt, exact quarantined
+  item, ownership, device, permissions, and complete bounded tree immediately
+  before deletion. Links, special files, mount crossings, identity changes,
+  unexpected names, and exhausted bounds fail closed.
+- Design interruption honestly: recursive deallocation is not an atomic rename,
+  so partial progress, retry authority, durable receipts, and recovery behavior
+  must be specified before any unlink operation exists.
+- Report only observed volume-capacity change after the attempt. Concurrent
+  filesystem activity, APFS clones, snapshots, compression, and delayed block
+  accounting prevent an exact causal reclaimed-byte guarantee.
+- Keep restore available until purge authority is actually consumed; a purge
+  receipt must make later restore impossible without pretending deleted data is
+  recoverable.
+
+Gate: adversarial synthetic tests cover every traversal and interruption
+boundary, identity and parent swaps, hard links, clone/snapshot uncertainty,
+permission changes, cancellation, duplicate authority, journal corruption,
+partial deletion, and preservation outside the exact quarantine item. A focused
+irreversible-deletion security and privacy review must close every blocking and
+high-priority finding before merge.
+
+Milestone: one explicit receipt-bound purge can deallocate the selected
+quarantined npm cache and report observed capacity change without claiming that
+the observation is an exact causal measurement.
+
+## Phase 11: signed and downloadable native app
+
+Status: planned after Phase 10; no installable app artifact exists.
+
+- Package the SwiftUI executable as a hardened-runtime `.app` with reviewed
+  entitlements and no broader filesystem authority than the source-run build.
+- Add Developer ID signing, notarization, stapling, deterministic archive
+  inspection, checksums, and GitHub provenance for a new immutable pre-release
+  version. Never reuse or move the failed `v0.3.0-alpha.1` tag.
+- Publish only after the merge commit's normal CI, app transaction tests,
+  synthetic purge tests, architecture checks, signature validation, Gatekeeper
+  assessment, and a clean-machine install/launch smoke test pass.
+- Add no updater, telemetry, account, network dependency, Homebrew tap, or
+  automatic cleanup as an implicit part of packaging.
+
+Milestone: users can download and verify a signed, notarized DevSift app from a
+GitHub Release. Any unattended or scheduled cleanup remains a separate future
+proposal rather than part of these two remaining milestones.
 
 ## Definition of done for every code commit
 

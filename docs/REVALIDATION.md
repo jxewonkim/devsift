@@ -74,7 +74,10 @@ It omits the absolute root URL and contains only the observed root identity,
 current built-in policy provenance, reference time, and canonical per-entry
 statuses. It is a point-in-time observation: it grants no filesystem mutation
 authority, is not an executor input, and may become stale immediately after it
-is returned.
+is returned. Neither frontend currently creates this diagnostic. The source-run
+app's package-scoped npm transaction instead relies on the executor's separate
+fresh inline descriptor validation; that validation neither creates nor
+consumes this report.
 
 `eligibleAtObservation` means no precondition was pending at that observation.
 `awaitingExecutionPreconditions` means no non-deferred rejection was found but

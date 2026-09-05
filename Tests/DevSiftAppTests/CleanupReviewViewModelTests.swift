@@ -13,12 +13,12 @@ struct CleanupReviewViewModelTests {
     let root = URL(fileURLWithPath: "/private/tmp/app-draft-review", isDirectory: true)
     let report = eligibleReport()
     let classificationRecorder = RuleClassificationRequestRecorder()
-    let planner = RecordingCleanupPlanner()
+    let approver = RecordingCleanupApprover()
     let scope = SecurityScopeSpy()
     let model = ScanViewModel(
       scanner: ImmediateScanner(outcome: .report(report)),
       classifier: SyntheticEligibleRuleClassifier(recorder: classificationRecorder),
-      cleanupPlanner: planner,
+      cleanupApprover: approver,
       securityScope: scope,
       referenceUnixSeconds: { 1_000_000 }
     )
@@ -73,8 +73,8 @@ struct CleanupReviewViewModelTests {
     #expect(review.entryCount == 1)
     #expect(review.entries.first?.id == selection.path)
     #expect(review.totals.observedAllocatedBytes == 4_096)
-    #expect(planner.snapshot().ranOnMainThread == false)
-    let planningRequest = try #require(planner.snapshot().requests.first)
+    #expect(approver.snapshot().ranOnMainThread == false)
+    let planningRequest = try #require(approver.snapshot().requests.first)
     let classificationRequest = try #require(await classificationRecorder.requests().first)
     #expect(planningRequest.classificationRequest == classificationRequest)
     #expect(planningRequest.classificationReport == presentation.classification)
@@ -95,7 +95,7 @@ struct CleanupReviewViewModelTests {
     let model = ScanViewModel(
       scanner: ImmediateScanner(outcome: .report(eligibleReport())),
       classifier: SyntheticEligibleRuleClassifier(),
-      cleanupPlanner: FailingCleanupPlanner(),
+      cleanupApprover: FailingCleanupApprover(),
       securityScope: SecurityScopeSpy(),
       referenceUnixSeconds: { 1_000_000 }
     )
@@ -123,11 +123,11 @@ struct CleanupReviewViewModelTests {
   @Test("Cancellation immediately discards a frozen review snapshot")
   func planningCancellation() async throws {
     let root = URL(fileURLWithPath: "/private/tmp/cancel-app-draft", isDirectory: true)
-    let planner = GatedCleanupPlanner()
+    let approver = GatedCleanupApprover()
     let model = ScanViewModel(
       scanner: ImmediateScanner(outcome: .report(eligibleReport())),
       classifier: SyntheticEligibleRuleClassifier(),
-      cleanupPlanner: planner,
+      cleanupApprover: approver,
       securityScope: SecurityScopeSpy(),
       referenceUnixSeconds: { 1_000_000 }
     )
@@ -140,7 +140,7 @@ struct CleanupReviewViewModelTests {
     let selection = try #require(presentation.items.first?.cleanupSelection)
     model.setCleanupCandidate(selection, isIncluded: true)
     let task = try #require(model.prepareCleanupReview())
-    try #require(await planner.waitUntilStarted())
+    try #require(await approver.waitUntilStarted())
 
     model.setCleanupCandidate(selection, isIncluded: false)
     model.clearCleanupCandidates()
@@ -150,7 +150,7 @@ struct CleanupReviewViewModelTests {
     #expect(model.cleanupReviewPhase == .selecting)
     #expect(model.selectedCleanupCandidates == [selection])
 
-    planner.resolve()
+    approver.resolve()
     await task.value
     #expect(model.cleanupReviewPhase == .selecting)
   }
@@ -159,12 +159,12 @@ struct CleanupReviewViewModelTests {
   func newScanInvalidatesPlanning() async throws {
     let firstRoot = URL(fileURLWithPath: "/private/tmp/first-app-draft", isDirectory: true)
     let secondRoot = URL(fileURLWithPath: "/private/tmp/second-app-draft", isDirectory: true)
-    let planner = GatedCleanupPlanner()
+    let approver = GatedCleanupApprover()
     let scope = SecurityScopeSpy()
     let model = ScanViewModel(
       scanner: ImmediateScanner(outcome: .report(eligibleReport())),
       classifier: SyntheticEligibleRuleClassifier(),
-      cleanupPlanner: planner,
+      cleanupApprover: approver,
       securityScope: scope,
       referenceUnixSeconds: { 1_000_000 }
     )
@@ -177,7 +177,7 @@ struct CleanupReviewViewModelTests {
     let selection = try #require(firstPresentation.items.first?.cleanupSelection)
     model.setCleanupCandidate(selection, isIncluded: true)
     let planningTask = try #require(model.prepareCleanupReview())
-    try #require(await planner.waitUntilStarted())
+    try #require(await approver.waitUntilStarted())
 
     await model.startScan(at: secondRoot).value
     guard case .result(let resultRoot, _) = model.phase else {
@@ -188,7 +188,7 @@ struct CleanupReviewViewModelTests {
     #expect(model.cleanupReviewPhase == .selecting)
     #expect(model.selectedCleanupCandidates.isEmpty)
 
-    planner.resolve()
+    approver.resolve()
     await planningTask.value
     guard case .result(let finalRoot, _) = model.phase else {
       Issue.record("A late draft must not replace the scan result")
@@ -258,6 +258,37 @@ struct CleanupReviewViewModelTests {
       ) == "Draft review unavailable. No files were changed."
     )
     #expect(
+      CleanupReviewAccessibility.announcement(
+        from: .review(review),
+        to: .executing(review)
+      )
+        == "Recoverable quarantine started. Permanent deletion is disabled. Reconciliation may continue after cancellation."
+    )
+
+    let executionPresentation = CleanupQuarantineResultPresentation(
+      result: CleanupQuarantineFrontendExecutionResult(
+        outcome: .durablyQuarantined(sourceNameWasRecreated: false),
+        durabilityEvidence: .terminalReceiptRecorded(producedByRecovery: false),
+        namespaceMutation: .none,
+        cancellationWasObservedAfterRename: false
+      )
+    )
+    let resultAnnouncement = CleanupReviewAccessibility.announcement(
+      from: .executing(review),
+      to: .executionResult(executionPresentation)
+    )
+    #expect(
+      resultAnnouncement
+        == "Quarantine attempt finished. Moved to quarantine. A terminal receipt was durably recorded."
+    )
+    #expect(resultAnnouncement?.contains("00112233445566778899aabbccddeeff") == false)
+    #expect(
+      CleanupReviewAccessibility.announcement(
+        from: .executing(review),
+        to: .executionFailed(.rejected(.authorizationAttempt))
+      ) == "Quarantine did not start. Rescan and review before trying again."
+    )
+    #expect(
       CleanupReviewAccessibility.announcement(from: .unavailable, to: .selecting) == nil
     )
   }
@@ -309,7 +340,7 @@ struct CleanupReviewViewModelTests {
 
 }
 
-private final class RecordingCleanupPlanner: CleanupPlanning, @unchecked Sendable {
+private final class RecordingCleanupApprover: CleanupApproving, @unchecked Sendable {
   struct Snapshot {
     let requests: [CleanupManifestRequest]
     let ranOnMainThread: Bool?
@@ -319,12 +350,16 @@ private final class RecordingCleanupPlanner: CleanupPlanning, @unchecked Sendabl
   private var requests: [CleanupManifestRequest] = []
   private var ranOnMainThread: Bool?
 
-  func makeManifest(_ request: CleanupManifestRequest) throws -> CleanupManifest {
+  func beginReview(_ request: CleanupManifestRequest) throws -> CleanupApprovalReviewSession {
     lock.withLock {
       requests.append(request)
       ranOnMainThread = Thread.isMainThread
     }
-    return try CleanupPlanner().makeManifest(request)
+    return try CleanupApprover().beginReview(request)
+  }
+
+  func approve(_ request: CleanupApprovalRequest) throws -> CleanupApproval {
+    try CleanupApprover().approve(request)
   }
 
   func snapshot() -> Snapshot {
@@ -334,8 +369,12 @@ private final class RecordingCleanupPlanner: CleanupPlanning, @unchecked Sendabl
   }
 }
 
-private struct FailingCleanupPlanner: CleanupPlanning, Sendable {
-  func makeManifest(_ request: CleanupManifestRequest) throws -> CleanupManifest {
+private struct FailingCleanupApprover: CleanupApproving, Sendable {
+  func beginReview(_ request: CleanupManifestRequest) throws -> CleanupApprovalReviewSession {
+    throw PrivatePlanningError("PRIVATE-ERROR-PAYLOAD")
+  }
+
+  func approve(_ request: CleanupApprovalRequest) throws -> CleanupApproval {
     throw PrivatePlanningError("PRIVATE-ERROR-PAYLOAD")
   }
 }
@@ -348,13 +387,13 @@ private struct PrivatePlanningError: Error {
   }
 }
 
-private final class GatedCleanupPlanner: CleanupPlanning, @unchecked Sendable {
+private final class GatedCleanupApprover: CleanupApproving, @unchecked Sendable {
   private let condition = NSCondition()
   private var isStarted = false
   private var isReleased = false
 
-  func makeManifest(_ request: CleanupManifestRequest) throws -> CleanupManifest {
-    let manifest = try CleanupPlanner().makeManifest(request)
+  func beginReview(_ request: CleanupManifestRequest) throws -> CleanupApprovalReviewSession {
+    let session = try CleanupApprover().beginReview(request)
     condition.lock()
     isStarted = true
     condition.broadcast()
@@ -362,7 +401,11 @@ private final class GatedCleanupPlanner: CleanupPlanning, @unchecked Sendable {
       condition.wait()
     }
     condition.unlock()
-    return manifest
+    return session
+  }
+
+  func approve(_ request: CleanupApprovalRequest) throws -> CleanupApproval {
+    try CleanupApprover().approve(request)
   }
 
   func waitUntilStarted(timeout: Duration = .seconds(2)) async -> Bool {

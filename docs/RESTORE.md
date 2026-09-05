@@ -1,14 +1,16 @@
 # Manual quarantine restore contract
 
-This document defines the implemented eleventh Phase 7 increment: a Core-internal,
-npm-only workflow for manually restoring one item that DevSift previously moved
-into its private quarantine namespace. It extends the
+This document defines the Core-internal, npm-only workflow for manually
+restoring one item that DevSift previously moved into its private quarantine
+namespace, plus the bounded package-scoped facade used by the source-run app. It
+extends the
 [quarantine execution contract](QUARANTINE.md) and the
 [durability contract](DURABILITY.md); it does not broaden quarantine
 authorization version 1 or authorize deletion.
 
-The app and CLI remain read-only. Nothing in this contract makes restore or
-recovery reachable from either frontend or runs it automatically at launch.
+The app reaches recovery inventory and restore only after an explicit user
+action and only through opaque process-local references issued by Core. App
+launch never invokes recovery. The CLI and public Core API remain read-only.
 
 ## Scope
 
@@ -42,16 +44,19 @@ reconstructed from journal bytes, or revised to authorize restore.
 
 The internal manual workflow therefore creates a distinct process-local restore
 session and opaque exact-transaction reference. A caller must explicitly confirm
-that exact reference and acknowledge both that npm work using the cache was
-stopped and that DevSift did not observe inactivity. The resulting internal
-claim is single-use across every copy and is not authentication, proof of human
-review, a durable credential, or standalone filesystem authority.
+Core's exact statement for that reference: npm work using the cache was stopped,
+the current quarantined contents may have changed since quarantine, and restore
+must not overwrite the original name. The resulting internal claim is single-
+use across every copy and is not authentication, proof of human review, a
+durable credential, or standalone filesystem authority.
 
 The selection session may become stale. The executor never trusts its earlier
 observations: it consumes the claim once, reacquires the journal lock, reopens
 the real account's exact passwd-home `~/.npm` root, and establishes every
-filesystem fact again while descriptors remain held. This increment exposes no
-public restore authorization, claim, executor, report, or inventory type.
+filesystem fact again while descriptors remain held. No public restore
+authorization, claim, executor, report, or inventory type is exposed. The
+package-scoped app facade projects only bounded readiness, opaque references,
+the exact confirmation statement, and bounded outcomes.
 
 ## Exact eligibility
 
@@ -159,6 +164,41 @@ without publishing an intent; exact-boundary behavior is covered by tests.
 Completed records remain immutable and accumulate. This increment performs no
 journal compaction, retention, unlink, or record migration.
 
+### Package-scoped recovery inventory
+
+The app cannot supply a journal root, transaction identifier, record bytes,
+quarantine filename, or item path. Its production facade is fixed to the current
+non-root account's passwd-home `~/.npm` and fixed quarantine namespace.
+
+The initial inventory load and a manual refresh explicitly open that namespace.
+When a restore execution returns to the still-current, uncancelled view-model
+operation, the app invokes the same operation once to publish current state.
+Dismissal, cancellation, or superseding work can prevent or cancel that refresh
+and suppresses stale UI publication without bypassing Core's transaction-level
+durability handling. Under one validated exclusive lock, Core runs observational
+recovery, rereads and revalidates the complete mixed
+inventory after recovery, and only then projects a result. Malformed or
+unresolved journal state, unsafe trusted parents, and aggregate resource
+exhaustion reject the complete request; there is no partial-success list. An
+individual missing, changed, unsafe, or per-item over-bound quarantine item
+remains visible as a non-restorable row. App launch does not call this operation.
+
+The successful projection contains a deterministic bounded list of items whose
+canonical quarantine intent has a matching durable final `quarantined` receipt
+and no successful restore receipt. Each row reports whether the original source
+is clear or occupied and whether the quarantined item is available, missing,
+changed, unsafe, or over its validation bound. A row is restore-ready only when
+the original `_cacache` name is absent and the exact quarantined item remains
+available.
+
+Each row carries an opaque process-local reference bound to that one inventory
+session. A reference from another or older session fails even when visible row
+fields match. Preparing restore rebinds the reference to the exact canonical
+intent and receipt observed by that session and rejects intervening inventory
+change. Core then issues the exact restore confirmation statement, and a
+matching confirmation can authorize one execution only. The app cannot derive
+restore authority from presentation state.
+
 ## Mutation and synchronization order
 
 The only restore mutation is one descriptor-relative, same-volume reverse
@@ -259,19 +299,22 @@ account-owned quarantine directory and are not logs, exports, credentials,
 analytics, or authentication. Reports and process-local claims are not
 persisted, uploaded, or included in a CLI schema.
 
+Restore, like quarantine, is a same-volume namespace rename. Neither operation
+deallocates file data, and quarantine guarantees exactly 0 B of freed capacity.
+
 This increment adds no:
 
 - purge, permanent deletion, unlink, recursive removal, overwrite, journal
   cleanup, compaction, retention policy, or record migration;
 - automatic restore, automatic rollback, background action, app-launch action,
   batch restore, or unattended retry;
-- public mutation API, public restore model, app action, CLI command, frontend
-  transaction flow, or failure UI;
+- public mutation API, public restore model, CLI command, or frontend access to
+  raw journal records, transaction selectors, claims, or executors;
 - custom root, caller-selected path, arbitrary quarantine namespace, multi-rule
   restore, or non-npm executor;
 - persisted approval or attestation, import, export, general-purpose `Codable`
   domain state, telemetry, network access, npm invocation, privilege escalation,
-  or private process-inspection API; or
+  private process-inspection API, or distributed app artifact; or
 - change to public `SafetyMode.scanOnly` or its
   `allowsFilesystemMutation == false` result.
 
@@ -300,10 +343,13 @@ Tests use only synthetic temporary fixtures. The implementation gate covers:
 - cancellation before intent, between intent and rename, and after the rename
   linearization point;
 - deterministic bounded per-item diagnostics and preservation of every fixture
-  outside the exact journal namespace; and
-- source-visibility inspection, scan-only status tests, and CLI negative tests
-  showing that restore, recovery, and mutation remain unreachable from public
-  and frontend surfaces.
+  outside the exact journal namespace;
+- package-facade tests for explicit same-lock load/reconciliation, atomic
+  inventory failure, deterministic active-item projection, readiness, foreign
+  or stale opaque references, exact confirmation, and single-use execution; and
+- source-visibility inspection, scan-only public status tests, and CLI negative
+  tests showing that restore, recovery, and mutation remain unreachable from
+  public and CLI surfaces.
 
 A focused filesystem-security and privacy review remains part of this
 implemented boundary's acceptance gate. Every code commit must also satisfy the

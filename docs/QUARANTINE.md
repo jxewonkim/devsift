@@ -5,8 +5,10 @@ npm `_cacache` quarantine attempt. The tenth adds a durable journal and recovery
 engine around that move. The kernel consumes only the internal claim from a
 single-use `CleanupQuarantineAuthorization`, revalidates the approved object
 while descriptors remain held, and can perform one same-volume, exclusive
-namespace move. The app, CLI, and public package API expose neither execution
-nor recovery.
+namespace move. After explicit review and two confirmation gates, the source-run
+app's local workflow derives the approval and authorization, then passes only
+that authorization into the package-scoped executor for this exact operation.
+The CLI and public package API expose neither execution nor recovery.
 
 The scanner, classifier, and read-only surfaces support macOS 14 or newer. The
 internal quarantine mutation kernel has a stricter runtime requirement: it
@@ -18,8 +20,10 @@ The report remains process-local and non-`Codable`, but the internal transaction
 now uses canonical immutable intent and receipt records, full synchronization,
 and descriptor-bound recovery. This quarantine transaction grants no restore,
 purge, or deletion authority. The later, separately authorized Core-internal
-manual restore workflow is defined in [RESTORE.md](RESTORE.md); neither it nor
-recovery is wired to the app or CLI.
+manual restore workflow is defined in [RESTORE.md](RESTORE.md). The app can
+explicitly request bounded recovery inventory and one receipt-bound restore only
+through package-scoped facades; neither operation is available to the CLI or
+public package API, and neither runs automatically at launch.
 
 ## Exact supported policy
 
@@ -41,8 +45,8 @@ atomic and single-use across all copies, even when preflight later fails.
 
 ## Descriptor-held preflight
 
-Execution resolves the real current account through `getuid`/`geteuid` and
-passwd data, then requires the approved source root to be exactly `~/.npm`.
+Execution resolves the real current non-root account through `getuid`/`geteuid`
+and passwd data, then requires the approved source root to be exactly `~/.npm`.
 Starting at `/`, each component is opened relative to an already-held
 descriptor without following symbolic links. The `.npm` root and sole
 `_cacache` candidate must match their approval-bound identities. The home,
@@ -186,11 +190,15 @@ is conclusive. The journal uses validated exclusive records and `F_FULLFSYNC`;
 there is no weaker fallback.
 
 Recovery runs under the journal's validated exclusive lock before a new intent
-is admitted. A separate internal root-only entry point can reach the journal
-when `_cacache` is absent, but automatic app-launch recovery is not wired yet.
-Recovery observes receipt-less intent state and may publish only a provable
-`not-moved` or `quarantined` receipt. It never resumes the forward rename,
-automatically rolls back, restores, overwrites, or deletes anything.
+is admitted. The app's explicit recovery-inventory action can reach the fixed
+journal even when `_cacache` is absent; app launch never invokes it. Recovery,
+final journal reread/revalidation, and bounded inventory projection remain under
+the same lock. Malformed or unresolved journal state, unsafe trusted parents,
+and aggregate resource exhaustion fail without a partial list. Individual
+missing, changed, unsafe, or per-item over-bound contents remain visible as non-
+restorable rows. Recovery observes receipt-less intent state and may publish
+only a provable `not-moved` or `quarantined` receipt. It never resumes the forward
+rename, automatically rolls back, restores, overwrites, or deletes anything.
 
 A valid final receipt is immutable historical evidence of the transaction and
 is never reinterpreted from later live source or destination changes. Current
@@ -198,19 +206,27 @@ namespace truth is required for receipt-less intent recovery and for promoting
 a canonical receipt stage, where the intent, digest, and terminal namespace
 must all agree. The later Core-internal manual restore increment adds a separate
 authorization and record family without broadening this quarantine authority;
-restore UI, purge, and permanent deletion remain later work. See the exact
-state machine, record boundary, synchronization order, and recovery table in the
+the source-run app exposes only its bounded receipt-driven facade, while purge
+and permanent deletion remain later work. See the exact state machine, record
+boundary, synchronization order, and recovery table in the
 [quarantine durability contract](DURABILITY.md), plus the
 [manual restore contract](RESTORE.md).
 
 ## Frontend and privacy boundary
 
-The executor, recovery engine, and report are internal to `DevSiftCore`. Neither
-frontend can construct an attestation, consume an authorization, invoke
-execution or recovery, render a report, or offer a dedicated quarantine
-inventory or discovery workflow. Intent and receipt records are necessarily
-persisted inside the private quarantine directory; they are not logs, exports,
-uploads, app state, or part of a CLI schema.
+The executor, recovery engine, journal records, claims, and raw report are
+internal to `DevSiftCore`. The app cannot construct or consume those values
+directly. App view-model state retains the Core-issued review session. After the
+UI's independent review and stopped-risk values plus final move confirmation,
+the app-local workflow derives the approval, begins the authorization attempt,
+constructs Core's requested attestation, and passes only the resulting
+authorization to the package-scoped executor. That executor invokes the exact
+transaction and projects a bounded result.
+Its separate explicit recovery facade returns opaque process-local inventory
+references instead of paths, record bytes, or transaction identifiers. The CLI
+and public API expose no mutation path. Intent and receipt records are
+necessarily persisted inside the private quarantine directory; they are not
+logs, exports, uploads, app state, or part of a CLI schema.
 
 The in-memory claim and report contain sensitive raw relative paths, rule and
 policy metadata, filesystem identities retained through the claim, and a
@@ -218,3 +234,8 @@ quarantine location when one can be established. The durable records also bind
 raw paths, filesystem metadata, policy versions, and a transaction identifier.
 They are not credentials or authentication. See [DURABILITY.md](DURABILITY.md)
 for their local persistence and validation contract.
+
+Quarantine is not storage reclamation: the same-volume rename deallocates no
+file data and guarantees exactly 0 B of freed capacity. This contract adds no
+purge, permanent deletion, retention, batch or custom-path operation,
+networking, telemetry, or distributed app.

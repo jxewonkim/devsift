@@ -14,12 +14,13 @@ The native app exposes explicit candidate selection and a read-only in-memory
 review over Core planning. It does not expose Core diffing. The CLI target has
 an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
-persistence, saved drafts, user-facing export, import, frontend diffing,
-frontend approval, attestation, authorization, execution, durable recovery,
-and cleanup remain separate later increments. Core-only approval revalidation,
-attempt authorization, and npm execution-time filesystem validation now exist;
-none is an app, CLI, or public execution surface, and no individual value grants
-standalone mutation authority.
+persistence, saved drafts, user-facing export, import, and frontend diffing
+remain absent. For the supported exact npm shape, the source-run app separately
+retains the Core-issued review session and can pass it through package-scoped
+quarantine and explicit recovery/restore workflows. Planning and its
+presentation remain read-only; neither display state nor any individual value
+grants standalone mutation authority. The CLI and public Core API expose no
+execution surface.
 
 ## Inputs and selection
 
@@ -168,14 +169,17 @@ projection run away from the main actor and support cooperative cancellation.
 Separate planning and scan-session tokens prevent a late result from publishing
 after cancellation, a new scan or root, or window closure.
 
-The resulting Core manifest is immediately mapped to an app-owned in-memory
-presentation and not retained. That value omits root and candidate filesystem
-identities, the root URL, source request, source manifest, reference time,
-policy-provenance roster, serialization, approval, attestation, authorization,
-and execution state. It keeps each exact raw relative path only as an in-memory
+The resulting Core manifest is mapped to an app-owned in-memory presentation.
+That presentation does not retain the manifest and omits root and candidate
+filesystem identities, the root URL, source request, source manifest,
+reference time, policy-provenance roster, serialization, approval, attestation,
+authorization, and execution state. It keeps each exact raw relative path only
+as an in-memory
 row identifier, provides an escaped display path, and retains only the fixed
 pending-precondition identifier and policy revision needed for disclosure. The
-window supplies its current root only for visible scope confirmation.
+window supplies its current root only for visible scope confirmation. The app
+separately retains the opaque Core review session for the current review; it
+cannot reconstruct that session from the presentation.
 
 The review shows every entry's policy disposition, exact rule revision,
 reproducibility, tool, explanation, and findings, together with all seven stored
@@ -184,14 +188,17 @@ and hard-link-exclusive allocated bytes; possible shared-content files;
 shared-content metadata-unavailable files; unobserved hard-link files; and
 non-exclusive hard-link files. None is labeled as guaranteed reclaimed space.
 For a deferred npm entry it also says “Activity remains unobserved,” shows the
-pending identifier and revision, and explains that any future recoverable
-operation requires fresh revalidation and separate attempt-scoped
-authorization. It provides no approval or attestation control and makes no
-safety claim.
+pending identifier and revision, and explains that any recoverable operation
+requires fresh inline validation and separate attempt-scoped
+authorization. The presentation itself makes no approval, attestation, or
+safety claim. For the sole supported npm workflow, separate controls record the
+explicit review and stopped-npm/unobserved-risk values, followed by a final move
+confirmation.
 Returning to selection discards the review presentation; a rescan, root change,
 or window closure discards the selection and its complete in-memory planning
-context. There is no save, load, import, export, diff, approval, execution,
-execution-time filesystem revalidation, or filesystem operation in this flow.
+context and unused review session. There is no save, load, import, export, or
+diff operation. Mutation occurs only through a subsequent, separate package-
+scoped transaction and is never derived from the presentation.
 
 ## Source-bound approval review
 
@@ -239,9 +246,10 @@ identifier nor a secret. It correlates an explicit caller action with one Core-
 built review only; Core cannot prove that a human actually saw or understood
 it. Approval is not an activity attestation, fresh observation, stable digest,
 signature, authentication proof, single-use token, execution capability, or
-permission to mutate a path. The app and CLI do not invoke the approver in this
-increment. Version-1 approval values are unsupported and must be regenerated
-through a new current review; there is no import migration.
+permission to mutate a path. The source-run app invokes the approver only for
+its retained current review session; the CLI does not. Version-1 approval values
+are unsupported and must be regenerated through a new current review; there is
+no import migration.
 
 Review preparation and approval are bounded by the planning limits and check
 cancellation at phase boundaries and while processing confirmations. Approval
@@ -353,8 +361,8 @@ uses an opaque object-identity seal so equal entry values from two live sessions
 remain distinct without creating a serialized digest or stable identifier. The
 seal is process-local correlation, not an authenticity or execution token.
 Core still cannot prove that the caller displayed the session's manifest or
-that a human approved it; the invoking frontend remains responsible for an
-explicit user interaction when that later surface is added.
+that a human approved it; the source-run app therefore requires explicit review
+interaction before its package-scoped npm transaction can continue.
 
 The manifest is a review artifact, not an authenticity proof. Swift `let`
 properties make a value immutable after construction but cannot prove that a
@@ -461,8 +469,9 @@ separation, exact source-request and report reuse, off-main planning, frozen
 selection, generic failures, cancellation and stale-result suppression,
 identity-free safe display, all seven quantities, and window-lifecycle
 invalidation. Pending-condition tests require unobserved and non-authorizing
-language and no attestation control. Optional screenshots use only synthetic
-in-memory values.
+language and strict separation between review, the stopped-npm/unobserved-risk
+value, and final move confirmation. Optional screenshots use only synthetic in-
+memory values.
 
 Approval tests use source-bound synthetic planning requests and cover exact
 session preparation, source-root and complete-manifest retention, complete
@@ -478,4 +487,5 @@ independently pinned classifier and catalog markers, npm rule/tool/precondition/
 statement policy pins, explicit caller assertion, retryable mismatches,
 cross-attempt rejection, atomic concurrent issuance and shared-copy internal
 consumption, terminal cancellation, non-`Codable` values, and the absence of
-clock, process, npm, filesystem, persistence, frontend, and CLI operations.
+clock, process, npm, filesystem, persistence, public mutation, and CLI
+operations.

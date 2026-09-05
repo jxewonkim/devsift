@@ -11,10 +11,12 @@ DevSift is designed to work locally and reveal as little as possible.
 - No background or automatic scanning.
 - No scan outside roots explicitly selected by the user.
 - The Core-internal npm quarantine and manual-restore kernels read only metadata
-  and canonical journal records needed for descriptor-held validation. They
-  issue mutations only between the exact `_cacache` source name and fixed
-  quarantine namespace. They do not read cached file contents, invoke npm,
-  inspect processes, use the network, or emit telemetry.
+  and canonical journal records needed for descriptor-held validation. The
+  source-run app can invoke them only through package-scoped facades fixed to
+  the current non-root account's exact passwd-home `~/.npm/_cacache`. They issue
+  mutations only between that exact source name and the fixed quarantine
+  namespace. They do not read cached file contents, invoke npm, inspect
+  processes, use the network, or emit telemetry.
 - Scanning reads POSIX inode modification times but retains only one maximum
   aggregate per root or top-level summary, not a timestamp for every
   descendant. It does not read file contents.
@@ -56,34 +58,59 @@ DevSift is designed to work locally and reveal as little as possible.
   process-local entry and pending-condition references. A final approval itself
   retains the exact root, manifest, and pending-condition review
   acknowledgements, but not that larger source request. These values are
-  non-`Codable`, perform no filesystem or network I/O, and are not invoked by
-  either frontend. No session or approval is persisted, logged, uploaded,
-  imported, or exported. Non-`Codable` does not prevent in-memory copying or
-  provide confidentiality.
+  non-`Codable` and perform no filesystem or network I/O. The source-run app
+  retains one only for its current explicit review; the CLI never creates one.
+  No session or approval is persisted, logged, uploaded, imported, or exported.
+  Non-`Codable` does not prevent in-memory copying or provide confidentiality.
 - Core quarantine authorization retains one exact approval inside a process-
   local attempt and exposes its complete canonical pending subjects, including
   exact relative paths, rule revisions, tool attribution, and policy metadata.
   The caller's attestation additionally records the required stopped-tool and
-  unobserved-risk assertion. No frontend invokes this API. It performs no
-  process inspection, npm invocation, clock read, network request, or
-  filesystem I/O and exposes no persistence or public consume operation.
+  unobserved-risk assertion. The app does not display that raw request. Only
+  after its independent review and stopped-risk values plus the final move
+  confirmation does the app-local workflow derive the approval, begin the Core
+  attempt, and construct the attestation from Core's exact statement. It passes
+  only the resulting authorization to the package-scoped executor.
+  Authorization performs no process
+  inspection, npm invocation, clock read, network request, or filesystem I/O and
+  exposes no persistence or public consume operation.
 - Core restore preparation retains the canonical intent and receipt bytes for
   one exact quarantine transaction and exposes a separate process-local
   confirmation subject containing transaction identifiers, exact relative
   paths, and npm attribution; the retained evidence also contains policy
   revisions. Restore authorization and its internal claim are single-use,
-  non-`Codable`, unpersisted, and unavailable to both frontends. They are not
-  authentication, proof of human action, or standalone filesystem authority.
+  non-`Codable`, and unpersisted. The app-local recovery adapter briefly holds
+  the package-accessible authorization and immediately passes it to the package-
+  scoped workflow; only Core receives the internal execution claim. The UI and
+  presentation receive only an opaque reference, exact confirmation statement,
+  readiness, and bounded result. The CLI and public library clients receive none
+  of these restore values. They are not authentication, proof of human action,
+  or standalone filesystem authority.
 - The internal durability layer necessarily persists canonical intent and
   receipt records for both quarantine and restore inside the account-owned
   `.devsift-quarantine-v1` directory. Records contain exact raw relative paths,
   filesystem bindings, policy revisions, transaction links, digests, and
   outcome metadata. They remain local, are not telemetry or exports, and are
-  accessed only by the internal executors and recovery engine. No app-launch
-  wiring or frontend inventory exposes them.
+  accessed only by the internal executors and recovery engine. Package-scoped
+  frontend projections expose no record bytes, paths, or transaction
+  identifiers. The recovery UI receives only bounded rows with opaque process-
+  local references. Initial loading is explicit. When a restore execution
+  returns to the still-current, uncancelled view-model operation, the view model
+  runs one reconciliation and inventory refresh; dismissal, cancellation, or
+  superseding work can prevent or cancel that refresh and suppresses stale UI
+  publication. Core also runs locked recovery during quarantine transaction
+  admission, restore preparation, and restore transaction admission. App launch never triggers
+  recovery or inventory loading.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
+- Quarantine is a same-volume namespace move. It deallocates no file data and
+  guarantees 0 B of freed capacity. No purge, permanent deletion, retention,
+  batch or custom-path mutation, distributed app, network service, or telemetry
+  path exists.
+- Every Phase 9 filesystem mutation, including recovery receipt publication,
+  requires macOS 26 or newer and rejects before creating new transaction state
+  or invoking a rename on older systems.
 
 ## Sensitive output
 
@@ -148,7 +175,9 @@ its exact root, manifest, and `preconditionReviewAcknowledgements`. Callers can
 still copy the session, source request, references, entry confirmations, review
 acknowledgements, and approval, and must discard every copy when the analysis
 session ends. These values remain non-`Codable`, unpersisted,
-unlogged, and unuploaded, and neither frontend currently creates one.
+unlogged, and unuploaded. The source-run app creates and retains them only for
+the current explicit in-memory review; only the sole supported npm shape can
+continue to a mutation attempt. The CLI never creates one.
 Non-`Codable` supplies no encryption, zeroization, confidentiality, or copy
 prevention.
 
@@ -156,9 +185,11 @@ A revalidation report retains the observed root identity, policy provenance,
 reference time, and canonical root-relative entry statuses, including any
 pending execution-precondition identifiers, but deliberately omits the absolute
 root URL. It is non-`Codable`, in-memory, copyable, and not created by either
-frontend. It is not persisted, logged, uploaded, imported, or exported. Omitting
-the root URL does not make raw relative paths, rule revisions, findings,
-conditions, or policy results non-sensitive.
+frontend. It is not persisted, logged, uploaded, imported, or exported. The
+executor's fresh inline descriptor validation is a separate boundary and does
+not create or consume this diagnostic report. Omitting the root URL does not
+make raw relative paths, rule revisions, findings, conditions, or policy results
+non-sensitive.
 
 A `CleanupQuarantineAuthorizationSession` retains the exact approval, including
 its absolute root and manifest, until cancellation or internal consumption. Its
@@ -184,8 +215,20 @@ The session, confirmation, authorization, internal claim, and version-1 restore
 report are process-local and non-`Codable`; callers must still discard their
 copies. The report can retain a raw relative path, historical rule revision,
 bounded outcome, durability state, and an optional quarantine location with an
-observed identity. None is persisted, logged, uploaded, exported, or exposed by
-the app or CLI.
+observed identity. None is persisted, logged, uploaded, or exported. The app
+does not receive the raw report; its package-scoped facade emits only a bounded
+projection. The CLI receives neither value.
+
+The package-scoped inventory snapshot contains only a deterministic bounded set
+of npm rows with the fixed original name, recovery provenance, readiness, and
+opaque process-local references. It contains no journal bytes, transaction
+identifier, quarantine filename, arbitrary root, or caller-selected item path
+and is not `Codable`, persisted, logged, uploaded, or reusable across inventory
+sessions. Initial loading and manual refresh are explicit actions that may read
+and reconcile the local journal. A restore execution accepted by the active,
+uncancelled view-model operation schedules one reconciliation and refresh;
+stale or cancelled UI work cannot publish it. There is no launch-time,
+periodic, or background load.
 
 Trusted-location observation resolves the current account home from the local
 operating-system account record and compares only bounded raw path components
@@ -194,18 +237,21 @@ enumerate the home directory, read cache contents, retain the home path in a
 report, or add it to CLI or app output. The selected root and account-home path
 still remain sensitive in process memory while that observation runs.
 
-The native app immediately maps a planned manifest to a separate identity-free
-presentation and does not retain the manifest. The presentation omits root and
-candidate filesystem identities, the source request and report, reference time,
-policy-provenance roster, Base64 path serialization, and authority state. It
-keeps an exact raw root-relative path only as the in-memory row identifier and
-renders an escaped display form. The review still contains sensitive relative
-names, display names, tool attribution, rule and finding identifiers, free-form
-explanations, and all seven exact observed size and uncertainty quantities. It
-is not anonymized or automatically safe to share. For a deferred npm entry it
-also retains the fixed condition identifier and revision and displays that
-activity remains unobserved. It stores no acknowledgement or attestation, and
-the app provides no save, copy-as-manifest, import, export, or upload workflow.
+The native app maps a planned manifest to a separate identity-free
+presentation. The presentation omits root and candidate filesystem identities,
+the source request and report, reference time, policy-provenance roster, Base64
+path serialization, and authority state. It keeps an exact raw root-relative
+path only as the in-memory row identifier and renders an escaped display form.
+For the supported npm workflow, the app separately retains the opaque Core
+review session; the presentation cannot reconstruct it. The review still
+contains sensitive relative names, display names, tool attribution, rule and
+finding identifiers, free-form explanations, and all seven exact observed size
+and uncertainty quantities. It is not anonymized or automatically safe to
+share. For a deferred npm entry it also retains the fixed condition identifier
+and revision and displays that activity remains unobserved. Confirmation state
+and opaque recovery/restore references remain process-local and are discarded
+with their window or inventory session. The app provides no save, copy-as-
+manifest, import, export, or upload workflow.
 
 The internal CLI review schema version 2 is a separate lossy projection pinned
 to Core manifest contract version 3. Both profiles omit root and candidate filesystem
@@ -236,9 +282,12 @@ The app displays the selected root path from the active window state so the user
 can verify scope, then shows top-level rows as root-relative names. Draft-table
 focus and explicit inclusion are separate, and inclusion starts empty. A new
 scan or root discards draft state; closing the window cancels active work and
-discards its in-memory selection, report, and review. Operation tokens prevent a
-late cancelled or superseded planner result from restoring discarded state. The
-opt-in developer snapshot harness uses only synthetic paths and is never run
+discards its in-memory selection, report, review session, confirmations, and
+opaque inventory references. Operation tokens prevent a late cancelled or
+superseded result from restoring discarded presentation state. If a rename may
+already have occurred, Core can still finish local reconciliation and durable
+receipt publication; that journal evidence is not window state. The opt-in
+developer snapshot harness uses only synthetic paths and is never run
 automatically by the application.
 
 ## Future changes
@@ -267,13 +316,21 @@ or authorization values. Final receipts are immutable historical transaction
 evidence; live namespace truth is consulted for receipt-less intent recovery
 and receipt-stage promotion, not to rewrite a valid final receipt.
 
-The implemented restore path is Core-internal, manual, npm-only, and limited to
-one exact receipt-bound item. Its separate confirmation and authorization do
-not broaden quarantine authorization or create purge authority. A restore UI,
-public API, CLI command, automatic or launch-time restore, frontend recovery
-wiring, and purge remain outside the current privacy boundary. Adding any of
-those surfaces must receive separate privacy and security review and must not
-silently make Core domain models `Codable`. See the
+The implemented restore path is manual, npm-only, and limited to one exact
+receipt-bound item. Its separate confirmation and authorization do not broaden
+quarantine authorization or create purge authority. The source-run app can
+explicitly request a bounded inventory and restore through the package-scoped
+facade. Its app-local adapter briefly handles package-scoped authorization but
+cannot access raw paths, records, internal execution claims, or executors.
+Frontend projections expose no transaction identifiers. Public API, CLI
+mutation, launch-time, unattended, periodic, or background recovery or restore,
+batch operation, custom paths, retention, and purge remain outside the current
+privacy boundary. The post-attempt refresh described above is the only recovery
+follow-up scheduled by the UI. Core's mandatory locked recovery during
+quarantine transaction admission, restore preparation, and restore transaction
+admission is not a launch-time or background task.
+Adding any broader surface must receive separate privacy and security review
+and must not silently make Core domain models `Codable`. See the
 [authorization contract](AUTHORIZATION.md),
 [quarantine execution contract](QUARANTINE.md),
 [durability contract](DURABILITY.md), and

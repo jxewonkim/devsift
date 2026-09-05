@@ -38,8 +38,11 @@ its `CleanupQuarantineUserAttestation` is an explicit caller assertion for one
 exact canonical pending set, not activity evidence, human proof, or
 authentication. The resulting single-use authorization grants no standalone
 mutation authority. A Core-internal npm-only executor now consumes it for one
-descriptor-held atomic quarantine move; no public or frontend mutation API
-exists. See the [authorization contract](AUTHORIZATION.md) and
+descriptor-held atomic quarantine move. No public mutation API exists. After
+explicit review and two confirmation gates, the source-run app's local workflow
+can pass only the resulting authorization to the exact package-scoped executor.
+See the
+[authorization contract](AUTHORIZATION.md) and
 [quarantine execution contract](QUARANTINE.md).
 
 This conclusion is scoped to the current local, unprivileged, dependency-free
@@ -114,8 +117,14 @@ The project has narrowly adopted the second of the three reviewed policy paths:
    without invoking npm or modifying the cache during classification.
 
 Options 1 and 3 remain unimplemented alternatives rather than current product
-claims. Implementing its Core authorization boundary adds no user-facing
-attestation UI or filesystem operation.
+claims. The authorization value itself adds no UI or filesystem operation.
+Phase 9's source-run app separately collects an explicit review value and a
+stopped-npm/unobserved-risk value, then asks for final confirmation of the move.
+Only after that final action does its app-local workflow derive the approval,
+begin a fresh Core attempt, and construct the attestation from the exact
+requested statement; it passes only the resulting authorization to the package-
+scoped executor. The UI neither displays nor constructs the raw attestation
+request.
 
 `CleanupQuarantineAuthorizer.beginAttempt(for:)` now retains one exact
 `CleanupApproval` and issues a request for one explicit assertion covering its
@@ -166,9 +175,11 @@ Under the selected narrow policy, the current executor must:
 
 The internal journal and recovery engine now reconcile receipt-less intents
 without resuming, reversing, restoring, overwriting, or deleting the authorized
-object. A root-only recovery entry point exists when `_cacache` is absent, but
-automatic app-launch recovery and all frontend execution remain unwired. Restore
-must exist before any separately reviewed permanent purge.
+object. The source-run app can explicitly request recovery inventory even when
+`_cacache` is absent, but app launch never invokes recovery. Recovery and final
+inventory validation/projection share one exclusive lock and return no partial
+list for unresolved or unsafe state. A separate receipt-bound restore is
+implemented without granting purge authority.
 
 The operation and its immediate revalidation must share one non-escaping
 descriptor-held scope. Returning a Boolean and performing the rename later is
@@ -180,8 +191,8 @@ Current authorization tests use synthetic approvals and cover complete
 canonical subjects, unsupported policy, the exact required statement policy,
 attestation substitution, cross-attempt replay, concurrent issuance, shared-
 copy double consumption, terminal cancellation, and fixture-boundary integrity.
-Any future activity observer, public activation, or further recovery surface
-still requires adversarial tests for
+Any future activity observer or public activation still requires adversarial
+tests for
 positive-use detection, negative-result fail-closure, permissions, PID and
 descriptor churn, enumeration limits, pre-existing references, event coverage
 and gaps,
@@ -207,5 +218,9 @@ source manifest version 3.
 
 Older manifests, approvals, and exports are regenerated rather than migrated;
 there is no import path. The executor, atomic quarantine kernel, journal, and
-recovery engine are internal. Restore, purge, deletion, public API, frontend
-actions, and automatic app-launch recovery remain unimplemented.
+recovery engine are internal. The source-run app reaches only package-scoped
+quarantine and receipt-bound recovery/restore facades. Purge, permanent
+deletion, public mutation API, CLI action, automatic app-launch recovery or
+restore, batch or custom-path operation, networking, telemetry, and a
+distributed app remain unimplemented. Same-volume quarantine guarantees exactly
+0 B of freed capacity.

@@ -20,6 +20,22 @@ struct DescriptorQuarantineRestorePreparationRequest: Sendable {
   let recoveryRequest: DescriptorQuarantineJournalRecoveryRequest
   let quarantineTransactionID: String
   let restoreTransactionID: String
+  let expectedCanonicalQuarantineIntentBytes: Data?
+  let expectedCanonicalQuarantineReceiptBytes: Data?
+
+  init(
+    recoveryRequest: DescriptorQuarantineJournalRecoveryRequest,
+    quarantineTransactionID: String,
+    restoreTransactionID: String,
+    expectedCanonicalQuarantineIntentBytes: Data? = nil,
+    expectedCanonicalQuarantineReceiptBytes: Data? = nil
+  ) {
+    self.recoveryRequest = recoveryRequest
+    self.quarantineTransactionID = quarantineTransactionID
+    self.restoreTransactionID = restoreTransactionID
+    self.expectedCanonicalQuarantineIntentBytes = expectedCanonicalQuarantineIntentBytes
+    self.expectedCanonicalQuarantineReceiptBytes = expectedCanonicalQuarantineReceiptBytes
+  }
 }
 
 enum DescriptorQuarantineRestorePreparationResult: Equatable, Sendable {
