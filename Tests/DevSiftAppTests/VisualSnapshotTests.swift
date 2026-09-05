@@ -256,10 +256,7 @@ struct VisualSnapshotTests {
     let quarantineResult = CleanupQuarantineResultPresentation(
       result: CleanupQuarantineFrontendExecutionResult(
         outcome: .durablyQuarantined(sourceNameWasRecreated: false),
-        durabilityEvidence: .terminalReceiptRecorded(
-          transactionID: String(repeating: "a", count: 32),
-          producedByRecovery: false
-        ),
+        durabilityEvidence: .terminalReceiptRecorded(producedByRecovery: false),
         namespaceMutation: .quarantineRootCreated,
         cancellationWasObservedAfterRename: false
       )

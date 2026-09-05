@@ -104,7 +104,7 @@ struct CleanupQuarantineResultPresentation: Equatable, Sendable {
       "No durable transaction record was established."
     case .intentRecorded:
       "A durable intent exists, but a terminal receipt is still pending."
-    case .terminalReceiptRecorded(_, let producedByRecovery):
+    case .terminalReceiptRecorded(let producedByRecovery):
       producedByRecovery
         ? "A terminal receipt was validated and completed by recovery."
         : "A terminal receipt was durably recorded."

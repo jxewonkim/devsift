@@ -10,10 +10,7 @@ struct CleanupQuarantinePresentationTests {
     let presentation = CleanupQuarantineResultPresentation(
       result: result(
         outcome: .durablyQuarantined(sourceNameWasRecreated: false),
-        durability: .terminalReceiptRecorded(
-          transactionID: "00112233445566778899aabbccddeeff",
-          producedByRecovery: false
-        )
+        durability: .terminalReceiptRecorded(producedByRecovery: false)
       )
     )
 
@@ -30,7 +27,7 @@ struct CleanupQuarantinePresentationTests {
     let presentation = CleanupQuarantineResultPresentation(
       result: result(
         outcome: .quarantinedWithoutTerminalReceipt(sourceNameWasRecreated: true),
-        durability: .intentRecorded(transactionID: "11223344556677889900aabbccddeeff"),
+        durability: .intentRecorded,
         mutation: .quarantineRootCreated,
         cancellationAfterRename: true
       )
@@ -65,7 +62,7 @@ struct CleanupQuarantinePresentationTests {
 
     for (outcome, expectedText) in cases {
       let presentation = CleanupQuarantineResultPresentation(
-        result: result(outcome: outcome, durability: .unresolved(transactionID: nil))
+        result: result(outcome: outcome, durability: .unresolved)
       )
       #expect(presentation.tone != .success)
       #expect(presentation.message.localizedCaseInsensitiveContains(expectedText))

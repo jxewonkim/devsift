@@ -230,10 +230,7 @@ private func approve(
 private func successfulFrontendResult() -> CleanupQuarantineFrontendExecutionResult {
   CleanupQuarantineFrontendExecutionResult(
     outcome: .durablyQuarantined(sourceNameWasRecreated: false),
-    durabilityEvidence: .terminalReceiptRecorded(
-      transactionID: "00112233445566778899aabbccddeeff",
-      producedByRecovery: false
-    ),
+    durabilityEvidence: .terminalReceiptRecorded(producedByRecovery: false),
     namespaceMutation: .quarantineRootCreated,
     cancellationWasObservedAfterRename: false
   )

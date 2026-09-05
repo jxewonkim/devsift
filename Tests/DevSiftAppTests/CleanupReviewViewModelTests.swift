@@ -268,10 +268,7 @@ struct CleanupReviewViewModelTests {
     let executionPresentation = CleanupQuarantineResultPresentation(
       result: CleanupQuarantineFrontendExecutionResult(
         outcome: .durablyQuarantined(sourceNameWasRecreated: false),
-        durabilityEvidence: .terminalReceiptRecorded(
-          transactionID: "00112233445566778899aabbccddeeff",
-          producedByRecovery: false
-        ),
+        durabilityEvidence: .terminalReceiptRecorded(producedByRecovery: false),
         namespaceMutation: .none,
         cancellationWasObservedAfterRename: false
       )

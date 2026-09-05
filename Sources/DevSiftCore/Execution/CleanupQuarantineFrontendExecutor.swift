@@ -79,21 +79,9 @@ package enum CleanupQuarantineFrontendNotStartedReason: Equatable, Sendable {
 
 package enum CleanupQuarantineFrontendDurabilityEvidence: Equatable, Sendable {
   case notRecorded
-  case intentRecorded(transactionID: String)
-  case terminalReceiptRecorded(transactionID: String, producedByRecovery: Bool)
-  case unresolved(transactionID: String?)
-
-  package var transactionID: String? {
-    switch self {
-    case .notRecorded:
-      nil
-    case .intentRecorded(let transactionID),
-      .terminalReceiptRecorded(let transactionID, _):
-      transactionID
-    case .unresolved(let transactionID):
-      transactionID
-    }
-  }
+  case intentRecorded
+  case terminalReceiptRecorded(producedByRecovery: Bool)
+  case unresolved
 }
 
 package enum CleanupQuarantineFrontendNamespaceMutation: Equatable, Sendable {
@@ -235,15 +223,12 @@ package struct CleanupQuarantineFrontendExecutor: CleanupQuarantineFrontendExecu
     switch durabilityState {
     case .notRecorded:
       .notRecorded
-    case .intentRecorded(let transactionID):
-      .intentRecorded(transactionID: transactionID)
-    case .receiptRecorded(let transactionID, let producedByRecovery):
-      .terminalReceiptRecorded(
-        transactionID: transactionID,
-        producedByRecovery: producedByRecovery
-      )
-    case .unresolved(let transactionID):
-      .unresolved(transactionID: transactionID)
+    case .intentRecorded:
+      .intentRecorded
+    case .receiptRecorded(_, let producedByRecovery):
+      .terminalReceiptRecorded(producedByRecovery: producedByRecovery)
+    case .unresolved:
+      .unresolved
     }
   }
 

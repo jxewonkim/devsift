@@ -23,21 +23,18 @@ struct CleanupQuarantineFrontendExecutorTests {
       (.notRecorded, .notRecorded),
       (
         .intentRecorded(transactionID: "00112233445566778899aabbccddeeff"),
-        .intentRecorded(transactionID: "00112233445566778899aabbccddeeff")
+        .intentRecorded
       ),
       (
         .receiptRecorded(
           transactionID: "11223344556677889900aabbccddeeff",
           producedByRecovery: true
         ),
-        .terminalReceiptRecorded(
-          transactionID: "11223344556677889900aabbccddeeff",
-          producedByRecovery: true
-        )
+        .terminalReceiptRecorded(producedByRecovery: true)
       ),
       (
         .unresolved(transactionID: "22334455667788990011aabbccddeeff"),
-        .unresolved(transactionID: "22334455667788990011aabbccddeeff")
+        .unresolved
       ),
     ]
 
@@ -70,6 +67,29 @@ struct CleanupQuarantineFrontendExecutorTests {
         #expect(result.contractVersion == 1)
       }
     }
+  }
+
+  @Test("The frontend projection strips journal transaction identifiers")
+  func projectionStripsTransactionIdentifiers() {
+    let transactionID = "00112233445566778899aabbccddeeff"
+    let states: [CleanupQuarantineDurabilityState] = [
+      .intentRecorded(transactionID: transactionID),
+      .receiptRecorded(transactionID: transactionID, producedByRecovery: false),
+      .receiptRecorded(transactionID: transactionID, producedByRecovery: true),
+      .unresolved(transactionID: transactionID),
+    ]
+
+    let results = states.map { state in
+      CleanupQuarantineFrontendExecutor.project(
+        makeReport(status: .notMoved(.candidateChanged), durabilityState: state)
+      )
+    }
+
+    for result in results {
+      #expect(!String(reflecting: result).contains(transactionID))
+    }
+    #expect(results[1].durabilityEvidence == .terminalReceiptRecorded(producedByRecovery: false))
+    #expect(results[2].durabilityEvidence == .terminalReceiptRecorded(producedByRecovery: true))
   }
 
   @Test("Receipt-less quarantines retain their bounded move evidence")
