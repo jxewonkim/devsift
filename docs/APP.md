@@ -194,6 +194,62 @@ private journal are likewise not app inventory or completion UI; see the
 [quarantine execution contract](QUARANTINE.md), and
 [durability contract](DURABILITY.md).
 
+## Prospective Phase 9 transaction contract
+
+Status: planned and not implemented. This section defines the boundary that
+must be satisfied before the app's current read-only contract can change. It
+does not describe a capability in the current build.
+
+The first native mutation workflow will remain restricted to one exact npm
+`_cacache` selected from a scan of the current account's exact passwd-home
+`~/.npm`. The app will reach it only through a package-scoped DevSiftCore facade;
+the low-level executor, descriptor-held scopes, journal codecs, recovery engine,
+and restore claims will remain unavailable to the app and to public library
+clients. The CLI will remain read-only.
+
+Draft preparation will retain the exact Core-issued approval review session in
+memory while separately rendering the identity-free review presentation. To
+continue, the user will explicitly confirm every session entry and acknowledge
+every pending condition from that same session. The app will not rebuild those
+values from displayed paths or policy text. A separate confirmation surface
+will then present the complete attempt-scoped attestation request and require
+the user to state that npm work using the cache is stopped and that DevSift did
+not observe inactivity. Checking that statement will not be described as
+observed activity evidence or proof that the operation is safe.
+
+The final action will request exactly one recoverable quarantine attempt. It
+will be unavailable below macOS 26 and will make no request for elevated
+permissions. Once execution may have crossed its rename boundary, dismissal or
+cancellation will not prevent Core from reconciling the namespace, applying its
+durability barriers, and publishing a safe terminal receipt when possible. The
+app will distinguish not moved, durably quarantined, rolled back, and manual-
+recovery-required outcomes. It will not call an intent-only or unresolved
+transaction complete.
+
+Before another transaction is enabled after restart, the app will ask the
+package-scoped facade to reconcile the fixed npm journal and prepare a bounded
+inventory. Inventory rows will originate only from canonical Core journal
+relationships and will carry opaque process-local action references rather
+than frontend-provided paths, quarantine names, or transaction identifiers. An
+unresolved global blocker will remain visible and will disable conflicting
+actions.
+
+One receipt-bound inventory row may start a separate explicit manual restore.
+The restore confirmation will identify the original and quarantine locations,
+state that npm is stopped, and explain that post-quarantine contents may have
+changed. Restore will never overwrite a recreated `_cacache`, run
+automatically, or infer eligibility from presentation state. Core will reopen
+and revalidate the fixed roots, journal pair, exact item, complete tree, and
+destination absence before its one non-overwriting reverse rename.
+
+Quarantine is a same-volume rename into `.devsift-quarantine-v1`; it does not
+free disk space. The UI will label the displayed bytes as observed allocation,
+not reclaimed capacity, and will explain that permanent removal is required to
+increase free space. Phase 9 will add no purge, deletion, retention policy,
+batch or background cleanup, custom path, non-npm mutation, automatic restore,
+CLI mutation, application-bundle packaging, signing, notarization, installer,
+or updater.
+
 ## Observation and policy language
 
 The app uses “Reclaimable” only as a rule disposition, never as a measured or

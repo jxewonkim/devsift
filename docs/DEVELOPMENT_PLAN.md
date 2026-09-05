@@ -697,6 +697,104 @@ Milestone: GitHub pre-release `v0.3.0-alpha.1` with a source-bound universal CLI
 archive, checksum, and provenance attestation. The app remains source-only and
 all shipped CLI commands remain read-only.
 
+## Phase 9: native recoverable npm quarantine
+
+Status: planned. No app mutation, restart recovery, quarantine inventory, or
+restore action described in this section is implemented yet. Until every gate
+below is met, the native app remains read-only and Core's mutation and recovery
+kernels remain unreachable from both frontends.
+
+This phase turns the existing Core-internal npm transaction into the first
+user-facing, recoverable native-app workflow without broadening the supported
+filesystem target. It does not make DevSift a general cleaner. The sole
+mutation candidate remains one exact `_cacache` direct child of the current
+account's exact passwd-home `~/.npm` root under the pinned built-in policy.
+
+Planned commit sequence:
+
+- `docs(app): define the native npm quarantine workflow`;
+- `feat(core): add a package-scoped quarantine workflow facade`;
+- `feat(core): expose bounded quarantine recovery inventory`;
+- `feat(app): retain approval-bound cleanup reviews`;
+- `feat(app): execute explicit npm quarantine attempts`;
+- `feat(app): present quarantine inventory and manual restore`;
+- `test(app): harden native transaction lifecycle`;
+- `docs(product): record the native quarantine boundary`.
+
+- Add a package-scoped Core facade and bounded presentation DTOs for the native
+  app. Keep descriptor holders, journal codecs, execution claims, and raw
+  executor reports internal. Do not add a public library mutation API or make
+  any mutation path reachable from the CLI.
+- Retain the exact Core-issued approval review session alongside the app's
+  identity-free presentation. Never reconstruct approval from display text,
+  the lossy review projection, a path string, or caller-created transaction
+  metadata.
+- Require explicit confirmation of every canonical entry and explicit review
+  acknowledgement of every pending condition. Then begin a distinct,
+  attempt-scoped authorization and require the user to assert both that npm
+  work using the selected cache is stopped and that DevSift did not observe
+  inactivity. Review acknowledgement and execution attestation remain separate
+  actions and values.
+- Permit exactly one selected npm `_cacache` per attempt. The package facade
+  consumes the single-use authorization and delegates to the existing durable
+  executor, which must repeat its descriptor-held identity, containment,
+  ownership, device, metadata, complete-tree, age, and policy checks inline
+  immediately before its exclusive rename.
+- Enable mutation only on macOS 26 or newer, where the required
+  `RENAME_RESOLVE_BENEATH` primitive is available. Older supported systems keep
+  scanning and planning but must reject the attempt before creating the
+  quarantine root, publishing an intent, or invoking a rename.
+- Present bounded outcomes without treating an in-memory move status as
+  completion. A successful UI state requires a validated terminal receipt;
+  intent-only and unresolved states remain visibly recoverable or blocked and
+  cannot be described as completed cleanup.
+- On a later app start, reconcile the fixed npm journal before presenting its
+  inventory or enabling another transaction. Build inventory only from
+  canonical journal relationships and issue opaque, process-local item
+  references to the app; do not let the frontend select an arbitrary path,
+  quarantine filename, or transaction identifier.
+- Offer an explicit, receipt-bound manual restore for one inventory item at a
+  time. Require the separate restore confirmation, repeat all current
+  descriptor-held safety checks, and never overwrite a recreated `_cacache`.
+  Restart recovery may finish a provable receipt, but it must never retry a
+  rename, automatically restore an item, suppress an unresolved blocker, or
+  adopt an unrelated occupant.
+- Treat window closure and cancellation according to the transaction
+  linearization boundary. Cancellation before durable intent may end without a
+  mutation; after rename may have been invoked, Core must finish reconciliation,
+  required namespace barriers, and safe receipt publication before the app
+  discards its operation state.
+- State plainly that quarantine is a same-volume namespace move. It makes the
+  cache unavailable at its original npm name but does not release disk blocks
+  or increase free space. The app must display observed allocation separately
+  and must not label it as reclaimed, freed, or guaranteed savings.
+- Add no purge, permanent deletion, unlink, overwrite, journal compaction,
+  retention policy, background cleanup, automatic restore, batch operation,
+  custom root, non-npm executor, privilege escalation, telemetry, network
+  access, CLI mutation, updater, installer, signed application bundle, or app
+  distribution artifact.
+
+Gate: Core and app tests use only synthetic temporary fixtures and cover the
+complete review, acknowledgement, attestation, authorization, execution,
+durability, restart-recovery, inventory, and restore state machines. They must
+also cover stale or foreign sessions, duplicate actions, unsupported policies,
+macOS-version rejection, source and parent swaps, occupied restore destinations,
+journal contention and corruption, every bounded result family, cancellation
+on both sides of rename, window closure, and late-result suppression. CLI tests
+must continue to reject mutation and restore commands. Accessibility text must
+distinguish review from attestation, quarantine from deletion, and a terminal
+receipt from unresolved state; light and dark native snapshots must cover the
+confirmation, result, inventory, and restore surfaces. A focused frontend
+transaction and privacy review must find no open priority-zero or priority-one
+issue. Strict formatting, manifest validation, build, the complete test suite,
+and `git diff --check` must pass before merge.
+
+Milestone: a source-run native development app can explicitly quarantine and
+later restore one exact durable npm `_cacache` transaction. The CLI remains
+read-only, the SwiftUI executable remains undistributed, and the operation has
+not reclaimed storage. Permanent purge and distributable app packaging remain
+separate, later phases.
+
 ## Definition of done for every code commit
 
 - Formatting passes.
