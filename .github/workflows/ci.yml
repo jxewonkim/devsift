@@ -17,14 +17,26 @@ jobs:
   swift:
     name: Swift build and test
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
 
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify pinned release toolchain
+        run: scripts/release/verify-toolchain.sh
 
       - name: Show Swift toolchain
         run: swift --version
+
+      - name: Validate release scripts and metadata
+        run: |
+          sh -n scripts/release/*.sh
+          scripts/release/verify-metadata.sh
 
       - name: Validate package manifest
         run: swift package describe
@@ -40,3 +52,14 @@ jobs:
 
       - name: Build release targets
         run: swift build --configuration release
+
+      - name: Reproduce release CLI archive
+        run: scripts/release/verify-reproducibility.sh "$RUNNER_TEMP/devsift-release"
+
+      - name: Check generated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --exit-code
+          [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]

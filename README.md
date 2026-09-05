@@ -206,6 +206,7 @@ The current workspace can be exercised with:
 ```shell
 swift build
 swift test
+swift run devsift --version
 swift run devsift status
 swift run devsift scan .
 swift run devsift scan --json .
@@ -241,9 +242,37 @@ Development uses small Conventional Commits. Every code commit must build and
 pass tests before it is pushed. Filesystem tests operate only inside temporary,
 synthetic fixtures and never scan or clean a contributor's real home directory.
 
+## Pre-release distribution
+
+`v0.3.0-alpha.1` is the first public binary distribution. It contains only the
+read-only CLI as a universal `arm64` and `x86_64` executable for macOS 14 or
+newer. The SwiftUI executable remains source-only, and the Core-internal
+quarantine and restore kernels are not reachable from the archive.
+
+Download the archive and `SHA256SUMS` from
+[GitHub Releases](https://github.com/jxewonkim/devsift/releases). From the
+download directory, verify both transport integrity and GitHub build provenance
+before running it:
+
+```shell
+shasum -a 256 -c SHA256SUMS
+gh attestation verify \
+  devsift-0.3.0-alpha.1-macos-universal.tar.gz \
+  --repo jxewonkim/devsift \
+  --signer-workflow jxewonkim/devsift/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.3.0-alpha.1 \
+  --deny-self-hosted-runners
+```
+
+The binary is explicitly ad-hoc signed for integrity, but it is not Developer
+ID signed or Apple notarized. It carries no verified publisher identity. See
+the [release contract](docs/RELEASE.md) and the
+[version-specific release notes](docs/releases/v0.3.0-alpha.1.md).
+
 ## Project status
 
-- Current phase: policy-provenanced in-memory dry-run manifests, Core-only
+- Current phase: verifiable alpha distribution of policy-provenanced in-memory
+  dry-run manifests, Core-only
   diffing, review-bound entry confirmation and precondition review
   acknowledgement, and an approval-only, point-in-time Core revalidation
   diagnostic, plus Core-only process-local, single-use quarantine-attempt
@@ -260,8 +289,8 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
   reconcile one exact npm quarantine or separately confirmed restore
   transaction, but there is no purge, deletion, public mutation API, frontend
   action, automatic restore, or automatic app-launch recovery
-- First tagged release target: `v0.1.0-alpha.1`, read-only scan and
-  classification surfaces
+- First distribution: `v0.3.0-alpha.1`, a verified read-only universal CLI;
+  the native app remains source-only
 - Supported platform target: macOS 14 or newer for scanning and read-only
   surfaces; the internal quarantine and restore mutation kernels require macOS
   26 or newer and fail closed before mutation on older systems

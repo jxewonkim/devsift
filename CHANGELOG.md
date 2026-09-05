@@ -7,8 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.0-alpha.1] - 2026-09-05
+
 ### Added
 
+- The first public pre-release distribution: a reproducible, ad-hoc-signed
+  universal macOS CLI archive with `arm64` and `x86_64` slices, a macOS 14
+  deployment floor, `SHA256SUMS`, and GitHub build provenance.
+- A least-privilege tag workflow that binds an annotated tag to the current
+  `main` commit, uses a pinned Xcode 16.4 toolchain, runs both packaged slices
+  natively, and verifies draft release assets before publication.
 - Initial product scope, safety model, privacy contract, architecture, and
   development plan.
 - Swift package foundations for DevSiftCore, the `devsift` CLI, and the DevSift
@@ -305,3 +313,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   orphaned, or conflicting state is reported as unresolved; a valid pending
   intent may still require manual resolution when live namespace truth is
   ambiguous.
+
+[Unreleased]: https://github.com/jxewonkim/devsift/compare/v0.3.0-alpha.1...HEAD
+[0.3.0-alpha.1]: https://github.com/jxewonkim/devsift/releases/tag/v0.3.0-alpha.1
