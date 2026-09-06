@@ -21,31 +21,7 @@ struct CleanupQuarantinePurgeEndToEndTests {
     case .failure(let failure):
       throw PurgeEndToEndTestError.inventory(failure)
     }
-    let inventoryWorkflow = QuarantineInventoryRestoreWorkflow(
-      loadInventory: { .success(entries) },
-      prepareRestore: { _ in fatalError("restore is outside this test") },
-      executeRestore: { _ in fatalError("restore is outside this test") }
-    )
-    let inventory: QuarantineInventorySession
-    switch inventoryWorkflow.reconcileAndLoadInventory() {
-    case .success(let value):
-      inventory = value
-    case .failure(let failure):
-      throw PurgeEndToEndTestError.workflow(failure)
-    }
-    let item = try #require(inventory.items.first)
-    let selection: QuarantineInventoryInitialPurgeSelection
-    switch inventoryWorkflow.selectForInitialPurge(
-      from: inventory,
-      item: item.reference
-    ) {
-    case .success(let value):
-      selection = value
-    case .failure(let failure):
-      throw PurgeEndToEndTestError.selection(failure)
-    }
-
-    // Recreate an unrelated active cache after inventory selection. Purge is
+    // Recreate an unrelated active cache after inventory loading. Purge is
     // bound only to Q and must neither open nor remove this current name.
     try FileManager.default.createDirectory(
       at: fixture.filesystem.candidateURL,
@@ -66,20 +42,6 @@ struct CleanupQuarantinePurgeEndToEndTests {
         capacityObserver: capacityObserver
       )
     )
-    let authorizationSession: CleanupQuarantinePurgeAuthorizationSession
-    switch preflight.prepareInitial(selection) {
-    case .success(let value):
-      authorizationSession = value
-    case .failure(let failure):
-      throw PurgeEndToEndTestError.preflight(failure)
-    }
-    let request = authorizationSession.confirmationRequest
-    let authorization = try await authorizationSession.authorize(
-      using: CleanupQuarantinePurgeUserConfirmation(
-        request: request,
-        statement: request.requiredStatement
-      ))
-
     var journalDependencies = fixture.dependencies
     journalDependencies.purgeCapacityObserver = capacityObserver
     let stager = DescriptorExclusiveQuarantinePurgeStager(
@@ -114,11 +76,36 @@ struct CleanupQuarantinePurgeEndToEndTests {
       )
     )
 
-    let report = try await executor.execute(authorization)
+    let inventoryWorkflow = QuarantineInventoryRestoreWorkflow(
+      loadInventory: { .success(entries) },
+      prepareRestore: { _ in .failure(.invalidClaim) },
+      executeRestore: { _ in throw CancellationError() },
+      prepareInitialPurge: { preflight.prepareInitial($0) },
+      preparePurgeRetry: { preflight.prepareExplicitRetry($0) },
+      executePurge: { try await executor.execute($0) }
+    )
+    let inventory = try purgeEndToEndInventory(
+      inventoryWorkflow.reconcileAndLoadInventory()
+    )
+    let item = try #require(inventory.items.first)
+    let authorizationSession = try purgeEndToEndAuthorizationSession(
+      inventoryWorkflow.beginInitialPurge(
+        from: inventory,
+        item: item.reference
+      ))
+    let request = authorizationSession.confirmationRequest
+    let authorization = try await authorizationSession.authorize(
+      using: QuarantinePurgeUserConfirmation(
+        request: request,
+        statement: request.requiredStatement
+      ))
+    let report = try purgeEndToEndOutcome(
+      await inventoryWorkflow.executePurge(authorization)
+    )
 
     #expect(report.status == .itemAbsent)
     #expect(
-      report.durabilityState
+      report.durability
         == .terminalReceiptRecorded(outcome: .itemAbsent, producedByRecovery: false)
     )
     #expect(report.performedPermanentDeletion)
@@ -149,30 +136,6 @@ struct CleanupQuarantinePurgeEndToEndTests {
     case .failure(let failure):
       throw PurgeEndToEndTestError.inventory(failure)
     }
-    let inventoryWorkflow = QuarantineInventoryRestoreWorkflow(
-      loadInventory: { .success(entries) },
-      prepareRestore: { _ in fatalError("restore is outside this test") },
-      executeRestore: { _ in fatalError("restore is outside this test") }
-    )
-    let inventory: QuarantineInventorySession
-    switch inventoryWorkflow.reconcileAndLoadInventory() {
-    case .success(let value):
-      inventory = value
-    case .failure(let failure):
-      throw PurgeEndToEndTestError.workflow(failure)
-    }
-    let retryItem = try #require(inventory.purgeRetries.first)
-    let selection: QuarantineInventoryPurgeRetrySelection
-    switch inventoryWorkflow.selectForPurgeRetry(
-      from: inventory,
-      retry: retryItem.reference
-    ) {
-    case .success(let value):
-      selection = value
-    case .failure(let failure):
-      throw PurgeEndToEndTestError.selection(failure)
-    }
-
     try FileManager.default.createDirectory(
       at: fixture.filesystem.candidateURL,
       withIntermediateDirectories: false
@@ -190,23 +153,9 @@ struct CleanupQuarantinePurgeEndToEndTests {
         supportsDurablePurge: { true },
         capacityObserver: capacityObserver
       ))
-    let authorizationSession: CleanupQuarantinePurgeAuthorizationSession
-    switch preflight.prepareExplicitRetry(selection) {
-    case .success(let value):
-      authorizationSession = value
-    case .failure(let failure):
-      throw PurgeEndToEndTestError.preflight(failure)
-    }
-    let request = authorizationSession.confirmationRequest
-    let authorization = try await authorizationSession.authorize(
-      using: CleanupQuarantinePurgeUserConfirmation(
-        request: request,
-        statement: request.requiredStatement
-      ))
-
     var journalDependencies = fixture.dependencies
     journalDependencies.purgeCapacityObserver = capacityObserver
-    let report = try await CleanupQuarantinePurgeExecutor(
+    let executor = CleanupQuarantinePurgeExecutor(
       preflight: preflight,
       retryJournal: DescriptorQuarantinePurgeRetryJournal(
         dependencies: journalDependencies
@@ -217,7 +166,33 @@ struct CleanupQuarantinePurgeEndToEndTests {
       terminalizer: DescriptorQuarantinePurgeTerminalizer(
         dependencies: journalDependencies
       )
-    ).execute(authorization)
+    )
+    let inventoryWorkflow = QuarantineInventoryRestoreWorkflow(
+      loadInventory: { .success(entries) },
+      prepareRestore: { _ in .failure(.invalidClaim) },
+      executeRestore: { _ in throw CancellationError() },
+      prepareInitialPurge: { preflight.prepareInitial($0) },
+      preparePurgeRetry: { preflight.prepareExplicitRetry($0) },
+      executePurge: { try await executor.execute($0) }
+    )
+    let inventory = try purgeEndToEndInventory(
+      inventoryWorkflow.reconcileAndLoadInventory()
+    )
+    let retryItem = try #require(inventory.purgeRetries.first)
+    let authorizationSession = try purgeEndToEndAuthorizationSession(
+      inventoryWorkflow.beginPurgeRetry(
+        from: inventory,
+        retry: retryItem.reference
+      ))
+    let request = authorizationSession.confirmationRequest
+    let authorization = try await authorizationSession.authorize(
+      using: QuarantinePurgeUserConfirmation(
+        request: request,
+        statement: request.requiredStatement
+      ))
+    let report = try purgeEndToEndOutcome(
+      await inventoryWorkflow.executePurge(authorization)
+    )
 
     #expect(report.attemptKind == .explicitRetry)
     #expect(report.status == .itemAbsent)
@@ -236,8 +211,41 @@ struct CleanupQuarantinePurgeEndToEndTests {
 private enum PurgeEndToEndTestError: Error {
   case inventory(DescriptorQuarantineInventoryFailure)
   case workflow(QuarantineInventoryLoadFailure)
-  case selection(QuarantineInventoryPurgeSelectionFailure)
-  case preflight(DescriptorNPMQuarantinePurgePreflightFailure)
+  case preparation(QuarantinePurgePreparationFailure)
+  case execution(QuarantinePurgeExecutionFailure)
+}
+
+private func purgeEndToEndInventory(
+  _ result: Result<QuarantineInventorySession, QuarantineInventoryLoadFailure>
+) throws -> QuarantineInventorySession {
+  switch result {
+  case .success(let inventory):
+    return inventory
+  case .failure(let failure):
+    throw PurgeEndToEndTestError.workflow(failure)
+  }
+}
+
+private func purgeEndToEndAuthorizationSession(
+  _ result: Result<QuarantinePurgeAuthorizationSession, QuarantinePurgePreparationFailure>
+) throws -> QuarantinePurgeAuthorizationSession {
+  switch result {
+  case .success(let session):
+    return session
+  case .failure(let failure):
+    throw PurgeEndToEndTestError.preparation(failure)
+  }
+}
+
+private func purgeEndToEndOutcome(
+  _ result: Result<QuarantinePurgeExecutionOutcome, QuarantinePurgeExecutionFailure>
+) throws -> QuarantinePurgeExecutionOutcome {
+  switch result {
+  case .success(let outcome):
+    return outcome
+  case .failure(let failure):
+    throw PurgeEndToEndTestError.execution(failure)
+  }
 }
 
 private func purgeEndToEndCapacityObserver() -> DescriptorQuarantinePurgeCapacityObserver {
