@@ -20,6 +20,11 @@ private enum DescriptorJournalRecordKind {
   case restoreIntent
   case restoreReceiptStage
   case restoreReceipt
+  case purgeIntentStage
+  case purgeIntent
+  case purgeReceiptStage
+  case purgeReceipt
+  case purgeWork
   case item
 }
 
@@ -46,6 +51,11 @@ private struct DescriptorJournalInventory {
   var restoreReceiptStages: [String: DescriptorJournalRecord<QuarantineRestoreJournalReceiptV1>] =
     [:]
   var restoreReceipts: [String: DescriptorJournalRecord<QuarantineRestoreJournalReceiptV1>] = [:]
+  var purgeIntentStages: [String: DescriptorJournalRecord<QuarantinePurgeJournalIntentV1>] = [:]
+  var purgeIntents: [String: DescriptorJournalRecord<QuarantinePurgeJournalIntentV1>] = [:]
+  var purgeReceiptStages: [String: DescriptorJournalRecord<QuarantinePurgeJournalReceiptV1>] = [:]
+  var purgeReceipts: [String: DescriptorJournalRecord<QuarantinePurgeJournalReceiptV1>] = [:]
+  var purgeWorks: [String: DescriptorPathComponent] = [:]
   var items: Set<[UInt8]> = []
   var entryCount = 0
   var rawNameByteCount = 0
@@ -811,6 +821,15 @@ private func descriptorJournalReadInventory(
       guard inventory.items.insert(component.bytes).inserted else {
         return .failure(.unsafe)
       }
+    case .purgeWork:
+      guard
+        inventory.purgeWorks.updateValue(
+          component,
+          forKey: managedName.transactionID
+        ) == nil
+      else {
+        return .failure(.unsafe)
+      }
     case .intentStage, .intent:
       let bytes: Data
       switch descriptorJournalReadRecord(
@@ -850,7 +869,8 @@ private func descriptorJournalReadInventory(
           return .failure(.unsafe)
         }
       case .receiptStage, .receipt, .restoreIntentStage, .restoreIntent,
-        .restoreReceiptStage, .restoreReceipt, .item:
+        .restoreReceiptStage, .restoreReceipt, .purgeIntentStage, .purgeIntent,
+        .purgeReceiptStage, .purgeReceipt, .purgeWork, .item:
         return .failure(.unsafe)
       }
     case .receiptStage, .receipt:
@@ -893,7 +913,8 @@ private func descriptorJournalReadInventory(
           return .failure(.unsafe)
         }
       case .intentStage, .intent, .restoreIntentStage, .restoreIntent,
-        .restoreReceiptStage, .restoreReceipt, .item:
+        .restoreReceiptStage, .restoreReceipt, .purgeIntentStage, .purgeIntent,
+        .purgeReceiptStage, .purgeReceipt, .purgeWork, .item:
         return .failure(.unsafe)
       }
     case .restoreIntentStage, .restoreIntent:
@@ -941,7 +962,8 @@ private func descriptorJournalReadInventory(
           return .failure(.unsafe)
         }
       case .intentStage, .intent, .receiptStage, .receipt, .restoreReceiptStage,
-        .restoreReceipt, .item:
+        .restoreReceipt, .purgeIntentStage, .purgeIntent, .purgeReceiptStage,
+        .purgeReceipt, .purgeWork, .item:
         return .failure(.unsafe)
       }
     case .restoreReceiptStage, .restoreReceipt:
@@ -989,7 +1011,106 @@ private func descriptorJournalReadInventory(
           return .failure(.unsafe)
         }
       case .intentStage, .intent, .receiptStage, .receipt, .restoreIntentStage,
-        .restoreIntent, .item:
+        .restoreIntent, .purgeIntentStage, .purgeIntent, .purgeReceiptStage,
+        .purgeReceipt, .purgeWork, .item:
+        return .failure(.unsafe)
+      }
+    case .purgeIntentStage, .purgeIntent:
+      let bytes: Data
+      switch descriptorJournalReadRecord(
+        quarantineRootDescriptor: request.quarantineRootDescriptor,
+        component: component,
+        expectedDevice: expectedDevice,
+        accountUID: request.accountUID,
+        dependencies: dependencies
+      ) {
+      case .success(let result):
+        bytes = result
+      case .failure(let failure):
+        return .failure(failure)
+      }
+      let intent: QuarantinePurgeJournalIntentV1
+      do {
+        intent = try QuarantinePurgeJournalV1Codec.decodeIntent(bytes)
+      } catch {
+        return .failure(.unsafe)
+      }
+      guard intent.purgeTransactionID == managedName.transactionID else {
+        return .failure(.unsafe)
+      }
+      let record = DescriptorJournalRecord(
+        component: component,
+        bytes: bytes,
+        value: intent
+      )
+      switch managedName.kind {
+      case .purgeIntentStage:
+        guard
+          inventory.purgeIntentStages.updateValue(
+            record,
+            forKey: managedName.transactionID
+          ) == nil
+        else {
+          return .failure(.unsafe)
+        }
+      case .purgeIntent:
+        guard
+          inventory.purgeIntents.updateValue(record, forKey: managedName.transactionID) == nil
+        else {
+          return .failure(.unsafe)
+        }
+      case .intentStage, .intent, .receiptStage, .receipt, .restoreIntentStage,
+        .restoreIntent, .restoreReceiptStage, .restoreReceipt, .purgeReceiptStage,
+        .purgeReceipt, .purgeWork, .item:
+        return .failure(.unsafe)
+      }
+    case .purgeReceiptStage, .purgeReceipt:
+      let bytes: Data
+      switch descriptorJournalReadRecord(
+        quarantineRootDescriptor: request.quarantineRootDescriptor,
+        component: component,
+        expectedDevice: expectedDevice,
+        accountUID: request.accountUID,
+        dependencies: dependencies
+      ) {
+      case .success(let result):
+        bytes = result
+      case .failure(let failure):
+        return .failure(failure)
+      }
+      let receipt: QuarantinePurgeJournalReceiptV1
+      do {
+        receipt = try QuarantinePurgeJournalV1Codec.decodeReceipt(bytes)
+      } catch {
+        return .failure(.unsafe)
+      }
+      guard receipt.purgeTransactionID == managedName.transactionID else {
+        return .failure(.unsafe)
+      }
+      let record = DescriptorJournalRecord(
+        component: component,
+        bytes: bytes,
+        value: receipt
+      )
+      switch managedName.kind {
+      case .purgeReceiptStage:
+        guard
+          inventory.purgeReceiptStages.updateValue(
+            record,
+            forKey: managedName.transactionID
+          ) == nil
+        else {
+          return .failure(.unsafe)
+        }
+      case .purgeReceipt:
+        guard
+          inventory.purgeReceipts.updateValue(record, forKey: managedName.transactionID) == nil
+        else {
+          return .failure(.unsafe)
+        }
+      case .intentStage, .intent, .receiptStage, .receipt, .restoreIntentStage,
+        .restoreIntent, .restoreReceiptStage, .restoreReceipt, .purgeIntentStage,
+        .purgeIntent, .purgeWork, .item:
         return .failure(.unsafe)
       }
     }
@@ -1096,6 +1217,85 @@ private func descriptorJournalValidateInventoryStructure(
     }
   }
 
+  let quarantineRecordTransactionIDs = Set(inventory.intentStages.keys)
+    .union(inventory.intents.keys)
+    .union(inventory.receiptStages.keys)
+    .union(inventory.receipts.keys)
+  let restoreRecordTransactionIDs = Set(inventory.restoreIntentStages.keys)
+    .union(inventory.restoreIntents.keys)
+    .union(inventory.restoreReceiptStages.keys)
+    .union(inventory.restoreReceipts.keys)
+  let purgeNamespaceTransactionIDs = Set(inventory.purgeIntentStages.keys)
+    .union(inventory.purgeIntents.keys)
+    .union(inventory.purgeReceiptStages.keys)
+    .union(inventory.purgeReceipts.keys)
+    .union(inventory.purgeWorks.keys)
+  guard
+    purgeNamespaceTransactionIDs.isDisjoint(with: quarantineRecordTransactionIDs),
+    purgeNamespaceTransactionIDs.isDisjoint(with: restoreRecordTransactionIDs)
+  else {
+    return .failure(.unsafe)
+  }
+
+  for purgeTransactionID in inventory.purgeIntentStages.keys
+  where inventory.purgeIntents[purgeTransactionID] != nil {
+    return .failure(.unsafe)
+  }
+  for record in inventory.purgeIntentStages.values {
+    guard descriptorJournalPurgeIntentMatchesQuarantinePair(record, inventory: inventory) else {
+      return .failure(.unsafe)
+    }
+  }
+  for record in inventory.purgeIntents.values {
+    guard descriptorJournalPurgeIntentMatchesQuarantinePair(record, inventory: inventory) else {
+      return .failure(.unsafe)
+    }
+  }
+  for purgeTransactionID in inventory.purgeReceiptStages.keys {
+    guard let intentRecord = inventory.purgeIntents[purgeTransactionID],
+      inventory.purgeReceipts[purgeTransactionID] == nil,
+      let receiptRecord = inventory.purgeReceiptStages[purgeTransactionID],
+      (try? QuarantinePurgeJournalV1Codec.decodeReceipt(
+        receiptRecord.bytes,
+        matchingIntentBytes: intentRecord.bytes
+      )) != nil
+    else {
+      return .failure(.unsafe)
+    }
+  }
+  for purgeTransactionID in inventory.purgeReceipts.keys {
+    guard let intentRecord = inventory.purgeIntents[purgeTransactionID],
+      let receiptRecord = inventory.purgeReceipts[purgeTransactionID],
+      (try? QuarantinePurgeJournalV1Codec.decodeReceipt(
+        receiptRecord.bytes,
+        matchingIntentBytes: intentRecord.bytes
+      )) != nil
+    else {
+      return .failure(.unsafe)
+    }
+  }
+
+  var reservedPurgeWorkComponents = Set<[UInt8]>()
+  for record in inventory.purgeIntentStages.values {
+    guard reservedPurgeWorkComponents.insert(record.value.purgeWorkComponent).inserted else {
+      return .failure(.unsafe)
+    }
+  }
+  for record in inventory.purgeIntents.values {
+    guard reservedPurgeWorkComponents.insert(record.value.purgeWorkComponent).inserted else {
+      return .failure(.unsafe)
+    }
+  }
+  for (purgeTransactionID, workComponent) in inventory.purgeWorks {
+    guard let intentRecord = inventory.purgeIntents[purgeTransactionID],
+      intentRecord.value.purgeWorkComponent == workComponent.bytes,
+      inventory.purgeReceiptStages[purgeTransactionID] == nil,
+      inventory.purgeReceipts[purgeTransactionID] == nil
+    else {
+      return .failure(.unsafe)
+    }
+  }
+
   var pendingIntentCount = inventory.intents.keys.reduce(into: 0) { count, transactionID in
     if inventory.receipts[transactionID] == nil {
       count += 1
@@ -1105,6 +1305,13 @@ private func descriptorJournalValidateInventoryStructure(
     count,
     restoreTransactionID in
     if inventory.restoreReceipts[restoreTransactionID] == nil {
+      count += 1
+    }
+  }
+  pendingIntentCount = inventory.purgeIntents.keys.reduce(into: pendingIntentCount) {
+    count,
+    purgeTransactionID in
+    if inventory.purgeReceipts[purgeTransactionID] == nil {
       count += 1
     }
   }
@@ -1124,6 +1331,40 @@ private func descriptorJournalValidateInventoryStructure(
   for (restoreTransactionID, intentRecord) in inventory.restoreIntents
   where inventory.restoreReceipts[restoreTransactionID] == nil {
     guard !restoredQuarantineTransactions.contains(intentRecord.value.quarantineTransactionID)
+    else {
+      return .failure(.unsafe)
+    }
+  }
+
+  var itemAbsentQuarantineTransactions = Set<String>()
+  let terminalPurgeReceipts =
+    Array(inventory.purgeReceiptStages.values) + Array(inventory.purgeReceipts.values)
+  for receiptRecord in terminalPurgeReceipts
+  where receiptRecord.value.outcome == .itemAbsent {
+    guard let purgeIntent = inventory.purgeIntents[receiptRecord.value.purgeTransactionID]?.value,
+      itemAbsentQuarantineTransactions.insert(purgeIntent.quarantineTransactionID).inserted
+    else {
+      return .failure(.unsafe)
+    }
+  }
+  guard restoredQuarantineTransactions.isDisjoint(with: itemAbsentQuarantineTransactions) else {
+    return .failure(.unsafe)
+  }
+  for (purgeTransactionID, intentRecord) in inventory.purgeIntents
+  where inventory.purgeReceipts[purgeTransactionID] == nil {
+    let hasOwnItemAbsentReceiptStage =
+      inventory.purgeReceiptStages[purgeTransactionID]?.value.outcome == .itemAbsent
+    guard
+      !restoredQuarantineTransactions.contains(intentRecord.value.quarantineTransactionID),
+      !itemAbsentQuarantineTransactions.contains(intentRecord.value.quarantineTransactionID)
+        || hasOwnItemAbsentReceiptStage
+    else {
+      return .failure(.unsafe)
+    }
+  }
+  for (restoreTransactionID, intentRecord) in inventory.restoreIntents
+  where inventory.restoreReceipts[restoreTransactionID] == nil {
+    guard !itemAbsentQuarantineTransactions.contains(intentRecord.value.quarantineTransactionID)
     else {
       return .failure(.unsafe)
     }
@@ -1161,6 +1402,29 @@ private func descriptorJournalRestoreIntentMatchesQuarantinePair(
       matchingQuarantineReceiptBytes: quarantineReceipt.bytes
     )
     return decoded == restoreIntent
+  } catch {
+    return false
+  }
+}
+
+private func descriptorJournalPurgeIntentMatchesQuarantinePair(
+  _ purgeRecord: DescriptorJournalRecord<QuarantinePurgeJournalIntentV1>,
+  inventory: DescriptorJournalInventory
+) -> Bool {
+  let purgeIntent = purgeRecord.value
+  guard
+    let quarantineIntent = inventory.intents[purgeIntent.quarantineTransactionID],
+    let quarantineReceipt = inventory.receipts[purgeIntent.quarantineTransactionID]
+  else {
+    return false
+  }
+  do {
+    let decoded = try QuarantinePurgeJournalV1Codec.decodeIntent(
+      purgeRecord.bytes,
+      matchingQuarantineIntentBytes: quarantineIntent.bytes,
+      matchingQuarantineReceiptBytes: quarantineReceipt.bytes
+    )
+    return decoded == purgeIntent
   } catch {
     return false
   }
@@ -1325,6 +1589,11 @@ private func descriptorJournalParseManagedName(
     (".restore-intent-v1-", .restoreIntent),
     (".restore-receipt-stage-v1-", .restoreReceiptStage),
     (".restore-receipt-v1-", .restoreReceipt),
+    (".purge-intent-stage-v1-", .purgeIntentStage),
+    (".purge-intent-v1-", .purgeIntent),
+    (".purge-receipt-stage-v1-", .purgeReceiptStage),
+    (".purge-receipt-v1-", .purgeReceipt),
+    (".purge-work-v1-", .purgeWork),
     ("item-v1-", .item),
   ]
   for (prefix, kind) in prefixes {
@@ -1698,6 +1967,70 @@ func descriptorJournalRecoverLocked(
     case .failure:
       return .failure(.recoveryRequired(transactionID: restoreTransactionID))
     }
+  }
+
+  for purgeTransactionID in inventory.purgeIntents.keys.sorted() {
+    guard let purgeIntentRecord = inventory.purgeIntents[purgeTransactionID] else {
+      return .failure(.unsafe)
+    }
+    switch descriptorJournalValidateHistoricalReceiptParents(
+      request,
+      expectedRoot: purgeIntentRecord.value.npmRootBinding,
+      expectedQuarantineRoot: purgeIntentRecord.value.quarantineRootBinding,
+      dependencies: dependencies
+    ) {
+    case .success:
+      break
+    case .failure(let failure):
+      return .failure(failure)
+    }
+    switch descriptorJournalStabilizeFinalRecord(
+      purgeIntentRecord,
+      quarantineRootDescriptor: request.quarantineRootDescriptor,
+      expectedDevice: purgeIntentRecord.value.quarantineRootBinding.device,
+      accountUID: request.accountUID,
+      dependencies: dependencies
+    ) {
+    case .success:
+      break
+    case .failure:
+      return .failure(.recoveryRequired(transactionID: purgeTransactionID))
+    }
+  }
+
+  for (purgeTransactionID, purgeReceiptRecord) in inventory.purgeReceipts {
+    guard let purgeIntentRecord = inventory.purgeIntents[purgeTransactionID] else {
+      return .failure(.unsafe)
+    }
+    do {
+      _ = try QuarantinePurgeJournalV1Codec.decodeReceipt(
+        purgeReceiptRecord.bytes,
+        matchingIntentBytes: purgeIntentRecord.bytes
+      )
+    } catch {
+      return .failure(.unsafe)
+    }
+    switch descriptorJournalStabilizeFinalRecord(
+      purgeReceiptRecord,
+      quarantineRootDescriptor: request.quarantineRootDescriptor,
+      expectedDevice: purgeIntentRecord.value.quarantineRootBinding.device,
+      accountUID: request.accountUID,
+      dependencies: dependencies
+    ) {
+    case .success:
+      break
+    case .failure:
+      return .failure(.recoveryRequired(transactionID: purgeTransactionID))
+    }
+  }
+
+  if let purgeTransactionID = inventory.purgeReceiptStages.keys.sorted().first {
+    return .failure(.recoveryRequired(transactionID: purgeTransactionID))
+  }
+  if let purgeTransactionID = inventory.purgeIntents.keys.sorted().first(where: {
+    inventory.purgeReceipts[$0] == nil
+  }) {
+    return .failure(.recoveryRequired(transactionID: purgeTransactionID))
   }
 
   var recoveredReceipts: [QuarantineJournalReceiptV1] = []
@@ -3033,6 +3366,10 @@ private func descriptorJournalProjectInventory(
       !descriptorJournalHasSuccessfulRestore(
         for: quarantineTransactionID,
         inventory: inventory
+      ),
+      !descriptorJournalHasTerminalItemAbsentPurge(
+        for: quarantineTransactionID,
+        inventory: inventory
       )
     else {
       continue
@@ -3228,6 +3565,14 @@ func descriptorJournalPrepareRestore(
     return .failure(.alreadyRestored)
   }
   guard
+    !descriptorJournalPurgeBlocksRestore(
+      for: request.quarantineTransactionID,
+      inventory: inventory
+    )
+  else {
+    return .failure(.transactionNotRestorable)
+  }
+  guard
     !descriptorJournalContainsRestoreTransaction(
       request.restoreTransactionID,
       inventory: inventory
@@ -3326,6 +3671,37 @@ private func descriptorJournalHasSuccessfulRestore(
       return false
     }
     return intent.quarantineTransactionID == quarantineTransactionID
+  }
+}
+
+private func descriptorJournalHasTerminalItemAbsentPurge(
+  for quarantineTransactionID: String,
+  inventory: DescriptorJournalInventory
+) -> Bool {
+  inventory.purgeReceipts.contains { purgeTransactionID, receiptRecord in
+    guard receiptRecord.value.outcome == .itemAbsent,
+      let intent = inventory.purgeIntents[purgeTransactionID]?.value
+    else {
+      return false
+    }
+    return intent.quarantineTransactionID == quarantineTransactionID
+  }
+}
+
+private func descriptorJournalPurgeBlocksRestore(
+  for quarantineTransactionID: String,
+  inventory: DescriptorJournalInventory
+) -> Bool {
+  if descriptorJournalHasTerminalItemAbsentPurge(
+    for: quarantineTransactionID,
+    inventory: inventory
+  ) {
+    return true
+  }
+  return inventory.purgeIntents.contains { purgeTransactionID, intentRecord in
+    intentRecord.value.quarantineTransactionID == quarantineTransactionID
+      && (inventory.purgeReceipts[purgeTransactionID] == nil
+        || inventory.purgeWorks[purgeTransactionID] != nil)
   }
 }
 
@@ -3535,6 +3911,14 @@ func descriptorJournalBeginRestore(
     )
   else {
     return .failure(.alreadyRestored)
+  }
+  guard
+    !descriptorJournalPurgeBlocksRestore(
+      for: intent.quarantineTransactionID,
+      inventory: inventory
+    )
+  else {
+    return .failure(.transactionNotRestorable)
   }
   guard
     !descriptorJournalContainsRestoreTransaction(
