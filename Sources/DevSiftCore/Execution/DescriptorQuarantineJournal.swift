@@ -52,17 +52,23 @@ struct DescriptorQuarantineJournalRecoverySummary: Equatable, Sendable {
   let validatedTransactionCount: Int
   let recoveredRestoreReceipts: [QuarantineRestoreJournalReceiptV1]
   let validatedRestoreTransactionCount: Int
+  let recoveredPurgeReceipts: [QuarantinePurgeJournalReceiptV1]
+  let validatedPurgeTransactionCount: Int
 
   init(
     recoveredReceipts: [QuarantineJournalReceiptV1],
     validatedTransactionCount: Int,
     recoveredRestoreReceipts: [QuarantineRestoreJournalReceiptV1] = [],
-    validatedRestoreTransactionCount: Int = 0
+    validatedRestoreTransactionCount: Int = 0,
+    recoveredPurgeReceipts: [QuarantinePurgeJournalReceiptV1] = [],
+    validatedPurgeTransactionCount: Int = 0
   ) {
     self.recoveredReceipts = recoveredReceipts
     self.validatedTransactionCount = validatedTransactionCount
     self.recoveredRestoreReceipts = recoveredRestoreReceipts
     self.validatedRestoreTransactionCount = validatedRestoreTransactionCount
+    self.recoveredPurgeReceipts = recoveredPurgeReceipts
+    self.validatedPurgeTransactionCount = validatedPurgeTransactionCount
   }
 }
 
@@ -116,6 +122,7 @@ struct DescriptorQuarantineJournalDependencies: Sendable {
   var lockExclusiveNonBlocking: @Sendable (Int32) -> Int32?
   var unlock: @Sendable (Int32) -> Void
   var hasExtendedACL: @Sendable (Int32) -> Result<Bool, DescriptorJournalPOSIXError>
+  var purgeCapacityObserver: DescriptorQuarantinePurgeCapacityObserver
   var hooks: DescriptorQuarantineJournalHooks
 
   init(
@@ -133,6 +140,8 @@ struct DescriptorQuarantineJournalDependencies: Sendable {
     unlock: @escaping @Sendable (Int32) -> Void = descriptorJournalUnlock,
     hasExtendedACL: @escaping @Sendable (Int32) -> Result<Bool, DescriptorJournalPOSIXError> =
       descriptorJournalHasExtendedACL,
+    purgeCapacityObserver: DescriptorQuarantinePurgeCapacityObserver =
+      DescriptorQuarantinePurgeCapacityObserver(),
     hooks: DescriptorQuarantineJournalHooks = DescriptorQuarantineJournalHooks()
   ) {
     self.fullSync = fullSync
@@ -141,6 +150,7 @@ struct DescriptorQuarantineJournalDependencies: Sendable {
     self.lockExclusiveNonBlocking = lockExclusiveNonBlocking
     self.unlock = unlock
     self.hasExtendedACL = hasExtendedACL
+    self.purgeCapacityObserver = purgeCapacityObserver
     self.hooks = hooks
   }
 }

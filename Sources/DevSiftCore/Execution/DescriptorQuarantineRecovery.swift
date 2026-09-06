@@ -145,6 +145,36 @@ struct DescriptorQuarantineInventoryEntry: Equatable, Sendable {
   let sourceState: DescriptorQuarantineInventorySourceState
   let itemState: DescriptorQuarantineInventoryItemState
   let quarantineReceiptWasProducedByRecovery: Bool
+  let purgeRetry: DescriptorQuarantinePurgeRetryInventoryEntry?
+
+  init(
+    quarantineTransactionID: String,
+    canonicalQuarantineIntentBytes: Data,
+    canonicalQuarantineReceiptBytes: Data,
+    sourceState: DescriptorQuarantineInventorySourceState,
+    itemState: DescriptorQuarantineInventoryItemState,
+    quarantineReceiptWasProducedByRecovery: Bool,
+    purgeRetry: DescriptorQuarantinePurgeRetryInventoryEntry? = nil
+  ) {
+    self.quarantineTransactionID = quarantineTransactionID
+    self.canonicalQuarantineIntentBytes = canonicalQuarantineIntentBytes
+    self.canonicalQuarantineReceiptBytes = canonicalQuarantineReceiptBytes
+    self.sourceState = sourceState
+    self.itemState = itemState
+    self.quarantineReceiptWasProducedByRecovery = quarantineReceiptWasProducedByRecovery
+    self.purgeRetry = purgeRetry
+  }
+}
+
+/// Exact internal payload for the sole receipt-less staged purge that may be
+/// projected by one inventory pass. Managed names and transaction identifiers
+/// never cross the package-facing opaque selection boundary.
+struct DescriptorQuarantinePurgeRetryInventoryEntry: Equatable, Sendable {
+  let canonicalQuarantineIntentBytes: Data
+  let canonicalQuarantineReceiptBytes: Data
+  let purgeIntent: QuarantinePurgeJournalIntentV1
+  let canonicalPurgeIntentBytes: Data
+  let currentWorkBinding: QuarantineJournalFileBindingV1
 }
 
 enum DescriptorQuarantineInventoryFailure: Error, Equatable, Sendable {
@@ -1457,7 +1487,7 @@ func descriptorJournalValidateNewIntentReservations(
   }
   switch descriptorJournalValidateInventoryStructure(
     inventory,
-    maximumPendingIntentCount: 0
+    maximumPendingIntentCount: 1
   ) {
   case .success:
     break
@@ -2024,15 +2054,6 @@ func descriptorJournalRecoverLocked(
     }
   }
 
-  if let purgeTransactionID = inventory.purgeReceiptStages.keys.sorted().first {
-    return .failure(.recoveryRequired(transactionID: purgeTransactionID))
-  }
-  if let purgeTransactionID = inventory.purgeIntents.keys.sorted().first(where: {
-    inventory.purgeReceipts[$0] == nil
-  }) {
-    return .failure(.recoveryRequired(transactionID: purgeTransactionID))
-  }
-
   var recoveredReceipts: [QuarantineJournalReceiptV1] = []
   for transactionID in inventory.receiptStages.keys.sorted() {
     guard let stage = inventory.receiptStages[transactionID],
@@ -2086,6 +2107,56 @@ func descriptorJournalRecoverLocked(
     case .success:
       inventory.restoreReceipts[restoreTransactionID] = stage
       recoveredRestoreReceipts.append(stage.value)
+    case .failure(let failure):
+      return .failure(failure)
+    }
+  }
+
+  var recoveredPurgeReceipts: [QuarantinePurgeJournalReceiptV1] = []
+  for purgeTransactionID in inventory.purgeReceiptStages.keys.sorted() {
+    guard let stage = inventory.purgeReceiptStages[purgeTransactionID],
+      let intent = inventory.purgeIntents[purgeTransactionID]
+    else {
+      return .failure(.unsafe)
+    }
+    do {
+      _ = try QuarantinePurgeJournalV1Codec.decodeReceipt(
+        stage.bytes,
+        matchingIntentBytes: intent.bytes
+      )
+    } catch {
+      return .failure(.unsafe)
+    }
+    switch descriptorJournalCompleteStagedPurgeReceipt(
+      stage,
+      intentRecord: intent,
+      request: request,
+      dependencies: dependencies
+    ) {
+    case .success:
+      inventory.purgeReceipts[purgeTransactionID] = stage
+      recoveredPurgeReceipts.append(stage.value)
+    case .failure(let failure):
+      return .failure(failure)
+    }
+  }
+
+  for purgeTransactionID in inventory.purgeIntents.keys.sorted() {
+    guard inventory.purgeReceipts[purgeTransactionID] == nil,
+      let intentRecord = inventory.purgeIntents[purgeTransactionID]
+    else {
+      continue
+    }
+    switch descriptorJournalRecoverPendingPurge(
+      intentRecord,
+      inventory: inventory,
+      request: request,
+      dependencies: dependencies
+    ) {
+    case .receiptRecorded(let receipt):
+      recoveredPurgeReceipts.append(receipt)
+    case .retryRequired:
+      break
     case .failure(let failure):
       return .failure(failure)
     }
@@ -2381,7 +2452,9 @@ func descriptorJournalRecoverLocked(
       recoveredReceipts: recoveredReceipts,
       validatedTransactionCount: inventory.intents.count,
       recoveredRestoreReceipts: recoveredRestoreReceipts,
-      validatedRestoreTransactionCount: inventory.restoreIntents.count
+      validatedRestoreTransactionCount: inventory.restoreIntents.count,
+      recoveredPurgeReceipts: recoveredPurgeReceipts,
+      validatedPurgeTransactionCount: inventory.purgeIntents.count
     ))
 }
 
@@ -2716,6 +2789,329 @@ private func descriptorJournalCompleteStagedRestoreReceipt(
     return .success(())
   case .success, .failure:
     return .failure(.recoveryRequired(transactionID: intentRecord.value.restoreTransactionID))
+  }
+}
+
+private enum DescriptorJournalPendingPurgeRecoveryResult {
+  case receiptRecorded(QuarantinePurgeJournalReceiptV1)
+  case retryRequired
+  case failure(DescriptorQuarantineJournalFailure)
+}
+
+private func descriptorJournalCompleteStagedPurgeReceipt(
+  _ receiptRecord: DescriptorJournalRecord<QuarantinePurgeJournalReceiptV1>,
+  intentRecord: DescriptorJournalRecord<QuarantinePurgeJournalIntentV1>,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> Result<Void, DescriptorQuarantineJournalFailure> {
+  let transactionID = intentRecord.value.purgeTransactionID
+  let truthBefore: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intentRecord.value,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthBefore = truth
+  case .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  guard
+    descriptorJournalPurgeTruth(
+      truthBefore,
+      matches: receiptRecord.value
+    )
+  else {
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  if receiptRecord.value.outcome == .notPurged {
+    guard case .expected(let item) = truthBefore.quarantineItem,
+      case .success = descriptorJournalValidatePurgeTree(
+        intent: intentRecord.value,
+        componentBytes: intentRecord.value.quarantineItemComponent,
+        expectedCurrent: item,
+        requiresCompleteTree: true,
+        request: request,
+        dependencies: dependencies
+      )
+    else {
+      return .failure(.recoveryRequired(transactionID: transactionID))
+    }
+  }
+  guard
+    descriptorJournalSyncPair(
+      request.rootDescriptor,
+      request.quarantineRootDescriptor,
+      dependencies: dependencies
+    )
+  else {
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  switch descriptorJournalStabilizeFinalRecord(
+    intentRecord,
+    quarantineRootDescriptor: request.quarantineRootDescriptor,
+    expectedDevice: intentRecord.value.quarantineRootBinding.device,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  let truthAfterSync: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intentRecord.value,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthAfterSync = truth
+  case .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  guard truthAfterSync == truthBefore,
+    descriptorJournalPurgeTruth(truthAfterSync, matches: receiptRecord.value),
+    let finalName = descriptorJournalRecordName(
+      prefix: ".purge-receipt-v1-",
+      transactionID: transactionID
+    )
+  else {
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+
+  switch descriptorJournalPromoteExistingStage(
+    bytes: receiptRecord.bytes,
+    stageName: receiptRecord.component,
+    finalName: finalName,
+    quarantineRootDescriptor: request.quarantineRootDescriptor,
+    expectedDevice: intentRecord.value.quarantineRootBinding.device,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure, .finalMayExist:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  switch descriptorJournalObservePurgeNamespace(
+    intentRecord.value,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth) where truth == truthAfterSync:
+    return .success(())
+  case .success, .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+}
+
+private func descriptorJournalRecoverPendingPurge(
+  _ intentRecord: DescriptorJournalRecord<QuarantinePurgeJournalIntentV1>,
+  inventory: DescriptorJournalInventory,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> DescriptorJournalPendingPurgeRecoveryResult {
+  let intent = intentRecord.value
+  let transactionID = intent.purgeTransactionID
+  guard
+    inventory.purgeReceiptStages[transactionID] == nil,
+    inventory.purgeReceipts[transactionID] == nil
+  else {
+    return .failure(.unsafe)
+  }
+
+  let truthBefore: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthBefore = truth
+  case .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+
+  let terminalOutcome: QuarantinePurgeJournalReceiptOutcomeV1
+  let quarantineNameWasRecreated: Bool
+  switch descriptorJournalPurgeDisposition(truthBefore) {
+  case .notPurged:
+    guard case .expected(let item) = truthBefore.quarantineItem,
+      case .success = descriptorJournalValidatePurgeTree(
+        intent: intent,
+        componentBytes: intent.quarantineItemComponent,
+        expectedCurrent: item,
+        requiresCompleteTree: true,
+        request: request,
+        dependencies: dependencies
+      )
+    else {
+      return .failure(.recoveryRequired(transactionID: transactionID))
+    }
+    terminalOutcome = .notPurged
+    quarantineNameWasRecreated = false
+
+  case .itemAbsent(let recreated):
+    terminalOutcome = .itemAbsent
+    quarantineNameWasRecreated = recreated
+
+  case .retryRequired(_, let work):
+    guard
+      case .success = descriptorJournalValidatePurgeTree(
+        intent: intent,
+        componentBytes: intent.purgeWorkComponent,
+        expectedCurrent: work,
+        requiresCompleteTree: false,
+        request: request,
+        synchronizeTreeRoot: true,
+        dependencies: dependencies
+      )
+    else {
+      return .failure(.recoveryRequired(transactionID: transactionID))
+    }
+    switch descriptorJournalObservePurgeNamespace(
+      intent,
+      request: request,
+      dependencies: dependencies
+    ) {
+    case .success(let truth) where truth == truthBefore:
+      return .retryRequired
+    case .success, .failure:
+      return .failure(.recoveryRequired(transactionID: transactionID))
+    }
+
+  case .manualRecovery:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+
+  guard
+    let stageName = descriptorJournalRecordName(
+      prefix: ".purge-receipt-stage-v1-",
+      transactionID: transactionID
+    ),
+    let finalName = descriptorJournalRecordName(
+      prefix: ".purge-receipt-v1-",
+      transactionID: transactionID
+    ),
+    descriptorJournalInventory(
+      inventory,
+      canAddEntries: 1,
+      peakAdditionalNameBytes: max(stageName.bytes.count, finalName.bytes.count)
+    ),
+    descriptorJournalSyncPair(
+      request.rootDescriptor,
+      request.quarantineRootDescriptor,
+      dependencies: dependencies
+    )
+  else {
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  switch descriptorJournalStabilizeFinalRecord(
+    intentRecord,
+    quarantineRootDescriptor: request.quarantineRootDescriptor,
+    expectedDevice: intent.quarantineRootBinding.device,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  let truthAfterSync: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthAfterSync = truth
+  case .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  guard truthAfterSync == truthBefore else {
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+
+  let capacityAfter = dependencies.purgeCapacityObserver.observeAfterAttempt(
+    fromHeldDescriptor: request.quarantineRootDescriptor,
+    matching: intent.capacityBefore
+  )
+  let receipt: QuarantinePurgeJournalReceiptV1
+  let bytes: Data
+  do {
+    receipt = try QuarantinePurgeJournalV1Codec.makeReceipt(
+      outcome: terminalOutcome,
+      quarantineNameWasRecreated: quarantineNameWasRecreated,
+      producedByRecovery: true,
+      capacityObservationProvenance: .recovery,
+      capacityAfter: capacityAfter,
+      canonicalPurgeIntentBytes: intentRecord.bytes
+    )
+    bytes = try QuarantinePurgeJournalV1Codec.encode(
+      receipt,
+      matchingIntentBytes: intentRecord.bytes
+    )
+  } catch {
+    return .failure(.unsafe)
+  }
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth) where truth == truthAfterSync:
+    break
+  case .success, .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  switch descriptorJournalPublishNewRecord(
+    bytes: bytes,
+    stageName: stageName,
+    finalName: finalName,
+    quarantineRootDescriptor: request.quarantineRootDescriptor,
+    expectedDevice: intent.quarantineRootBinding.device,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure, .finalMayExist:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let truth) where truth == truthAfterSync:
+    return .receiptRecorded(receipt)
+  case .success, .failure:
+    return .failure(.recoveryRequired(transactionID: transactionID))
+  }
+}
+
+private func descriptorJournalPurgeTruth(
+  _ truth: DescriptorPurgeJournalNamespaceTruth,
+  matches receipt: QuarantinePurgeJournalReceiptV1
+) -> Bool {
+  switch receipt.outcome {
+  case .notPurged:
+    guard case .expected = truth.quarantineItem,
+      case .missing = truth.work
+    else {
+      return false
+    }
+    return !receipt.quarantineNameWasRecreated
+  case .itemAbsent:
+    guard case .missing = truth.work else { return false }
+    if receipt.quarantineNameWasRecreated {
+      guard case .other = truth.quarantineItem else { return false }
+    } else {
+      guard case .missing = truth.quarantineItem else { return false }
+    }
+    return true
   }
 }
 
@@ -3098,6 +3494,270 @@ private func descriptorJournalObserveName(
   }
 }
 
+private struct DescriptorPurgeJournalNamespaceTruth: Equatable {
+  let quarantineItem: DescriptorJournalObservedName
+  let work: DescriptorJournalObservedName
+}
+
+private enum DescriptorPurgeJournalNamespaceDisposition {
+  case notPurged
+  case itemAbsent(quarantineNameWasRecreated: Bool)
+  case retryRequired(
+    quarantineNameWasRecreated: Bool,
+    work: DescriptorJournalStat
+  )
+  case manualRecovery
+}
+
+/// Purge recovery classifies `other` only after a stable opened-versus-named,
+/// same-device, same-owner, safe-directory observation. An unsafe or changing
+/// object must never be downgraded to an unrelated object that can be ignored.
+private func descriptorJournalObservePurgeName(
+  parentDescriptor: Int32,
+  componentBytes: [UInt8],
+  expected: QuarantineJournalFileBindingV1,
+  accountUID: uid_t,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> Result<DescriptorJournalObservedName, DescriptorQuarantineJournalFailure> {
+  guard let component = DescriptorPathComponent(componentBytes) else {
+    return .failure(.unsafe)
+  }
+  let named: DescriptorJournalStat
+  do {
+    named = try DescriptorJournalStat.read(at: parentDescriptor, component: component)
+  } catch let error as DescriptorJournalPOSIXError where error.code == ENOENT {
+    return .success(.missing)
+  } catch {
+    return .failure(.unavailable(descriptorJournalFailure(for: error)))
+  }
+  guard
+    named.snapshot.kind == .directory,
+    named.snapshot.identity.device == expected.device,
+    named.snapshot.ownerUID == accountUID,
+    named.snapshot.permissionMode & mode_t(0o022) == 0,
+    named.snapshot.flags == 0,
+    named.snapshot.linkCount >= 2
+  else {
+    return .failure(.unsafe)
+  }
+
+  let descriptor: Int32
+  do {
+    descriptor = try descriptorOpenTrustedDirectory(
+      at: parentDescriptor,
+      component: component,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+  } catch {
+    return .failure(.unavailable(descriptorJournalFailure(for: error)))
+  }
+  defer { descriptorCloseIgnoringErrors(descriptor) }
+
+  do {
+    let held = try DescriptorJournalStat.read(from: descriptor)
+    let namedAgain = try DescriptorJournalStat.read(
+      at: parentDescriptor,
+      component: component
+    )
+    guard held == named, namedAgain == held else {
+      return .failure(.unsafe)
+    }
+    switch dependencies.hasExtendedACL(descriptor) {
+    case .success(false):
+      break
+    case .success(true):
+      return .failure(.unsafe)
+    case .failure(let error):
+      return .failure(.unavailable(descriptorJournalFailureCode(error.code)))
+    }
+    return .success(
+      descriptorJournalMatchesHistoricalParent(held.snapshot, expected: expected)
+        ? .expected(held)
+        : .other(held)
+    )
+  } catch {
+    return .failure(.unavailable(descriptorJournalFailure(for: error)))
+  }
+}
+
+private func descriptorJournalObservePurgeNamespace(
+  _ intent: QuarantinePurgeJournalIntentV1,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> Result<DescriptorPurgeJournalNamespaceTruth, DescriptorQuarantineJournalFailure> {
+  switch descriptorJournalValidateHistoricalReceiptParents(
+    request,
+    expectedRoot: intent.npmRootBinding,
+    expectedQuarantineRoot: intent.quarantineRootBinding,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(failure)
+  }
+
+  let quarantineItem: DescriptorJournalObservedName
+  switch descriptorJournalObservePurgeName(
+    parentDescriptor: request.quarantineRootDescriptor,
+    componentBytes: intent.quarantineItemComponent,
+    expected: intent.candidateBinding,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success(let observed):
+    quarantineItem = observed
+  case .failure(let failure):
+    return .failure(failure)
+  }
+
+  let work: DescriptorJournalObservedName
+  switch descriptorJournalObservePurgeName(
+    parentDescriptor: request.quarantineRootDescriptor,
+    componentBytes: intent.purgeWorkComponent,
+    expected: intent.candidateBinding,
+    accountUID: request.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success(let observed):
+    work = observed
+  case .failure(let failure):
+    return .failure(failure)
+  }
+  return .success(
+    DescriptorPurgeJournalNamespaceTruth(
+      quarantineItem: quarantineItem,
+      work: work
+    ))
+}
+
+private func descriptorJournalPurgeDisposition(
+  _ truth: DescriptorPurgeJournalNamespaceTruth
+) -> DescriptorPurgeJournalNamespaceDisposition {
+  switch (truth.quarantineItem, truth.work) {
+  case (.expected, .missing):
+    return .notPurged
+  case (.missing, .missing):
+    return .itemAbsent(quarantineNameWasRecreated: false)
+  case (.other, .missing):
+    return .itemAbsent(quarantineNameWasRecreated: true)
+  case (.missing, .expected(let work)):
+    return .retryRequired(
+      quarantineNameWasRecreated: false,
+      work: work
+    )
+  case (.other, .expected(let work)):
+    return .retryRequired(
+      quarantineNameWasRecreated: true,
+      work: work
+    )
+  case (.expected, .expected), (_, .other):
+    return .manualRecovery
+  }
+}
+
+private func descriptorJournalValidatePurgeTree(
+  intent: QuarantinePurgeJournalIntentV1,
+  componentBytes: [UInt8],
+  expectedCurrent: DescriptorJournalStat,
+  requiresCompleteTree: Bool,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  synchronizeTreeRoot: Bool = false,
+  dependencies: DescriptorQuarantineJournalDependencies,
+  beforeTraversalEntry: @escaping DescriptorNPMPurgeRemainderTreeValidator.EntryHook = { _, _ in }
+) -> Result<QuarantineJournalFileBindingV1, DescriptorQuarantinePurgeManualRecoveryReason> {
+  guard
+    intent.resourceBounds == .current,
+    let component = DescriptorPathComponent(componentBytes),
+    QuarantineJournalFileBindingV1(snapshot: expectedCurrent.snapshot) != nil
+  else {
+    return .failure(.recordsChanged)
+  }
+  let descriptor: Int32
+  do {
+    descriptor = try descriptorOpenTrustedDirectory(
+      at: request.quarantineRootDescriptor,
+      component: component,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+  } catch {
+    return .failure(.workTreeChanged)
+  }
+  defer { descriptorCloseIgnoringErrors(descriptor) }
+
+  do {
+    let held = try DescriptorJournalStat.read(from: descriptor)
+    let named = try DescriptorJournalStat.read(
+      at: request.quarantineRootDescriptor,
+      component: component
+    )
+    guard held == expectedCurrent, named == held else {
+      return .failure(.workTreeChanged)
+    }
+    func validateCurrentTree() throws {
+      if requiresCompleteTree {
+        _ = try DescriptorNPMCompletePurgeTreeValidator(
+          checkpoint: {},
+          beforeTraversalEntry: beforeTraversalEntry
+        ).validate(
+          descriptor: descriptor,
+          namedAt: request.quarantineRootDescriptor,
+          component: component,
+          expected: held.snapshot,
+          rootDevice: intent.npmRootBinding.device,
+          accountUID: request.accountUID
+        )
+      } else {
+        _ = try DescriptorNPMPurgeRemainderTreeValidator(
+          checkpoint: {},
+          beforeTraversalEntry: beforeTraversalEntry
+        ).validate(
+          descriptor: descriptor,
+          namedAt: request.quarantineRootDescriptor,
+          component: component,
+          expectedBinding: intent.candidateBinding,
+          rootDevice: intent.npmRootBinding.device,
+          accountUID: request.accountUID
+        )
+      }
+    }
+    try validateCurrentTree()
+    if synchronizeTreeRoot {
+      guard
+        descriptorJournalSyncPair(
+          descriptor,
+          request.quarantineRootDescriptor,
+          dependencies: dependencies
+        )
+      else {
+        return .failure(.durabilityUnresolved)
+      }
+      try validateCurrentTree()
+    }
+    let after = try DescriptorJournalStat.read(from: descriptor)
+    let namedAfter = try DescriptorJournalStat.read(
+      at: request.quarantineRootDescriptor,
+      component: component
+    )
+    guard after == held, namedAfter == after,
+      let finalBinding = QuarantineJournalFileBindingV1(snapshot: after.snapshot)
+    else {
+      return .failure(.workTreeChanged)
+    }
+    return .success(finalBinding)
+  } catch DescriptorNPMPurgeTreeValidationFailure.traversalLimitExceeded,
+    DescriptorNPMPurgeTreeValidationFailure.invalidLimits
+  {
+    return .failure(.traversalLimitExceeded)
+  } catch DescriptorNPMPurgeTreeValidationFailure.treeUnsafe,
+    DescriptorNPMPurgeTreeValidationFailure.layoutMismatch
+  {
+    return .failure(.workTreeUnsafe)
+  } catch {
+    return .failure(.workTreeChanged)
+  }
+}
+
 private func descriptorJournalRecoveredTerminalOutcome(
   from truth: DescriptorJournalNamespaceTruth
 ) -> DescriptorQuarantineJournalTerminalOutcome? {
@@ -3294,7 +3954,7 @@ func descriptorJournalReconcileAndLoadInventory(
   }
   switch descriptorJournalValidateInventoryStructure(
     inventory,
-    maximumPendingIntentCount: 0
+    maximumPendingIntentCount: 1
   ) {
   case .success:
     break
@@ -3445,6 +4105,28 @@ private func descriptorJournalProjectInventory(
       }
     }
 
+    let purgeRetry: DescriptorQuarantinePurgeRetryInventoryEntry?
+    switch descriptorJournalProjectPurgeRetry(
+      for: quarantineTransactionID,
+      quarantineIntentRecord: quarantineIntentRecord,
+      quarantineReceiptRecord: quarantineReceiptRecord,
+      inventory: inventory,
+      request: request,
+      dependencies: dependencies,
+      beforeTraversalEntry: { _, _ in
+        try traversalBudget.consumeEntry()
+      }
+    ) {
+    case .success(let retry):
+      purgeRetry = retry
+    case .failure(.traversalLimitExceeded) where traversalBudget.wasExceeded:
+      return .failure(.journal(.unavailable(.resourceLimit)))
+    case .failure:
+      return .failure(
+        .journal(.recoveryRequired(transactionID: nil))
+      )
+    }
+
     entries.append(
       DescriptorQuarantineInventoryEntry(
         quarantineTransactionID: quarantineTransactionID,
@@ -3453,12 +4135,86 @@ private func descriptorJournalProjectInventory(
         sourceState: sourceState,
         itemState: itemState,
         quarantineReceiptWasProducedByRecovery:
-          quarantineReceiptRecord.value.producedByRecovery
+          quarantineReceiptRecord.value.producedByRecovery,
+        purgeRetry: purgeRetry
       )
     )
   }
 
   return .success(entries)
+}
+
+private func descriptorJournalProjectPurgeRetry(
+  for quarantineTransactionID: String,
+  quarantineIntentRecord: DescriptorJournalRecord<QuarantineJournalIntentV1>,
+  quarantineReceiptRecord: DescriptorJournalRecord<QuarantineJournalReceiptV1>,
+  inventory: DescriptorJournalInventory,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies,
+  beforeTraversalEntry: @escaping DescriptorNPMPurgeRemainderTreeValidator.EntryHook
+) -> Result<
+  DescriptorQuarantinePurgeRetryInventoryEntry?, DescriptorQuarantinePurgeManualRecoveryReason
+> {
+  let pending = inventory.purgeIntents.values.filter { record in
+    record.value.quarantineTransactionID == quarantineTransactionID
+      && inventory.purgeReceipts[record.value.purgeTransactionID] == nil
+  }
+  guard pending.count <= 1 else { return .failure(.journalUnsafe) }
+  guard let purgeIntentRecord = pending.first else { return .success(nil) }
+  let intent = purgeIntentRecord.value
+  do {
+    let decoded = try QuarantinePurgeJournalV1Codec.decodeIntent(
+      purgeIntentRecord.bytes,
+      matchingQuarantineIntentBytes: quarantineIntentRecord.bytes,
+      matchingQuarantineReceiptBytes: quarantineReceiptRecord.bytes
+    )
+    guard decoded == intent,
+      inventory.purgeReceiptStages[intent.purgeTransactionID] == nil,
+      inventory.purgeWorks[intent.purgeTransactionID]?.bytes == intent.purgeWorkComponent
+    else {
+      return .failure(.recordsChanged)
+    }
+  } catch {
+    return .failure(.recordsChanged)
+  }
+
+  let truth: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: request,
+    dependencies: dependencies
+  ) {
+  case .success(let value):
+    truth = value
+  case .failure:
+    return .failure(.namespaceAmbiguous)
+  }
+  guard case .retryRequired(_, let work) = descriptorJournalPurgeDisposition(truth) else {
+    return .failure(.namespaceAmbiguous)
+  }
+  let currentWorkBinding: QuarantineJournalFileBindingV1
+  switch descriptorJournalValidatePurgeTree(
+    intent: intent,
+    componentBytes: intent.purgeWorkComponent,
+    expectedCurrent: work,
+    requiresCompleteTree: false,
+    request: request,
+    dependencies: dependencies,
+    beforeTraversalEntry: beforeTraversalEntry
+  ) {
+  case .success(let binding):
+    currentWorkBinding = binding
+  case .failure(let failure):
+    return .failure(failure)
+  }
+  return .success(
+    DescriptorQuarantinePurgeRetryInventoryEntry(
+      canonicalQuarantineIntentBytes: quarantineIntentRecord.bytes,
+      canonicalQuarantineReceiptBytes: quarantineReceiptRecord.bytes,
+      purgeIntent: intent,
+      canonicalPurgeIntentBytes: purgeIntentRecord.bytes,
+      currentWorkBinding: currentWorkBinding
+    ))
 }
 
 func descriptorJournalPrepareRestore(
@@ -3524,7 +4280,7 @@ func descriptorJournalPrepareRestore(
   }
   switch descriptorJournalValidateInventoryStructure(
     inventory,
-    maximumPendingIntentCount: 0
+    maximumPendingIntentCount: 1
   ) {
   case .success:
     break
@@ -3888,7 +4644,7 @@ func descriptorJournalBeginRestore(
   }
   switch descriptorJournalValidateInventoryStructure(
     inventory,
-    maximumPendingIntentCount: 0
+    maximumPendingIntentCount: 1
   ) {
   case .success:
     break
@@ -4333,6 +5089,11 @@ func descriptorJournalBeginPurge(
   else {
     return .failure(.journal(.unavailable(.inputOutput)))
   }
+  // The complete pre-intent gate ends here. Cancellation observed before the
+  // stage-creation syscall must leave no purge record or managed work name.
+  guard !Task.isCancelled else {
+    return .failure(.cancelled)
+  }
 
   switch descriptorJournalPublishNewRecord(
     bytes: intentBytes,
@@ -4375,6 +5136,7 @@ func descriptorJournalBeginPurge(
     DescriptorQuarantinePurgeJournalSession(
       purgeTransactionID: intent.purgeTransactionID,
       quarantineTransactionID: intent.quarantineTransactionID,
+      attemptKind: .initial,
       intent: intent,
       canonicalIntentBytes: intentBytes,
       rootSnapshotAfterIntent: rootAfterIntent,
@@ -4391,6 +5153,599 @@ func descriptorJournalBeginPurge(
       )
     )
   )
+}
+
+func descriptorJournalBeginPurgeRetry(
+  _ request: DescriptorQuarantinePurgeRetryJournalRequest,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> DescriptorQuarantinePurgeRetryJournalResult {
+  let recoveryRequest = request.recoveryRequest
+  guard request.claim.attemptKind == .explicitRetry,
+    case .explicitRetry(let evidence) = request.claim.evidence,
+    request.claim.confirmation.request.attemptKind == .explicitRetry,
+    request.claim.confirmation.statement == .explicitRetryPermanentDeletionRisksAccepted,
+    request.claim.confirmation.request.requiredStatement == request.claim.confirmation.statement,
+    request.claim.confirmation.statement.policyRevision == evidence.purgeIntent.purgePolicyRevision,
+    request.claim.confirmation.request.subject.responsibleTool == "npm",
+    request.claim.confirmation.request.subject.originalName == "_cacache"
+  else {
+    return .failure(.invalidClaim)
+  }
+  let intent: QuarantinePurgeJournalIntentV1
+  do {
+    intent = try QuarantinePurgeJournalV1Codec.decodeIntent(
+      evidence.canonicalPurgeIntentBytes,
+      matchingQuarantineIntentBytes: evidence.canonicalQuarantineIntentBytes,
+      matchingQuarantineReceiptBytes: evidence.canonicalQuarantineReceiptBytes
+    )
+    guard intent == evidence.purgeIntent,
+      intent.resourceBounds == .current,
+      descriptorJournalRetryBinding(
+        evidence.currentWorkBinding,
+        matches: intent.candidateBinding
+      )
+    else {
+      return .failure(.invalidClaim)
+    }
+  } catch {
+    return .failure(.invalidClaim)
+  }
+  guard !Task.isCancelled else { return .failure(.cancelled) }
+
+  switch descriptorJournalValidateRecoveryParentsBeforeLock(
+    recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  let quarantineSnapshot: DescriptorStatSnapshot
+  do {
+    quarantineSnapshot = try DescriptorStatSnapshot.read(
+      from: recoveryRequest.quarantineRootDescriptor,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+  } catch {
+    return .failure(.journal(.unavailable(descriptorJournalFailure(for: error))))
+  }
+  let acquiredLock = descriptorJournalAcquireLock(
+    quarantineRootDescriptor: recoveryRequest.quarantineRootDescriptor,
+    expectedDevice: quarantineSnapshot.identity.device,
+    accountUID: recoveryRequest.accountUID,
+    dependencies: dependencies
+  )
+  let lockDescriptor: Int32
+  switch acquiredLock {
+  case .success(let descriptor):
+    lockDescriptor = descriptor
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  var sessionOwnsLock = false
+  defer {
+    if !sessionOwnsLock {
+      dependencies.unlock(lockDescriptor)
+      descriptorCloseIgnoringErrors(lockDescriptor)
+    }
+  }
+  dependencies.hooks.didAcquireLock()
+
+  switch descriptorJournalRecoverLocked(
+    recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  let inventory: DescriptorJournalInventory
+  switch descriptorJournalReadInventory(
+    recoveryRequest,
+    expectedDevice: quarantineSnapshot.identity.device,
+    dependencies: dependencies
+  ) {
+  case .success(let value):
+    inventory = value
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  switch descriptorJournalValidateInventoryStructure(
+    inventory,
+    maximumPendingIntentCount: 1
+  ) {
+  case .success:
+    break
+  case .failure(let failure):
+    return .failure(.journal(failure))
+  }
+  guard
+    let quarantineIntentRecord = inventory.intents[intent.quarantineTransactionID],
+    let quarantineReceiptRecord = inventory.receipts[intent.quarantineTransactionID],
+    let purgeIntentRecord = inventory.purgeIntents[intent.purgeTransactionID],
+    quarantineIntentRecord.bytes == evidence.canonicalQuarantineIntentBytes,
+    quarantineReceiptRecord.bytes == evidence.canonicalQuarantineReceiptBytes,
+    quarantineReceiptRecord.value.outcome == .quarantined,
+    purgeIntentRecord.bytes == evidence.canonicalPurgeIntentBytes,
+    purgeIntentRecord.value == intent,
+    inventory.purgeIntentStages[intent.purgeTransactionID] == nil,
+    inventory.purgeReceiptStages[intent.purgeTransactionID] == nil,
+    inventory.purgeReceipts[intent.purgeTransactionID] == nil,
+    inventory.purgeWorks[intent.purgeTransactionID]?.bytes == intent.purgeWorkComponent
+  else {
+    return .failure(.transactionNotPurgeable)
+  }
+  switch descriptorJournalStabilizeFinalRecord(
+    purgeIntentRecord,
+    quarantineRootDescriptor: recoveryRequest.quarantineRootDescriptor,
+    expectedDevice: intent.quarantineRootBinding.device,
+    accountUID: recoveryRequest.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure:
+    return .failure(
+      .journal(.recoveryRequired(transactionID: intent.purgeTransactionID))
+    )
+  }
+
+  let truthBefore: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthBefore = truth
+  case .failure:
+    return .failure(
+      .journal(.recoveryRequired(transactionID: intent.purgeTransactionID))
+    )
+  }
+  let quarantineNameWasRecreated: Bool
+  let expectedWork: DescriptorJournalStat
+  switch descriptorJournalPurgeDisposition(truthBefore) {
+  case .retryRequired(let recreated, let work):
+    quarantineNameWasRecreated = recreated
+    expectedWork = work
+  case .notPurged, .itemAbsent:
+    return .failure(.transactionNotPurgeable)
+  case .manualRecovery:
+    return .failure(
+      .journal(.recoveryRequired(transactionID: intent.purgeTransactionID))
+    )
+  }
+
+  let workSnapshot: DescriptorStatSnapshot
+  switch descriptorJournalValidateHeldRetryWork(
+    request.purgeWorkDescriptor,
+    expectedCurrent: expectedWork,
+    expectedPreparedBinding: evidence.currentWorkBinding,
+    intent: intent,
+    request: recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let snapshot):
+    workSnapshot = snapshot
+  case .failure(let failure):
+    return .failure(failure)
+  }
+  guard !Task.isCancelled else { return .failure(.cancelled) }
+  switch descriptorJournalValidatePurgeTree(
+    intent: intent,
+    componentBytes: intent.purgeWorkComponent,
+    expectedCurrent: expectedWork,
+    requiresCompleteTree: false,
+    request: recoveryRequest,
+    synchronizeTreeRoot: true,
+    dependencies: dependencies
+  ) {
+  case .success(let binding) where binding == evidence.currentWorkBinding:
+    break
+  case .success:
+    return .failure(.quarantinedItemChanged)
+  case .failure(let failure):
+    return .failure(
+      descriptorJournalPurgeFailure(for: failure, transactionID: intent.purgeTransactionID))
+  }
+  switch descriptorJournalValidateHeldRetryWork(
+    request.purgeWorkDescriptor,
+    expectedCurrent: expectedWork,
+    expectedPreparedBinding: evidence.currentWorkBinding,
+    intent: intent,
+    request: recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let after) where after.sameProtectedDescendantState(as: workSnapshot):
+    break
+  case .success, .failure:
+    return .failure(.quarantinedItemChanged)
+  }
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let truth) where truth == truthBefore:
+    break
+  case .success, .failure:
+    return .failure(
+      .journal(.recoveryRequired(transactionID: intent.purgeTransactionID))
+    )
+  }
+
+  let rootAfterIntent: DescriptorStatSnapshot
+  let quarantineRootAfterIntent: DescriptorStatSnapshot
+  do {
+    rootAfterIntent = try DescriptorStatSnapshot.read(
+      from: recoveryRequest.rootDescriptor,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+    quarantineRootAfterIntent = try DescriptorStatSnapshot.read(
+      from: recoveryRequest.quarantineRootDescriptor,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+  } catch {
+    return .failure(
+      .journal(.recoveryRequired(transactionID: intent.purgeTransactionID))
+    )
+  }
+  guard !Task.isCancelled else { return .failure(.cancelled) }
+
+  let journalSession = DescriptorQuarantinePurgeJournalSession(
+    purgeTransactionID: intent.purgeTransactionID,
+    quarantineTransactionID: intent.quarantineTransactionID,
+    attemptKind: .explicitRetry,
+    intent: intent,
+    canonicalIntentBytes: purgeIntentRecord.bytes,
+    rootSnapshotAfterIntent: rootAfterIntent,
+    quarantineRootSnapshotAfterIntent: quarantineRootAfterIntent,
+    lockDescriptor: lockDescriptor,
+    unlock: dependencies.unlock,
+    payload: .production(
+      DescriptorQuarantinePurgeJournalSession.ProductionContext(
+        recoveryRequest: recoveryRequest,
+        canonicalQuarantineIntentBytes: quarantineIntentRecord.bytes,
+        canonicalQuarantineReceiptBytes: quarantineReceiptRecord.bytes,
+        canonicalPurgeIntentBytes: purgeIntentRecord.bytes
+      )
+    )
+  )
+  sessionOwnsLock = true
+  return .success(
+    DescriptorQuarantinePurgeRetrySession(
+      journalSession: journalSession,
+      workSnapshot: workSnapshot,
+      quarantineNameWasRecreated: quarantineNameWasRecreated
+    ))
+}
+
+func descriptorJournalTerminalizePurge(
+  _ request: DescriptorQuarantinePurgeTerminalizationRequest,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> DescriptorQuarantinePurgeTerminalizationResult {
+  let session = request.journalSession
+  guard case .production(let context) = session.payload else {
+    return .invalidSession
+  }
+  let expectedProvenance: QuarantinePurgeCapacityObservationProvenanceV1 =
+    session.attemptKind == .initial ? .initialAttempt : .explicitRetry
+  guard request.capacityObservationProvenance == expectedProvenance,
+    !(request.outcome == .notPurged && session.attemptKind != .initial)
+  else {
+    return .manualRecoveryRequired(.invalidRequest)
+  }
+  let intent: QuarantinePurgeJournalIntentV1
+  do {
+    intent = try QuarantinePurgeJournalV1Codec.decodeIntent(
+      context.canonicalPurgeIntentBytes,
+      matchingQuarantineIntentBytes: context.canonicalQuarantineIntentBytes,
+      matchingQuarantineReceiptBytes: context.canonicalQuarantineReceiptBytes
+    )
+    guard intent == session.intent,
+      intent.purgeTransactionID == session.purgeTransactionID,
+      intent.quarantineTransactionID == session.quarantineTransactionID,
+      session.canonicalIntentBytes == context.canonicalPurgeIntentBytes
+    else {
+      return .manualRecoveryRequired(.recordsChanged)
+    }
+  } catch {
+    return .manualRecoveryRequired(.recordsChanged)
+  }
+
+  let inventory: DescriptorJournalInventory
+  switch descriptorJournalReadInventory(
+    context.recoveryRequest,
+    expectedDevice: intent.quarantineRootBinding.device,
+    dependencies: dependencies
+  ) {
+  case .success(let value):
+    inventory = value
+  case .failure:
+    return .manualRecoveryRequired(.journalUnsafe)
+  }
+  guard
+    case .success = descriptorJournalValidateInventoryStructure(
+      inventory,
+      maximumPendingIntentCount: 1
+    ),
+    inventory.intents[intent.quarantineTransactionID]?.bytes
+      == context.canonicalQuarantineIntentBytes,
+    inventory.receipts[intent.quarantineTransactionID]?.bytes
+      == context.canonicalQuarantineReceiptBytes,
+    inventory.purgeIntents[intent.purgeTransactionID]?.bytes
+      == context.canonicalPurgeIntentBytes,
+    inventory.purgeIntentStages[intent.purgeTransactionID] == nil,
+    inventory.purgeReceiptStages[intent.purgeTransactionID] == nil,
+    inventory.purgeReceipts[intent.purgeTransactionID] == nil
+  else {
+    return .manualRecoveryRequired(.recordsChanged)
+  }
+
+  let truthBefore: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: context.recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthBefore = truth
+  case .failure:
+    return .manualRecoveryRequired(.namespaceAmbiguous)
+  }
+  let receiptOutcome: QuarantinePurgeJournalReceiptOutcomeV1
+  let quarantineNameWasRecreated: Bool
+  switch descriptorJournalPurgeDisposition(truthBefore) {
+  case .notPurged:
+    guard request.outcome == .notPurged,
+      case .expected(let item) = truthBefore.quarantineItem,
+      case .success = descriptorJournalValidatePurgeTree(
+        intent: intent,
+        componentBytes: intent.quarantineItemComponent,
+        expectedCurrent: item,
+        requiresCompleteTree: true,
+        request: context.recoveryRequest,
+        dependencies: dependencies
+      )
+    else {
+      return .manualRecoveryRequired(.invalidRequest)
+    }
+    receiptOutcome = .notPurged
+    quarantineNameWasRecreated = false
+
+  case .itemAbsent(let recreated):
+    guard request.outcome == .itemAbsent else {
+      return .manualRecoveryRequired(.invalidRequest)
+    }
+    receiptOutcome = .itemAbsent
+    quarantineNameWasRecreated = recreated
+
+  case .retryRequired(_, let work):
+    guard request.outcome == .itemAbsent else {
+      return .manualRecoveryRequired(.invalidRequest)
+    }
+    switch descriptorJournalValidatePurgeTree(
+      intent: intent,
+      componentBytes: intent.purgeWorkComponent,
+      expectedCurrent: work,
+      requiresCompleteTree: false,
+      request: context.recoveryRequest,
+      synchronizeTreeRoot: true,
+      dependencies: dependencies
+    ) {
+    case .success:
+      break
+    case .failure(let reason):
+      return .manualRecoveryRequired(reason)
+    }
+    switch descriptorJournalObservePurgeNamespace(
+      intent,
+      request: context.recoveryRequest,
+      dependencies: dependencies
+    ) {
+    case .success(let truth) where truth == truthBefore:
+      return .retryRequired
+    case .success, .failure:
+      return .manualRecoveryRequired(.namespaceAmbiguous)
+    }
+
+  case .manualRecovery:
+    return .manualRecoveryRequired(.namespaceAmbiguous)
+  }
+
+  guard
+    let stageName = descriptorJournalRecordName(
+      prefix: ".purge-receipt-stage-v1-",
+      transactionID: intent.purgeTransactionID
+    ),
+    let finalName = descriptorJournalRecordName(
+      prefix: ".purge-receipt-v1-",
+      transactionID: intent.purgeTransactionID
+    ),
+    descriptorJournalInventory(
+      inventory,
+      canAddEntries: 1,
+      peakAdditionalNameBytes: max(stageName.bytes.count, finalName.bytes.count)
+    ),
+    descriptorJournalSyncPair(
+      context.recoveryRequest.rootDescriptor,
+      context.recoveryRequest.quarantineRootDescriptor,
+      dependencies: dependencies
+    )
+  else {
+    return .manualRecoveryRequired(.durabilityUnresolved)
+  }
+  guard let purgeIntentRecord = inventory.purgeIntents[intent.purgeTransactionID] else {
+    return .manualRecoveryRequired(.recordsChanged)
+  }
+  switch descriptorJournalStabilizeFinalRecord(
+    purgeIntentRecord,
+    quarantineRootDescriptor: context.recoveryRequest.quarantineRootDescriptor,
+    expectedDevice: intent.quarantineRootBinding.device,
+    accountUID: context.recoveryRequest.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure:
+    return .manualRecoveryRequired(.durabilityUnresolved)
+  }
+  let truthAfterSync: DescriptorPurgeJournalNamespaceTruth
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: context.recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let truth):
+    truthAfterSync = truth
+  case .failure:
+    return .manualRecoveryRequired(.namespaceAmbiguous)
+  }
+  guard truthAfterSync == truthBefore else {
+    return .manualRecoveryRequired(.namespaceAmbiguous)
+  }
+
+  let capacityAfter = dependencies.purgeCapacityObserver.observeAfterAttempt(
+    fromHeldDescriptor: context.recoveryRequest.quarantineRootDescriptor,
+    matching: intent.capacityBefore
+  )
+  let receipt: QuarantinePurgeJournalReceiptV1
+  let receiptBytes: Data
+  do {
+    receipt = try QuarantinePurgeJournalV1Codec.makeReceipt(
+      outcome: receiptOutcome,
+      quarantineNameWasRecreated: quarantineNameWasRecreated,
+      producedByRecovery: false,
+      capacityObservationProvenance: request.capacityObservationProvenance,
+      capacityAfter: capacityAfter,
+      canonicalPurgeIntentBytes: purgeIntentRecord.bytes
+    )
+    receiptBytes = try QuarantinePurgeJournalV1Codec.encode(
+      receipt,
+      matchingIntentBytes: purgeIntentRecord.bytes
+    )
+  } catch {
+    return .manualRecoveryRequired(.recordsChanged)
+  }
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: context.recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let truth) where truth == truthAfterSync:
+    break
+  case .success, .failure:
+    return .manualRecoveryRequired(.namespaceAmbiguous)
+  }
+  switch descriptorJournalPublishNewRecord(
+    bytes: receiptBytes,
+    stageName: stageName,
+    finalName: finalName,
+    quarantineRootDescriptor: context.recoveryRequest.quarantineRootDescriptor,
+    expectedDevice: intent.quarantineRootBinding.device,
+    accountUID: context.recoveryRequest.accountUID,
+    dependencies: dependencies
+  ) {
+  case .success:
+    break
+  case .failure, .finalMayExist:
+    return .manualRecoveryRequired(.durabilityUnresolved)
+  }
+  switch descriptorJournalObservePurgeNamespace(
+    intent,
+    request: context.recoveryRequest,
+    dependencies: dependencies
+  ) {
+  case .success(let truth) where truth == truthAfterSync:
+    return .receiptRecorded(
+      receipt,
+      observedCapacityChange: DescriptorQuarantinePurgeCapacityObserver.compare(
+        observationBefore: intent.capacityBefore,
+        observationAfter: capacityAfter
+      )
+    )
+  case .success, .failure:
+    return .manualRecoveryRequired(.durabilityUnresolved)
+  }
+}
+
+private func descriptorJournalValidateHeldRetryWork(
+  _ descriptor: Int32,
+  expectedCurrent: DescriptorJournalStat,
+  expectedPreparedBinding: QuarantineJournalFileBindingV1,
+  intent: QuarantinePurgeJournalIntentV1,
+  request: DescriptorQuarantineJournalRecoveryRequest,
+  dependencies: DescriptorQuarantineJournalDependencies
+) -> Result<DescriptorStatSnapshot, DescriptorQuarantinePurgeFailure> {
+  guard descriptor >= 0,
+    let component = DescriptorPathComponent(intent.purgeWorkComponent)
+  else {
+    return .failure(.invalidClaim)
+  }
+  do {
+    let held = try DescriptorJournalStat.read(from: descriptor)
+    let named = try DescriptorJournalStat.read(
+      at: request.quarantineRootDescriptor,
+      component: component
+    )
+    guard held == expectedCurrent, named == held,
+      QuarantineJournalFileBindingV1(snapshot: held.snapshot) == expectedPreparedBinding,
+      descriptorJournalRetryBinding(expectedPreparedBinding, matches: intent.candidateBinding)
+    else {
+      return .failure(.quarantinedItemChanged)
+    }
+    switch dependencies.hasExtendedACL(descriptor) {
+    case .success(false):
+      return .success(held.snapshot)
+    case .success(true):
+      return .failure(.quarantinedItemUnsafe)
+    case .failure:
+      return .failure(.quarantinedItemChanged)
+    }
+  } catch {
+    return .failure(.quarantinedItemChanged)
+  }
+}
+
+private func descriptorJournalRetryBinding(
+  _ current: QuarantineJournalFileBindingV1,
+  matches historical: QuarantineJournalFileBindingV1
+) -> Bool {
+  current.device == historical.device
+    && current.inode == historical.inode
+    && current.generation == historical.generation
+    && current.birthSeconds == historical.birthSeconds
+    && current.birthNanoseconds == historical.birthNanoseconds
+    && current.kind == .directory
+    && current.kind == historical.kind
+    && current.ownerUID == historical.ownerUID
+    && current.ownerUID != 0
+    && current.permissionMode <= 0o7777
+    && current.permissionMode & 0o022 == 0
+    && current.flags == 0
+    && current.linkCount >= 2
+}
+
+private func descriptorJournalPurgeFailure(
+  for reason: DescriptorQuarantinePurgeManualRecoveryReason,
+  transactionID: String
+) -> DescriptorQuarantinePurgeFailure {
+  switch reason {
+  case .traversalLimitExceeded:
+    return .traversalLimitExceeded
+  case .workTreeUnsafe:
+    return .quarantinedItemUnsafe
+  case .workTreeChanged:
+    return .quarantinedItemChanged
+  case .invalidRequest, .recordsChanged:
+    return .invalidClaim
+  case .journalUnsafe, .parentBindingChanged, .namespaceAmbiguous,
+    .durabilityUnresolved:
+    return .journal(.recoveryRequired(transactionID: transactionID))
+  }
 }
 
 private func descriptorJournalValidateHeldPurgeItem(

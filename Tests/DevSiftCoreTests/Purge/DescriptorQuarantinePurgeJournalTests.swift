@@ -67,6 +67,80 @@ struct DescriptorQuarantinePurgeJournalTests {
     )
   }
 
+  @Test("A real same-directory rename is accepted despite its legitimate ctime change")
+  func realRenameAcceptsPostRenameMetadata() async throws {
+    let fixture = try PurgeJournalFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.claim()
+    let journal = DescriptorQuarantinePurgeJournal(
+      dependencies: DescriptorQuarantinePurgeJournalDependencies(
+        journal: descriptorJournalTestDependencies()
+      )
+    )
+    let recoveryRequest = fixture.filesystem.recoveryRequest()
+    let begin = journal.begin(
+      DescriptorQuarantinePurgeJournalBeginRequest(
+        recoveryRequest: recoveryRequest,
+        quarantinedItemDescriptor: fixture.filesystem.candidateDescriptor,
+        claim: claim
+      )
+    )
+    guard case .success(let session) = begin else {
+      Issue.record("Expected a durable purge-intent session, got \(begin)")
+      return
+    }
+    defer { session.releasePreservingIntent() }
+
+    let beforeRename = try DescriptorStatSnapshot.read(
+      from: fixture.filesystem.candidateDescriptor,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+    let accountUID = fixture.filesystem.accountUID
+    let stager = DescriptorExclusiveQuarantinePurgeStager(
+      dependencies: DescriptorExclusiveQuarantinePurgeStagerDependencies(
+        currentAccountUID: { accountUID },
+        supportsResolveBeneathRename: { true },
+        volumeCapabilities: { _ in
+          .success(
+            DescriptorQuarantineVolumeCapabilities(
+              supportsExclusiveRename: true,
+              supportsPOSIXPermissions: true
+            )
+          )
+        },
+        renameExclusive: purgeJournalTestRename,
+        fullSync: { _ in nil },
+        journal: DescriptorQuarantinePurgeJournal(begin: { _ in .success(session) })
+      )
+    )
+    let result = stager.stage(
+      DescriptorNPMQuarantinePurgeStagingScope(
+        heldRootDescriptor: fixture.filesystem.rootDescriptor,
+        heldQuarantineRootDescriptor: fixture.filesystem.quarantineDescriptor,
+        heldQuarantinedItemDescriptor: fixture.filesystem.candidateDescriptor,
+        recoveryRequest: recoveryRequest,
+        claim: claim
+      )
+    )
+
+    guard case .staged(let work) = result else {
+      Issue.record("Expected real staged work, got \(result)")
+      return
+    }
+    let afterRename = try DescriptorStatSnapshot.read(
+      from: fixture.filesystem.candidateDescriptor,
+      cancellationPolicy: .ignoreTaskCancellation
+    )
+    #expect(afterRename.sameBinding(as: beforeRename))
+    #expect(
+      afterRename.changeSeconds != beforeRename.changeSeconds
+        || afterRename.changeNanoseconds != beforeRename.changeNanoseconds
+    )
+    #expect(work.workSnapshot.sameBinding(as: afterRename))
+    #expect(!FileManager.default.fileExists(atPath: fixture.quarantineItemURL.path))
+    #expect(FileManager.default.fileExists(atPath: try fixture.purgeWorkURL().path))
+  }
+
   @Test("A same-looking foreign canonical pair cannot substitute for recorded evidence")
   func foreignCanonicalPairIsRejected() async throws {
     let fixture = try PurgeJournalFixture()
@@ -246,6 +320,53 @@ struct DescriptorQuarantinePurgeJournalTests {
         atPath: fixture.purgeRecordURL(prefix: ".purge-intent-stage-v1-").path
       )
     )
+    #expect(FileManager.default.fileExists(atPath: fixture.quarantineItemURL.path))
+    #expect(!FileManager.default.fileExists(atPath: try fixture.purgeWorkURL().path))
+  }
+
+  @Test("Cancellation immediately before record creation publishes no purge intent")
+  func cancellationBeforeIntentStageCreation() async throws {
+    let fixture = try PurgeJournalFixture()
+    defer { fixture.remove() }
+    let claim = try await fixture.claim()
+    let syncCalls = DescriptorJournalTestCallGate()
+    let recorder = PurgeJournalPublicationRecorder()
+    let journal = DescriptorQuarantinePurgeJournal(
+      dependencies: DescriptorQuarantinePurgeJournalDependencies(
+        journal: descriptorJournalTestDependencies(
+          hooks: DescriptorQuarantineJournalHooks(
+            willFullSync: { _ in
+              // The sixth barrier is the quarantine-root half of the final
+              // pre-publication sync pair. Cancel there so the new guard is
+              // the only boundary between cancellation and stage creation.
+              syncCalls.run(onCall: 6) {
+                withUnsafeCurrentTask { task in task?.cancel() }
+              }
+            },
+            didCreateStage: { recorder.createdStage($0) },
+            willPublishStage: { recorder.willPublish(stage: $0, final: $1) },
+            didPublishFinal: { recorder.publishedFinal($0) }
+          )
+        )
+      )
+    )
+    let request = DescriptorQuarantinePurgeJournalBeginRequest(
+      recoveryRequest: fixture.filesystem.recoveryRequest(),
+      quarantinedItemDescriptor: fixture.filesystem.candidateDescriptor,
+      claim: claim
+    )
+
+    let result = await Task { journal.begin(request) }.value
+
+    guard case .failure(.cancelled) = result else {
+      Issue.record("Expected pre-publication cancellation, got \(result)")
+      return
+    }
+    #expect(syncCalls.callCount == 6)
+    #expect(recorder.createdStageNames.isEmpty)
+    #expect(recorder.publishPairs.isEmpty)
+    #expect(recorder.publishedFinalNames.isEmpty)
+    #expect(!fixture.finalPurgeIntentExists)
     #expect(FileManager.default.fileExists(atPath: fixture.quarantineItemURL.path))
     #expect(!FileManager.default.fileExists(atPath: try fixture.purgeWorkURL().path))
   }
@@ -566,4 +687,35 @@ private func purgeJournalURL(parent: URL, componentBytes: [UInt8]) throws -> URL
 
 private func purgeJournalItemComponent(_ ordinal: Int) -> [UInt8] {
   Array("item-v1-\(String(format: "%032x", ordinal + 1))".utf8)
+}
+
+private func purgeJournalTestRename(
+  fromDescriptor: Int32,
+  fromPath: DescriptorQuarantineRelativePath,
+  toDescriptor: Int32,
+  toPath: DescriptorQuarantineRelativePath,
+  flags: UInt32
+) -> DescriptorExclusiveRenameResult {
+  let supportsResolveBeneath = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+    OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+  )
+  let effectiveFlags =
+    supportsResolveBeneath
+    ? flags
+    : flags & ~DescriptorExclusiveQuarantineMover.resolveBeneathRenameFlag
+  var failureCode: Int32 = EINVAL
+  let result = fromPath.withCString { fromPointer in
+    toPath.withCString { toPointer in
+      let value = Darwin.renameatx_np(
+        fromDescriptor,
+        fromPointer,
+        toDescriptor,
+        toPointer,
+        effectiveFlags
+      )
+      if value != 0 { failureCode = errno }
+      return value
+    }
+  }
+  return result == 0 ? .succeeded : .failed(failureCode)
 }

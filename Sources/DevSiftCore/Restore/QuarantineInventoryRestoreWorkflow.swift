@@ -96,11 +96,62 @@ package struct QuarantineInventoryInitialPurgeSelection: CustomReflectable, Send
   }
 }
 
+/// Session-bound selector for the one exact staged purge remainder. It exposes
+/// neither a transaction identifier, managed work name, path, nor binding.
+package struct QuarantineInventoryPurgeRetryReference: CustomReflectable, Hashable, Sendable {
+  fileprivate let ordinal: Int
+  fileprivate let sessionIdentity: QuarantineInventorySessionIdentity
+
+  package static func == (
+    left: QuarantineInventoryPurgeRetryReference,
+    right: QuarantineInventoryPurgeRetryReference
+  ) -> Bool {
+    left.sessionIdentity === right.sessionIdentity && left.ordinal == right.ordinal
+  }
+
+  package func hash(into hasher: inout Hasher) {
+    hasher.combine(ObjectIdentifier(sessionIdentity))
+    hasher.combine(ordinal)
+  }
+
+  package var customMirror: Mirror {
+    Mirror(self, children: ["opaque": true])
+  }
+}
+
+package struct QuarantineInventoryPurgeRetryItem: Equatable, Sendable {
+  package let reference: QuarantineInventoryPurgeRetryReference
+  package let responsibleTool: String
+  package let originalName: String
+}
+
+/// A resolved, non-authorizing retry selection retained only inside Core.
+package struct QuarantineInventoryPurgeRetrySelection: CustomReflectable, Sendable {
+  let entry: DescriptorQuarantinePurgeRetryInventoryEntry
+  fileprivate let sessionIdentity: QuarantineInventorySessionIdentity
+  fileprivate let ordinal: Int
+
+  package var isAuthorization: Bool { false }
+  package var authorizesPermanentDeletion: Bool { false }
+
+  package var customMirror: Mirror {
+    Mirror(
+      self,
+      children: [
+        "opaque": true,
+        "isAuthorization": isAuthorization,
+        "authorizesPermanentDeletion": authorizesPermanentDeletion,
+      ]
+    )
+  }
+}
+
 /// A non-Codable, process-local inventory snapshot. References from one
 /// snapshot cannot be substituted into another, even when their visible rows
 /// are identical.
 package struct QuarantineInventorySession: CustomReflectable, Sendable {
   package let items: [QuarantineInventoryItem]
+  package let purgeRetries: [QuarantineInventoryPurgeRetryItem]
 
   fileprivate let sessionIdentity: QuarantineInventorySessionIdentity
   fileprivate let entries: [DescriptorQuarantineInventoryEntry]
@@ -128,6 +179,17 @@ package struct QuarantineInventorySession: CustomReflectable, Sendable {
           entry.quarantineReceiptWasProducedByRecovery
       )
     }
+    purgeRetries = entries.enumerated().compactMap { ordinal, entry in
+      guard entry.purgeRetry != nil else { return nil }
+      return QuarantineInventoryPurgeRetryItem(
+        reference: QuarantineInventoryPurgeRetryReference(
+          ordinal: ordinal,
+          sessionIdentity: identity
+        ),
+        responsibleTool: "npm",
+        originalName: "_cacache"
+      )
+    }
   }
 
   fileprivate func entry(
@@ -142,8 +204,26 @@ package struct QuarantineInventorySession: CustomReflectable, Sendable {
     return entries[reference.ordinal]
   }
 
+  fileprivate func purgeRetryEntry(
+    for reference: QuarantineInventoryPurgeRetryReference
+  ) -> DescriptorQuarantinePurgeRetryInventoryEntry? {
+    guard reference.sessionIdentity === sessionIdentity,
+      entries.indices.contains(reference.ordinal),
+      purgeRetries.contains(where: { $0.reference == reference })
+    else {
+      return nil
+    }
+    return entries[reference.ordinal].purgeRetry
+  }
+
   package var customMirror: Mirror {
-    Mirror(self, children: ["itemCount": items.count])
+    Mirror(
+      self,
+      children: [
+        "itemCount": items.count,
+        "purgeRetryCount": purgeRetries.count,
+      ]
+    )
   }
 }
 
@@ -489,6 +569,23 @@ package struct QuarantineInventoryRestoreWorkflow: Sendable {
     case .traversalLimitExceeded:
       return .failure(.traversalLimitExceeded)
     }
+  }
+
+  /// Resolves the one exact staged remainder from this inventory session. The
+  /// result still carries no authority and performs no filesystem mutation.
+  package func selectForPurgeRetry(
+    from inventory: QuarantineInventorySession,
+    retry reference: QuarantineInventoryPurgeRetryReference
+  ) -> Result<QuarantineInventoryPurgeRetrySelection, QuarantineInventoryPurgeSelectionFailure> {
+    guard let entry = inventory.purgeRetryEntry(for: reference) else {
+      return .failure(.invalidInventoryReference)
+    }
+    return .success(
+      QuarantineInventoryPurgeRetrySelection(
+        entry: entry,
+        sessionIdentity: inventory.sessionIdentity,
+        ordinal: reference.ordinal
+      ))
   }
 
   package func execute(

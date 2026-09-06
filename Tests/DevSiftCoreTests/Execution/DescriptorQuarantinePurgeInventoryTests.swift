@@ -7,7 +7,7 @@ import Testing
 @Suite("Descriptor quarantine purge inventory", .serialized)
 struct DescriptorQuarantinePurgeInventoryTests {
   @Test(
-    "All five purge namespace names are recognized without being mutated",
+    "All five purge namespace names are recognized and only conclusive records are reconciled",
     arguments: PurgeManagedNameScenario.allCases
   )
   func recognizesManagedNames(_ scenario: PurgeManagedNameScenario) throws {
@@ -18,17 +18,23 @@ struct DescriptorQuarantinePurgeInventoryTests {
 
     let result = fixture.journal.recover(fixture.filesystem.recoveryRequest())
 
+    _ = try requirePurgeInventoryRecovery(result)
+    let namesAfter = try fixture.quarantineNames()
     switch scenario {
-    case .intentStage, .receiptFinal:
-      _ = try requirePurgeInventoryRecovery(result)
-    case .intentFinal, .receiptStage, .work:
+    case .intentFinal:
       #expect(
-        result
-          == .failure(
-            .recoveryRequired(transactionID: fixture.purgeTransactionID)
-          ))
+        namesAfter.contains(".purge-receipt-v1-\(fixture.purgeTransactionID)")
+      )
+    case .receiptStage:
+      #expect(
+        namesAfter.contains(".purge-receipt-v1-\(fixture.purgeTransactionID)")
+      )
+      #expect(
+        !namesAfter.contains(".purge-receipt-stage-v1-\(fixture.purgeTransactionID)")
+      )
+    case .intentStage, .receiptFinal, .work:
+      #expect(namesAfter == namesBefore)
     }
-    #expect(try fixture.quarantineNames() == namesBefore)
   }
 
   @Test(
@@ -201,43 +207,49 @@ struct DescriptorQuarantinePurgeInventoryTests {
     }
   }
 
-  @Test("A pending purge intent blocks restore until purge reconciliation")
-  func pendingPurgeBlocksRestore() throws {
+  @Test("A Q-only pending purge is recovered not-purged before restore")
+  func pendingPurgeIsRecoveredBeforeRestore() throws {
     let fixture = try DescriptorPurgeInventoryFixture()
     defer { fixture.remove() }
     try fixture.writePurgeIntent(fixture.purgeIntentBytes, staged: false)
 
-    #expect(
-      fixture.restoreJournal.prepare(fixture.restorePreparationRequest())
-        == .failure(
-          .journal(
-            .recoveryRequired(transactionID: fixture.purgeTransactionID)
-          ))
+    switch fixture.restoreJournal.prepare(fixture.restorePreparationRequest()) {
+    case .success:
+      break
+    case .failure(let failure):
+      Issue.record("recovered not-purged attempt blocked restore: \(failure)")
+    }
+    let receiptBytes = try Data(
+      contentsOf: fixture.filesystem.recordURL(
+        ".purge-receipt-v1-\(fixture.purgeTransactionID)"
+      ))
+    let receipt = try QuarantinePurgeJournalV1Codec.decodeReceipt(
+      receiptBytes,
+      matchingIntentBytes: fixture.purgeIntentBytes
     )
+    #expect(receipt.outcome == .notPurged)
+    #expect(receipt.producedByRecovery)
   }
 
-  @Test("A purge-work item blocks inventory projection and restore")
-  func purgeWorkBlocksInventoryAndRestore() throws {
+  @Test("A purge-work item projects one retry and keeps restore blocked")
+  func purgeWorkProjectsRetryAndBlocksRestore() throws {
     let fixture = try DescriptorPurgeInventoryFixture()
     defer { fixture.remove() }
     try fixture.arrange(.work)
 
-    #expect(
-      descriptorJournalReconcileAndLoadInventory(
-        fixture.filesystem.recoveryRequest(),
-        dependencies: fixture.dependencies
-      )
-        == .failure(
-          .journal(
-            .recoveryRequired(transactionID: fixture.purgeTransactionID)
-          ))
-    )
+    switch descriptorJournalReconcileAndLoadInventory(
+      fixture.filesystem.recoveryRequest(),
+      dependencies: fixture.dependencies
+    ) {
+    case .success(let entries):
+      #expect(entries.count == 1)
+      #expect(entries.first?.purgeRetry != nil)
+    case .failure(let failure):
+      Issue.record("retry inventory projection failed: \(failure)")
+    }
     #expect(
       fixture.restoreJournal.prepare(fixture.restorePreparationRequest())
-        == .failure(
-          .journal(
-            .recoveryRequired(transactionID: fixture.purgeTransactionID)
-          ))
+        == .failure(.transactionNotRestorable)
     )
   }
 
@@ -285,7 +297,7 @@ enum PurgeCrossFamilyIdentifierScenario: CaseIterable, Sendable {
   case restore
 }
 
-private final class DescriptorPurgeInventoryFixture {
+final class DescriptorPurgeInventoryFixture {
   let filesystem: DescriptorJournalTestFixture
   let dependencies: DescriptorQuarantineJournalDependencies
   let journal: DescriptorQuarantineJournal
@@ -613,13 +625,13 @@ private final class DescriptorPurgeInventoryFixture {
   }
 }
 
-private enum PurgeInventoryTestError: Error {
+enum PurgeInventoryTestError: Error {
   case invalidPath
   case recovery(DescriptorQuarantineJournalFailure)
   case unexpectedResult(String)
 }
 
-private func purgeCapacityObservation(
+func purgeCapacityObservation(
   for intent: QuarantineJournalIntentV1
 ) -> QuarantinePurgeCapacityObservationV1 {
   QuarantinePurgeCapacityObservationV1(
@@ -632,19 +644,19 @@ private func purgeCapacityObservation(
   )
 }
 
-private func purgeInventoryURL(parent: URL, componentBytes: [UInt8]) throws -> URL {
+func purgeInventoryURL(parent: URL, componentBytes: [UInt8]) throws -> URL {
   guard let component = String(bytes: componentBytes, encoding: .utf8) else {
     throw PurgeInventoryTestError.invalidPath
   }
   return parent.appendingPathComponent(component)
 }
 
-private func purgeInventoryWriteRecord(_ bytes: Data, to url: URL) throws {
+func purgeInventoryWriteRecord(_ bytes: Data, to url: URL) throws {
   try bytes.write(to: url, options: [])
   try descriptorJournalTestChmod(url, mode: 0o600)
 }
 
-private func requirePurgeInventoryRecovery(
+func requirePurgeInventoryRecovery(
   _ result: DescriptorQuarantineJournalRecoveryResult
 ) throws -> DescriptorQuarantineJournalRecoverySummary {
   switch result {

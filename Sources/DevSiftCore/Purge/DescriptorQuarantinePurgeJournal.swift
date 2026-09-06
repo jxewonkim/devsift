@@ -73,6 +73,7 @@ final class DescriptorQuarantinePurgeJournalSession: @unchecked Sendable {
 
   let purgeTransactionID: String
   let quarantineTransactionID: String
+  let attemptKind: CleanupQuarantinePurgeAttemptKind
   let intent: QuarantinePurgeJournalIntentV1
   let canonicalIntentBytes: Data
   let rootSnapshotAfterIntent: DescriptorStatSnapshot
@@ -80,12 +81,20 @@ final class DescriptorQuarantinePurgeJournalSession: @unchecked Sendable {
   let payload: Payload
 
   private let stateLock = NSLock()
+  private var state = State.active
   private var lockDescriptor: Int32?
   private let unlock: @Sendable (Int32) -> Void
+
+  private enum State {
+    case active
+    case terminalizing
+    case finished
+  }
 
   init(
     purgeTransactionID: String,
     quarantineTransactionID: String,
+    attemptKind: CleanupQuarantinePurgeAttemptKind,
     intent: QuarantinePurgeJournalIntentV1,
     canonicalIntentBytes: Data,
     rootSnapshotAfterIntent: DescriptorStatSnapshot,
@@ -96,6 +105,7 @@ final class DescriptorQuarantinePurgeJournalSession: @unchecked Sendable {
   ) {
     self.purgeTransactionID = purgeTransactionID
     self.quarantineTransactionID = quarantineTransactionID
+    self.attemptKind = attemptKind
     self.intent = intent
     self.canonicalIntentBytes = canonicalIntentBytes
     self.rootSnapshotAfterIntent = rootSnapshotAfterIntent
@@ -109,11 +119,13 @@ final class DescriptorQuarantinePurgeJournalSession: @unchecked Sendable {
     intent: QuarantinePurgeJournalIntentV1,
     canonicalIntentBytes: Data,
     rootSnapshotAfterIntent: DescriptorStatSnapshot,
-    quarantineRootSnapshotAfterIntent: DescriptorStatSnapshot
+    quarantineRootSnapshotAfterIntent: DescriptorStatSnapshot,
+    attemptKind: CleanupQuarantinePurgeAttemptKind = .initial
   ) -> DescriptorQuarantinePurgeJournalSession {
     DescriptorQuarantinePurgeJournalSession(
       purgeTransactionID: intent.purgeTransactionID,
       quarantineTransactionID: intent.quarantineTransactionID,
+      attemptKind: attemptKind,
       intent: intent,
       canonicalIntentBytes: canonicalIntentBytes,
       rootSnapshotAfterIntent: rootSnapshotAfterIntent,
@@ -128,6 +140,37 @@ final class DescriptorQuarantinePurgeJournalSession: @unchecked Sendable {
   func releasePreservingIntent() {
     let descriptor: Int32?
     stateLock.lock()
+    guard state == .active else {
+      stateLock.unlock()
+      return
+    }
+    state = .finished
+    descriptor = lockDescriptor
+    lockDescriptor = nil
+    stateLock.unlock()
+    if let descriptor {
+      unlock(descriptor)
+      descriptorCloseIgnoringErrors(descriptor)
+    }
+  }
+
+  /// Claims this lock-owning session exactly once for receipt publication or
+  /// a synchronized receipt-less handoff.
+  func claimForTerminalization() -> Bool {
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    guard state == .active, lockDescriptor != nil else { return false }
+    state = .terminalizing
+    return true
+  }
+
+  /// Ends a terminalization attempt and releases only the advisory lock. A
+  /// failed or partial attempt deliberately preserves every durable record and
+  /// any remaining work tree.
+  func completeTerminalization() {
+    let descriptor: Int32?
+    stateLock.lock()
+    state = .finished
     descriptor = lockDescriptor
     lockDescriptor = nil
     stateLock.unlock()
@@ -138,7 +181,16 @@ final class DescriptorQuarantinePurgeJournalSession: @unchecked Sendable {
   }
 
   deinit {
-    releasePreservingIntent()
+    let descriptor: Int32?
+    stateLock.lock()
+    state = .finished
+    descriptor = lockDescriptor
+    lockDescriptor = nil
+    stateLock.unlock()
+    if let descriptor {
+      unlock(descriptor)
+      descriptorCloseIgnoringErrors(descriptor)
+    }
   }
 }
 
