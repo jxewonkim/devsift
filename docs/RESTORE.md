@@ -356,4 +356,9 @@ implemented boundary's acceptance gate. Every code commit must also satisfy the
 repository-wide definition of done in
 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#definition-of-done-for-every-code-commit).
 The completed repository-internal review and its closed findings are recorded
-in [MANUAL_RESTORE_SECURITY_REVIEW.md](MANUAL_RESTORE_SECURITY_REVIEW.md).
+in [MANUAL_RESTORE_SECURITY_REVIEW.md](MANUAL_RESTORE_SECURITY_REVIEW.md). The
+separately planned permanent-deletion authority, atomic work staging, explicit
+retry, and restore cutoff are defined in the
+[receipt-bound quarantine purge contract](PURGE.md). No purge workflow is
+currently implemented; any later purge workflow must remain separate from this
+restore authority.

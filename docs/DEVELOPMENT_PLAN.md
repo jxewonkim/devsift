@@ -820,7 +820,7 @@ CLI remains read-only, the SwiftUI executable remains undistributed, and the
 operation has reclaimed no storage. Permanent purge and distributable app
 packaging remain absent and require separate, later phases.
 
-## Phase 10: explicit quarantine purge and observed storage reclamation
+## Phase 10: explicit quarantine purge and observed volume-capacity change
 
 Status: planned; no purge or permanent deletion is implemented.
 
@@ -828,6 +828,26 @@ This phase may add the first irreversible operation, restricted to one exact
 canonical npm quarantine receipt already admitted by the recovery inventory. It
 must not accept an arbitrary path, active `_cacache`, caller-created transaction
 identifier, or unjournaled directory.
+
+The prospective transaction, interruption, same-UID race, restore-cutoff, and
+capacity-observation boundaries are defined in the
+[receipt-bound quarantine purge contract](PURGE.md). None of that contract is a
+current capability until the implementation and review gates below pass.
+
+Planned commit sequence:
+
+- `docs(purge): define receipt-bound irreversible purge contract`;
+- `feat(core): add canonical purge journal values and codecs`;
+- `feat(core): validate purge records in the mixed journal inventory`;
+- `feat(core): project purge readiness through opaque inventory references`;
+- `feat(core): add purge confirmation and single-use authorization`;
+- `feat(core): validate complete and interrupted purge trees`;
+- `feat(core): durably stage receipt-bound purge work`;
+- `feat(core): execute bounded purge and explicit retry`;
+- `feat(core): report observed volume-capacity change`;
+- `feat(app): present explicit quarantine purge`;
+- `test(app): cover irreversible purge surfaces`;
+- `docs(security): record the irreversible purge boundary`.
 
 - Define a separate purge policy, threat model, confirmation statement,
   single-use authority, journal family, interruption model, and security review.
@@ -838,15 +858,19 @@ identifier, or unjournaled directory.
   item, ownership, device, permissions, and complete bounded tree immediately
   before deletion. Links, special files, mount crossings, identity changes,
   unexpected names, and exhausted bounds fail closed.
-- Design interruption honestly: recursive deallocation is not an atomic rename,
+- Design interruption honestly: recursive namespace removal is not an atomic rename,
   so partial progress, retry authority, durable receipts, and recovery behavior
   must be specified before any unlink operation exists.
 - Report only observed volume-capacity change after the attempt. Concurrent
   filesystem activity, APFS clones, snapshots, compression, and delayed block
   accounting prevent an exact causal reclaimed-byte guarantee.
-- Keep restore available until purge authority is actually consumed; a purge
-  receipt must make later restore impossible without pretending deleted data is
-  recoverable.
+- Do not permanently revoke restore eligibility merely because an in-memory
+  authority is issued or consumed. Once the staging rename may have been
+  invoked, suspend restore execution until reconciliation proves a terminal
+  state. The permanent cutoff is the exact expected object at its durable
+  intent-bound purge-work name with that staging commit validated and fully
+  synchronized. An `item-absent` purge receipt keeps restore impossible; a
+  validated `not-purged` receipt may re-enable it only through a fresh inventory.
 
 Gate: adversarial synthetic tests cover every traversal and interruption
 boundary, identity and parent swaps, hard links, clone/snapshot uncertainty,
@@ -855,9 +879,9 @@ partial deletion, and preservation outside the exact quarantine item. A focused
 irreversible-deletion security and privacy review must close every blocking and
 high-priority finding before merge.
 
-Milestone: one explicit receipt-bound purge can deallocate the selected
-quarantined npm cache and report observed capacity change without claiming that
-the observation is an exact causal measurement.
+Milestone: one explicit receipt-bound purge can make the selected receipt-bound
+object absent from both managed names and report observed volume-capacity change
+without claiming that the observation is an exact causal measurement.
 
 ## Phase 11: signed and downloadable native app
 

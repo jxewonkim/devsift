@@ -103,6 +103,12 @@ refresh; dismissal, cancellation, or superseding work can prevent or cancel it
 and suppresses stale UI publication. Recovery never runs merely because the app
 launched or as periodic or background work.
 
+Phase 10's prospective irreversible boundary is specified separately in the
+[receipt-bound quarantine purge contract](PURGE.md). That contract requires a
+durable intent, an atomic move of the selected receipt-bound item to a dedicated
+work name, and only then bounded descriptor-relative unlink. It defines no
+capability in the current architecture.
+
 ### devsift CLI
 
 The CLI parses explicit commands, invokes DevSiftCore, and renders human-readable

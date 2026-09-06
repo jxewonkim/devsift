@@ -281,7 +281,10 @@ rollback, retention, batch or background action, custom-root or multi-rule
 execution, public or CLI mutation, distributed app packaging, analytics,
 telemetry, and network access remain absent. Quarantine is a same-volume rename
 that deallocates no data and guarantees exactly 0 B of freed capacity. See the
-[manual restore contract](RESTORE.md).
+[manual restore contract](RESTORE.md). The separately planned first irreversible
+operation is constrained by the
+[receipt-bound quarantine purge contract](PURGE.md); no purge record, recovery,
+or unlink described there is implemented by this durability layer.
 
 ## Verification gate
 
