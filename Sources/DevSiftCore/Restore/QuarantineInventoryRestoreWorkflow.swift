@@ -23,6 +23,18 @@ package struct QuarantineInventoryRestoreReadiness: Equatable, Sendable {
   }
 }
 
+/// Bounded initial-purge readiness for one already validated inventory row.
+///
+/// The current `_cacache` source state is intentionally absent. Purge targets
+/// only the exact receipt-bound quarantined item represented by this row.
+package struct QuarantineInventoryPurgeReadiness: Equatable, Sendable {
+  package let quarantinedItem: QuarantineInventoryItemState
+
+  package var canPurge: Bool {
+    quarantinedItem == .available
+  }
+}
+
 private final class QuarantineInventorySessionIdentity: Sendable {}
 
 /// An inventory-session-bound selector. Its journal transaction identifier is
@@ -54,7 +66,34 @@ package struct QuarantineInventoryItem: Equatable, Sendable {
   package let responsibleTool: String
   package let originalName: String
   package let readiness: QuarantineInventoryRestoreReadiness
+  package let purgeReadiness: QuarantineInventoryPurgeReadiness
   package let quarantineReceiptWasProducedByRecovery: Bool
+}
+
+/// One resolved initial-purge selection from an exact inventory session.
+///
+/// This value is not authorization and exposes no transaction identifier,
+/// record bytes, path, managed item name, work name, or descriptor. Its
+/// retained Core-internal entry is only input for a later descriptor-backed
+/// purge preflight, which must reread and revalidate the exact evidence.
+package struct QuarantineInventoryInitialPurgeSelection: CustomReflectable, Sendable {
+  let entry: DescriptorQuarantineInventoryEntry
+  fileprivate let sessionIdentity: QuarantineInventorySessionIdentity
+  fileprivate let ordinal: Int
+
+  package var isAuthorization: Bool { false }
+  package var authorizesPermanentDeletion: Bool { false }
+
+  package var customMirror: Mirror {
+    Mirror(
+      self,
+      children: [
+        "opaque": true,
+        "isAuthorization": isAuthorization,
+        "authorizesPermanentDeletion": authorizesPermanentDeletion,
+      ]
+    )
+  }
 }
 
 /// A non-Codable, process-local inventory snapshot. References from one
@@ -80,6 +119,9 @@ package struct QuarantineInventorySession: CustomReflectable, Sendable {
         originalName: "_cacache",
         readiness: QuarantineInventoryRestoreReadiness(
           originalSource: QuarantineInventoryOriginalSourceState(entry.sourceState),
+          quarantinedItem: QuarantineInventoryItemState(entry.itemState)
+        ),
+        purgeReadiness: QuarantineInventoryPurgeReadiness(
           quarantinedItem: QuarantineInventoryItemState(entry.itemState)
         ),
         quarantineReceiptWasProducedByRecovery:
@@ -112,6 +154,14 @@ package enum QuarantineInventoryLoadFailure: Error, Equatable, Sendable {
   case trustedLocationUnavailable
   case trustedLocationUnsafe
   case manualRecoveryRequired
+}
+
+package enum QuarantineInventoryPurgeSelectionFailure: Error, Equatable, Sendable {
+  case invalidInventoryReference
+  case quarantinedItemMissing
+  case quarantinedItemChanged
+  case quarantinedItemUnsafe
+  case traversalLimitExceeded
 }
 
 package enum QuarantineRestorePreparationFailure: Error, Equatable, Sendable {
@@ -331,7 +381,8 @@ package enum QuarantineRestoreExecutionFailure: Error, Equatable, Sendable {
   case cancelled
 }
 
-/// The only package-visible bridge to the Core-internal restore primitives.
+/// The only package-visible bridge to Core's bounded quarantine inventory,
+/// restore primitives, and non-authorizing initial-purge selection.
 /// Production initialization accepts no root, transaction identifier, item
 /// path, journal bytes, or purge authority.
 package struct QuarantineInventoryRestoreWorkflow: Sendable {
@@ -405,6 +456,38 @@ package struct QuarantineInventoryRestoreWorkflow: Sendable {
       return .success(QuarantineRestoreAuthorizationSession(session))
     case .failure(let failure):
       return .failure(QuarantineRestorePreparationFailure(failure))
+    }
+  }
+
+  /// Resolves one exact session-owned inventory reference for a future initial
+  /// purge preflight. This performs no authorization or filesystem mutation.
+  package func selectForInitialPurge(
+    from inventory: QuarantineInventorySession,
+    item reference: QuarantineInventoryItemReference
+  ) -> Result<QuarantineInventoryInitialPurgeSelection, QuarantineInventoryPurgeSelectionFailure> {
+    guard let entry = inventory.entry(for: reference) else {
+      return .failure(.invalidInventoryReference)
+    }
+    guard let item = inventory.items.first(where: { $0.reference == reference }) else {
+      return .failure(.invalidInventoryReference)
+    }
+
+    switch item.purgeReadiness.quarantinedItem {
+    case .available:
+      return .success(
+        QuarantineInventoryInitialPurgeSelection(
+          entry: entry,
+          sessionIdentity: inventory.sessionIdentity,
+          ordinal: reference.ordinal
+        ))
+    case .missing:
+      return .failure(.quarantinedItemMissing)
+    case .changed:
+      return .failure(.quarantinedItemChanged)
+    case .unsafe:
+      return .failure(.quarantinedItemUnsafe)
+    case .traversalLimitExceeded:
+      return .failure(.traversalLimitExceeded)
     }
   }
 

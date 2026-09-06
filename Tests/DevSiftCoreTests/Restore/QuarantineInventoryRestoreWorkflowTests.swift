@@ -30,6 +30,7 @@ struct QuarantineInventoryRestoreWorkflowTests {
     #expect(session.items[0].responsibleTool == "npm")
     #expect(session.items[0].originalName == "_cacache")
     #expect(session.items[0].readiness.canRestore)
+    #expect(session.items[0].purgeReadiness.canPurge)
   }
 
   @Test("Loading an absent fixed quarantine returns empty without creating it")
@@ -135,6 +136,34 @@ struct QuarantineInventoryRestoreWorkflowTests {
     #expect(entries.count == 1)
     #expect(entries[0].sourceState == .otherObjectPresent)
     #expect(entries[0].itemState == .changed)
+  }
+
+  @Test("A current active cache does not affect receipt-bound purge readiness")
+  func activeCacheDoesNotAffectPurgeReadiness() throws {
+    let fixture = try DescriptorJournalTestFixture()
+    defer { fixture.remove() }
+    _ = try completeQuarantine(in: fixture)
+    try FileManager.default.createDirectory(
+      at: fixture.candidateURL,
+      withIntermediateDirectories: false
+    )
+    try descriptorJournalTestChmod(fixture.candidateURL, mode: 0o700)
+    let entries = try requireInventory(
+      inventoryLoader(for: fixture).reconcileAndLoadInventory()
+    )
+    let workflow = workflowLoading(entries)
+    let inventory = try requireFrontendInventory(workflow.reconcileAndLoadInventory())
+    let item = try #require(inventory.items.first)
+
+    #expect(item.readiness.originalSource == .otherObjectPresent)
+    #expect(!item.readiness.canRestore)
+    #expect(item.purgeReadiness.quarantinedItem == .available)
+    #expect(item.purgeReadiness.canPurge)
+    let selection = try requireInitialPurgeSelection(
+      workflow.selectForInitialPurge(from: inventory, item: item.reference)
+    )
+    #expect(selection.entry == entries[0])
+    #expect(FileManager.default.fileExists(atPath: fixture.candidateURL.path))
   }
 
   @Test("A missing quarantined item remains visible and is not restore-ready")
@@ -359,6 +388,97 @@ struct QuarantineInventoryRestoreWorkflowTests {
       from: workflow.beginRestore(from: first, item: second.items[0].reference)
     )
     #expect(prepareCalls.value == 0)
+  }
+
+  @Test("Purge references cannot cross equal-looking inventory sessions")
+  func purgeReferenceCannotCrossSessions() throws {
+    let transactionID = String(repeating: "a", count: 32)
+    let entry = readyDescriptorInventoryEntry(transactionID: transactionID)
+    let workflow = workflowLoading([entry])
+    let first = try requireFrontendInventory(workflow.reconcileAndLoadInventory())
+    let refreshed = try requireFrontendInventory(workflow.reconcileAndLoadInventory())
+
+    #expect(String(reflecting: first.items[0]) == String(reflecting: refreshed.items[0]))
+    #expect(first.items[0].reference != refreshed.items[0].reference)
+    expectInitialPurgeSelectionFailure(
+      .invalidInventoryReference,
+      from: workflow.selectForInitialPurge(
+        from: first,
+        item: refreshed.items[0].reference
+      )
+    )
+    expectInitialPurgeSelectionFailure(
+      .invalidInventoryReference,
+      from: workflow.selectForInitialPurge(
+        from: refreshed,
+        item: first.items[0].reference
+      )
+    )
+  }
+
+  @Test("Initial purge selection resolves the exact opaque row without leaking evidence")
+  func initialPurgeSelectionIsExactAndOpaque() throws {
+    let firstEntry = readyDescriptorInventoryEntry(
+      transactionID: String(repeating: "1", count: 32)
+    )
+    let secondTransactionID = String(repeating: "2", count: 32)
+    let secondEntry = readyDescriptorInventoryEntry(transactionID: secondTransactionID)
+    let workflow = workflowLoading([firstEntry, secondEntry])
+    let inventory = try requireFrontendInventory(workflow.reconcileAndLoadInventory())
+
+    let selection = try requireInitialPurgeSelection(
+      workflow.selectForInitialPurge(
+        from: inventory,
+        item: inventory.items[1].reference
+      )
+    )
+
+    #expect(selection.entry == secondEntry)
+    #expect(!selection.isAuthorization)
+    #expect(!selection.authorizesPermanentDeletion)
+    #expect(!isEncodableInventoryPurgeValue(selection))
+    let mirrorLabels = Mirror(reflecting: selection).children.compactMap(\.label)
+    #expect(mirrorLabels.contains("opaque"))
+    let reflection = String(reflecting: selection)
+    #expect(!reflection.contains(secondTransactionID))
+    #expect(!reflection.contains("intent:"))
+    #expect(!reflection.contains("receipt:"))
+    #expect(!reflection.contains("item-v1-"))
+    #expect(!reflection.contains("purge-work"))
+  }
+
+  @Test("Only an available quarantined item can be selected for initial purge")
+  func nonPurgeableItemDoesNotResolveSelection() throws {
+    let scenarios:
+      [(
+        DescriptorQuarantineInventoryItemState,
+        QuarantineInventoryPurgeSelectionFailure
+      )] = [
+        (.missing, .quarantinedItemMissing),
+        (.changed, .quarantinedItemChanged),
+        (.unsafe, .quarantinedItemUnsafe),
+        (.traversalLimitExceeded, .traversalLimitExceeded),
+      ]
+
+    for (itemState, expectedFailure) in scenarios {
+      let entry = descriptorInventoryEntry(
+        transactionID: String(repeating: "a", count: 32),
+        sourceState: .otherObjectPresent,
+        itemState: itemState
+      )
+      let workflow = workflowLoading([entry])
+      let inventory = try requireFrontendInventory(workflow.reconcileAndLoadInventory())
+      let item = inventory.items[0]
+
+      #expect(!item.purgeReadiness.canPurge)
+      expectInitialPurgeSelectionFailure(
+        expectedFailure,
+        from: workflow.selectForInitialPurge(
+          from: inventory,
+          item: item.reference
+        )
+      )
+    }
   }
 
   @Test("A non-ready reference is rejected before restore preparation")
@@ -694,6 +814,20 @@ private func requireRestoreSession(
   }
 }
 
+private func requireInitialPurgeSelection(
+  _ result: Result<
+    QuarantineInventoryInitialPurgeSelection,
+    QuarantineInventoryPurgeSelectionFailure
+  >
+) throws -> QuarantineInventoryInitialPurgeSelection {
+  switch result {
+  case .success(let selection):
+    return selection
+  case .failure(let failure):
+    throw InventoryTestError.purgeSelection(failure)
+  }
+}
+
 private func expectRestorePreparationFailure(
   _ expected: QuarantineRestorePreparationFailure,
   from result: Result<QuarantineRestoreAuthorizationSession, QuarantineRestorePreparationFailure>
@@ -701,6 +835,21 @@ private func expectRestorePreparationFailure(
   switch result {
   case .success:
     Issue.record("Expected restore preparation failure \(expected)")
+  case .failure(let failure):
+    #expect(failure == expected)
+  }
+}
+
+private func expectInitialPurgeSelectionFailure(
+  _ expected: QuarantineInventoryPurgeSelectionFailure,
+  from result: Result<
+    QuarantineInventoryInitialPurgeSelection,
+    QuarantineInventoryPurgeSelectionFailure
+  >
+) {
+  switch result {
+  case .success:
+    Issue.record("Expected initial purge selection failure \(expected)")
   case .failure(let failure):
     #expect(failure == expected)
   }
@@ -719,14 +868,30 @@ private func workflowLoading(
 private func readyDescriptorInventoryEntry(
   transactionID: String
 ) -> DescriptorQuarantineInventoryEntry {
+  descriptorInventoryEntry(
+    transactionID: transactionID,
+    sourceState: .missing,
+    itemState: .available
+  )
+}
+
+private func descriptorInventoryEntry(
+  transactionID: String,
+  sourceState: DescriptorQuarantineInventorySourceState,
+  itemState: DescriptorQuarantineInventoryItemState
+) -> DescriptorQuarantineInventoryEntry {
   DescriptorQuarantineInventoryEntry(
     quarantineTransactionID: transactionID,
     canonicalQuarantineIntentBytes: Data("intent:\(transactionID)".utf8),
     canonicalQuarantineReceiptBytes: Data("receipt:\(transactionID)".utf8),
-    sourceState: .missing,
-    itemState: .available,
+    sourceState: sourceState,
+    itemState: itemState,
     quarantineReceiptWasProducedByRecovery: false
   )
+}
+
+private func isEncodableInventoryPurgeValue(_ value: Any) -> Bool {
+  value is any Encodable
 }
 
 private func inventoryRuleRevision() throws -> RuleRevision {
@@ -762,5 +927,6 @@ private enum InventoryTestError: Error {
   case invalidDestination
   case invalidRevision
   case inventory(DescriptorQuarantineInventoryFailure)
+  case purgeSelection(QuarantineInventoryPurgeSelectionFailure)
   case restorePreparation(QuarantineRestorePreparationFailure)
 }
