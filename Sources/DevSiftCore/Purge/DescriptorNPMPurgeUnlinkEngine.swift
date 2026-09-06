@@ -1160,15 +1160,6 @@ struct DescriptorNPMPurgeUnlinkEngine: Sendable {
     else {
       throw DescriptorNPMPurgeUnlinkHalt(.treeUnsafe, disposition: .unresolved)
     }
-    if request.attemptKind == .initial {
-      guard
-        UInt32(exactly: opened.permissionMode)
-          == request.historicalCandidateBinding.permissionMode,
-        opened.flags == request.historicalCandidateBinding.flags
-      else {
-        throw DescriptorNPMPurgeUnlinkHalt(.treeChanged, disposition: .unresolved)
-      }
-    }
     do {
       guard try !descriptorHasExtendedACL(request.purgeWorkDescriptor) else {
         throw DescriptorNPMPurgeUnlinkHalt(.treeUnsafe, disposition: .unresolved)

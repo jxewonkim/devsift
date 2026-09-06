@@ -81,6 +81,23 @@ struct DescriptorExclusiveQuarantinePurgeStagerTests {
     #expect(context.probe.observation.renameCount == 0)
   }
 
+  @Test("A disappearing tree entry cannot be mistaken for an absent work name")
+  func treeEntryDisappearanceBeforeIntent() async throws {
+    let context = try await PurgeStagerTestContext(
+      configuration: PurgeStagerConfiguration(treeValidationPOSIXFailureNumber: 1)
+    )
+
+    let result = context.stager.stage(context.scope)
+
+    guard case .notStaged(.quarantinedItemChanged) = result else {
+      Issue.record("Expected changed-tree refusal, got \(result)")
+      return
+    }
+    #expect(context.probe.observation.treeValidationCount == 1)
+    #expect(context.probe.observation.beginCount == 0)
+    #expect(context.probe.observation.renameCount == 0)
+  }
+
   @Test("Cancellation after durable intent preserves the pending intent without rename")
   func cancellationAfterIntent() async throws {
     let context = try await PurgeStagerTestContext(
@@ -300,6 +317,7 @@ private struct PurgeStagerConfiguration: Sendable {
   var recreateQuarantineNameAfterRename = false
   var makeHeldItemUnsafeAfterRename = false
   var unsafeTreeValidationNumber: Int?
+  var treeValidationPOSIXFailureNumber: Int?
   var fullSyncFailure: Int32?
   var invalidSessionBytes = false
 }
@@ -633,6 +651,9 @@ private final class PurgeStagerProbe: @unchecked Sendable {
       }
       if configuration.unsafeTreeValidationNumber == treeValidationCount {
         throw DescriptorNPMPurgeTreeValidationFailure.treeUnsafe
+      }
+      if configuration.treeValidationPOSIXFailureNumber == treeValidationCount {
+        throw DescriptorObservationError.posix(ENOENT)
       }
     }
   }

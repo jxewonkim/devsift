@@ -372,6 +372,22 @@ struct DescriptorNPMPurgeUnlinkEngineTests {
     #expect(!FileManager.default.fileExists(atPath: fixture.work.path))
   }
 
+  @Test("Initial deletion accepts the safe mode validated immediately before staging")
+  func initialAcceptsCurrentSafeModeInsteadOfHistoricalMode() throws {
+    let fixture = try PurgeUnlinkFixture()
+    defer { fixture.remove() }
+    let mutation = PurgeModeMutation(url: fixture.work, mode: 0o700)
+    mutation.run()
+    try #require(mutation.failureCode == nil)
+
+    let report = DescriptorNPMPurgeUnlinkEngine(
+      dependencies: DescriptorNPMPurgeUnlinkDependencies(fullSync: { _ in nil })
+    ).execute(fixture.request(attemptKind: .initial))
+
+    #expect(report.status == .itemAbsent)
+    #expect(!FileManager.default.fileExists(atPath: fixture.work.path))
+  }
+
   @Test("Noncanonical resource bounds fail before validation or unlink")
   func rejectsResourceBoundDrift() throws {
     let fixture = try PurgeUnlinkFixture()

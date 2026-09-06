@@ -524,16 +524,8 @@ struct DescriptorExclusiveQuarantinePurgeStager: Sendable {
         intent.npmRootBinding.device,
         scope.recoveryRequest.accountUID
       )
-      _ = try dependencies.readNamed(
-        scope.heldQuarantineRootDescriptor,
-        workComponent,
-        .observeTaskCancellation
-      )
-      return .failure(.workNameOccupied)
     } catch is CancellationError {
       return .failure(.cancelled)
-    } catch let error where descriptorPurgePOSIXCode(error) == ENOENT {
-      return .valid(snapshot)
     } catch DescriptorNPMPurgeTreeValidationFailure.traversalLimitExceeded,
       DescriptorNPMPurgeTreeValidationFailure.invalidLimits
     {
@@ -546,6 +538,21 @@ struct DescriptorExclusiveQuarantinePurgeStager: Sendable {
       DescriptorNPMPurgeTreeValidationFailure.treeChanged
     {
       return .failure(.quarantinedItemChanged)
+    } catch {
+      return .failure(.quarantinedItemChanged)
+    }
+
+    do {
+      _ = try dependencies.readNamed(
+        scope.heldQuarantineRootDescriptor,
+        workComponent,
+        .observeTaskCancellation
+      )
+      return .failure(.workNameOccupied)
+    } catch is CancellationError {
+      return .failure(.cancelled)
+    } catch let error where descriptorPurgePOSIXCode(error) == ENOENT {
+      return .valid(snapshot)
     } catch {
       return .failure(.quarantinedItemChanged)
     }
@@ -799,9 +806,7 @@ struct DescriptorExclusiveQuarantinePurgeStager: Sendable {
         .ignoreTaskCancellation
       )
       if purgeHistoricalBinding(held, matches: session.intent.candidateBinding),
-        held.sameProtectedDescendantState(as: treeSnapshot),
-        held.permissionMode == treeSnapshot.permissionMode,
-        held.flags == treeSnapshot.flags,
+        purgePostRenameSnapshot(held, matches: treeSnapshot),
         held.kind == .directory,
         held.linkCount >= 2,
         held.ownerUID == scope.recoveryRequest.accountUID,
@@ -992,6 +997,22 @@ private func purgeCurrentNamedSnapshot(
     && named.kind == held.kind
     && named.permissionMode == held.permissionMode
     && named.flags == held.flags
+}
+
+/// Renaming a directory can legitimately update its ctime. The staging
+/// reconciliation therefore pins the stable object identity, owner and all
+/// mutation-safety metadata while deliberately excluding change time.
+private func purgePostRenameSnapshot(
+  _ observed: DescriptorStatSnapshot,
+  matches expected: DescriptorStatSnapshot
+) -> Bool {
+  observed.sameBinding(as: expected)
+    && observed.ownerUID == expected.ownerUID
+    && observed.permissionMode == expected.permissionMode
+    && observed.flags == expected.flags
+    && observed.linkCount == expected.linkCount
+    && observed.modificationSeconds == expected.modificationSeconds
+    && observed.modificationNanoseconds == expected.modificationNanoseconds
 }
 
 private func purgeHistoricalBinding(
