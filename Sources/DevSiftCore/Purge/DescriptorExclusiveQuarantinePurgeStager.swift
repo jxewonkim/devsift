@@ -139,13 +139,25 @@ struct DescriptorQuarantinePurgeStagedWork: Sendable {
   let cancellationWasObservedAfterRename: Bool
 }
 
+/// A durable intent whose staging attempt conclusively left the exact item at
+/// Q and the work name absent. The retained lock lets the sole outer executor
+/// publish a `not-purged` receipt without an observational recovery round trip.
+struct DescriptorQuarantinePurgeNotStagedWork: Sendable {
+  let journalSession: DescriptorQuarantinePurgeJournalSession
+  let failure: DescriptorQuarantinePurgeFailure
+  let stagingRenameWasInvoked: Bool
+}
+
 enum DescriptorQuarantinePurgeStagingResult: Sendable {
   case notStaged(DescriptorQuarantinePurgeFailure)
+  /// The journal begin call could not prove whether its final intent exists,
+  /// so no lock-owning session is available for immediate terminalization.
   case intentRecorded(
     DescriptorQuarantinePurgeFailure,
     purgeTransactionID: String,
     stagingRenameWasInvoked: Bool
   )
+  case notStagedAfterIntent(DescriptorQuarantinePurgeNotStagedWork)
   case staged(DescriptorQuarantinePurgeStagedWork)
   case unresolved(purgeTransactionID: String)
 }
@@ -245,10 +257,13 @@ struct DescriptorExclusiveQuarantinePurgeStager: Sendable {
       _ failure: DescriptorQuarantinePurgeFailure,
       renameWasInvoked: Bool
     ) -> DescriptorQuarantinePurgeStagingResult {
-      .intentRecorded(
-        failure,
-        purgeTransactionID: intent.purgeTransactionID,
-        stagingRenameWasInvoked: renameWasInvoked
+      keepSession = true
+      return .notStagedAfterIntent(
+        DescriptorQuarantinePurgeNotStagedWork(
+          journalSession: journalSession,
+          failure: failure,
+          stagingRenameWasInvoked: renameWasInvoked
+        )
       )
     }
 

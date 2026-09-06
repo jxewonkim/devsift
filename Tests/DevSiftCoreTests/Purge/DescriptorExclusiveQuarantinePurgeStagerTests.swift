@@ -106,18 +106,18 @@ struct DescriptorExclusiveQuarantinePurgeStagerTests {
 
     let result = context.stager.stage(context.scope)
 
-    guard
-      case .intentRecorded(
-        .cancelled,
-        let transactionID,
-        let renameWasInvoked
-      ) = result
+    guard case .notStagedAfterIntent(let pending) = result,
+      pending.failure == .cancelled
     else {
       Issue.record("Expected a pending cancelled intent, got \(result)")
       return
     }
-    #expect(transactionID == context.bundle.purgeIntent.purgeTransactionID)
-    #expect(!renameWasInvoked)
+    defer { pending.journalSession.releasePreservingIntent() }
+    #expect(
+      pending.journalSession.purgeTransactionID
+        == context.bundle.purgeIntent.purgeTransactionID
+    )
+    #expect(!pending.stagingRenameWasInvoked)
     #expect(context.probe.observation.beginCount == 1)
     #expect(context.probe.observation.renameCount == 0)
     #expect(context.probe.observation.syncCount == 0)
@@ -131,18 +131,18 @@ struct DescriptorExclusiveQuarantinePurgeStagerTests {
 
     let result = context.stager.stage(context.scope)
 
-    guard
-      case .intentRecorded(
-        .quarantinedItemUnsafe,
-        let transactionID,
-        let renameWasInvoked
-      ) = result
+    guard case .notStagedAfterIntent(let pending) = result,
+      pending.failure == .quarantinedItemUnsafe
     else {
       Issue.record("Expected post-intent tree refusal, got \(result)")
       return
     }
-    #expect(transactionID == context.bundle.purgeIntent.purgeTransactionID)
-    #expect(!renameWasInvoked)
+    defer { pending.journalSession.releasePreservingIntent() }
+    #expect(
+      pending.journalSession.purgeTransactionID
+        == context.bundle.purgeIntent.purgeTransactionID
+    )
+    #expect(!pending.stagingRenameWasInvoked)
     #expect(context.probe.observation.treeValidationCount == 2)
     #expect(context.probe.observation.renameCount == 0)
   }
@@ -166,6 +166,26 @@ struct DescriptorExclusiveQuarantinePurgeStagerTests {
     #expect(context.probe.observation.renameCount == 1)
     #expect(context.probe.observation.syncCount == 0)
     #expect(context.probe.observation.workState == .other)
+  }
+
+  @Test("A rejected rename with Q intact retains a terminalization session")
+  func rejectedRenameRetainsNotPurgedSession() async throws {
+    let context = try await PurgeStagerTestContext(
+      configuration: PurgeStagerConfiguration(renameBehavior: .fail(EIO))
+    )
+
+    let result = context.stager.stage(context.scope)
+
+    guard case .notStagedAfterIntent(let pending) = result else {
+      Issue.record("Expected a terminalizable not-staged result, got \(result)")
+      return
+    }
+    defer { pending.journalSession.releasePreservingIntent() }
+    #expect(pending.failure == .renameRejected(.inputOutput))
+    #expect(pending.stagingRenameWasInvoked)
+    #expect(context.probe.observation.renameCount == 1)
+    #expect(context.probe.observation.quarantineItemState == .candidate)
+    #expect(context.probe.observation.workState == .missing)
   }
 
   @Test("A successful rename return without matching namespace truth never stages")
