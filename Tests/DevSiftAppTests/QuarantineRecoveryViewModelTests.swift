@@ -148,14 +148,14 @@ struct QuarantineRecoveryViewModelTests {
   }
 
   @Test("A newer load suppresses an older completion")
-  func staleLoadIsSuppressed() async throws {
+  func staleLoadIsSuppressed() async {
     let workflow = GatedRecoveryWorkflow()
     let viewModel = QuarantineRecoveryViewModel(workflow: workflow)
 
     let firstTask = viewModel.loadInventory()
-    try #require(await workflow.waitUntilLoadCount(1))
+    await workflow.waitUntilLoadCount(1)
     let secondTask = viewModel.loadInventory()
-    try #require(await workflow.waitUntilLoadCount(2))
+    await workflow.waitUntilLoadCount(2)
 
     await workflow.resolveLoad(1, with: .success(recoveryInventory()))
     await workflow.resolveLoad(
@@ -173,12 +173,12 @@ struct QuarantineRecoveryViewModelTests {
   }
 
   @Test("Dismissing recovery cancels and suppresses an outstanding load")
-  func dismissalSuppressesCompletion() async throws {
+  func dismissalSuppressesCompletion() async {
     let workflow = GatedRecoveryWorkflow()
     let viewModel = QuarantineRecoveryViewModel(workflow: workflow)
 
     let task = viewModel.loadInventory()
-    try #require(await workflow.waitUntilLoadCount(1))
+    await workflow.waitUntilLoadCount(1)
     viewModel.stopForDismissal()
     await workflow.resolveLoad(1, with: .success(recoveryInventory()))
     await task.value
@@ -411,6 +411,7 @@ private actor GatedRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
       Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>,
       Never
     >] = [:]
+  private var loadArrivalContinuations: [Int: [CheckedContinuation<Void, Never>]] = [:]
   private(set) var loadCount = 0
   private(set) var cancellationCount = 0
 
@@ -418,6 +419,7 @@ private actor GatedRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
     -> Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>
   {
     loadCount += 1
+    resumeReachedLoadArrivals()
     let occurrence = loadCount
     return await withCheckedContinuation { continuation in
       loadContinuations[occurrence] = continuation
@@ -444,16 +446,14 @@ private actor GatedRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
     cancellationCount += 1
   }
 
-  func waitUntilLoadCount(_ expected: Int) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .seconds(2))
-    while clock.now < deadline {
-      if loadCount >= expected {
-        return true
-      }
-      try? await clock.sleep(for: .milliseconds(10))
+  func waitUntilLoadCount(_ expected: Int) async {
+    guard loadCount < expected else {
+      return
     }
-    return false
+
+    await withCheckedContinuation { continuation in
+      loadArrivalContinuations[expected, default: []].append(continuation)
+    }
   }
 
   func resolveLoad(
@@ -464,6 +464,16 @@ private actor GatedRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
     >
   ) {
     loadContinuations.removeValue(forKey: occurrence)?.resume(returning: result)
+  }
+
+  private func resumeReachedLoadArrivals() {
+    let reachedCounts = loadArrivalContinuations.keys.filter { $0 <= loadCount }
+    for count in reachedCounts {
+      let continuations = loadArrivalContinuations.removeValue(forKey: count) ?? []
+      for continuation in continuations {
+        continuation.resume()
+      }
+    }
   }
 
   func waitUntilCancellationCount(_ expected: Int) async -> Bool {
