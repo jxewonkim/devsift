@@ -28,16 +28,39 @@ enum QuarantineRecoveryRestoreState: Equatable, Sendable {
   }
 }
 
+enum QuarantineRecoveryPurgeState: Equatable, Sendable {
+  case idle
+  case preparing(QuarantineRecoveryPurgeTarget)
+  case awaitingConfirmation(QuarantineRecoveryPurgeConfirmationPresentation)
+  case cancellingConfirmation
+  case purging(QuarantineRecoveryPurgeTarget)
+  case finished(QuarantineRecoveryPurgeResultPresentation)
+  case failed(QuarantineRecoveryIssuePresentation)
+
+  var operationIsActive: Bool {
+    switch self {
+    case .preparing, .cancellingConfirmation, .purging:
+      true
+    case .idle, .awaitingConfirmation, .finished, .failed:
+      false
+    }
+  }
+}
+
 @MainActor
 @Observable
 final class QuarantineRecoveryViewModel {
   private(set) var inventoryState: QuarantineRecoveryInventoryState = .notLoaded
   private(set) var restoreState: QuarantineRecoveryRestoreState = .idle
+  private(set) var purgeState: QuarantineRecoveryPurgeState = .idle
 
   @ObservationIgnored private let workflow: any QuarantineRecoveryWorkflowHandling
   @ObservationIgnored private var itemHandles:
     [QuarantineRecoveryRowID: QuarantineRecoveryWorkflowItemHandle] = [:]
+  @ObservationIgnored private var purgeRetryHandles:
+    [QuarantineRecoveryPurgeRetryRowID: QuarantineRecoveryWorkflowPurgeRetryHandle] = [:]
   @ObservationIgnored private var preparedRestore: QuarantineRecoveryPreparedRestore?
+  @ObservationIgnored private var preparedPurge: QuarantineRecoveryPreparedPurge?
   @ObservationIgnored private var operationGeneration: UInt64 = 0
   @ObservationIgnored private var inventoryGeneration: UInt64 = 0
   @ObservationIgnored private var operationTask: Task<Void, Never>?
@@ -53,18 +76,35 @@ final class QuarantineRecoveryViewModel {
     if case .loading = inventoryState {
       return true
     }
-    return restoreState.operationIsActive
+    return restoreState.operationIsActive || purgeState.operationIsActive
   }
 
   var canStartRestore: Bool {
     guard case .loaded = inventoryState else {
       return false
     }
-    return allowsNewRestoreAttempt
+    return allowsNewAction
+  }
+
+  var canStartInitialPurge: Bool {
+    guard case .loaded = inventoryState else {
+      return false
+    }
+    return allowsNewAction
+  }
+
+  var canStartPurgeRetry: Bool {
+    guard case .loaded = inventoryState else {
+      return false
+    }
+    return allowsNewAction
   }
 
   var refreshDiscardsPendingConfirmation: Bool {
     if case .awaitingConfirmation = restoreState {
+      return true
+    }
+    if case .awaitingConfirmation = purgeState {
       return true
     }
     return false
@@ -77,12 +117,15 @@ final class QuarantineRecoveryViewModel {
     let operation = beginOperation()
     inventoryState = .loading
     restoreState = .idle
+    purgeState = .idle
     preparedRestore = nil
+    preparedPurge = nil
     itemHandles.removeAll(keepingCapacity: true)
+    purgeRetryHandles.removeAll(keepingCapacity: true)
 
     let workflow = workflow
     let task = Task { [weak self] in
-      await workflow.cancelPendingRestore()
+      await workflow.cancelPendingAction()
       guard !Task.isCancelled else {
         return
       }
@@ -104,14 +147,16 @@ final class QuarantineRecoveryViewModel {
       case .loaded(let inventory) = inventoryState,
       inventory.rows.first(where: { $0.id == rowID })?.canRestore == true,
       let itemHandle = itemHandles[rowID],
-      allowsNewRestoreAttempt
+      allowsNewAction
     else {
       return nil
     }
 
     let operation = beginOperation()
+    purgeState = .idle
     restoreState = .preparing(rowID)
     preparedRestore = nil
+    preparedPurge = nil
     let workflow = workflow
     let task = Task { [weak self] in
       let result = await workflow.beginRestore(for: itemHandle)
@@ -121,6 +166,76 @@ final class QuarantineRecoveryViewModel {
       self?.finishRestorePreparation(
         result,
         rowID: rowID,
+        operation: operation
+      )
+    }
+    operationTask = task
+    return task
+  }
+
+  @discardableResult
+  func requestInitialPurge(
+    for rowID: QuarantineRecoveryRowID
+  ) -> Task<Void, Never>? {
+    guard
+      case .loaded(let inventory) = inventoryState,
+      inventory.rows.first(where: { $0.id == rowID })?.canPurge == true,
+      let itemHandle = itemHandles[rowID],
+      allowsNewAction
+    else {
+      return nil
+    }
+
+    let target = QuarantineRecoveryPurgeTarget.initial(rowID)
+    let operation = beginOperation()
+    restoreState = .idle
+    purgeState = .preparing(target)
+    preparedRestore = nil
+    preparedPurge = nil
+    let workflow = workflow
+    let task = Task { [weak self] in
+      let result = await workflow.beginInitialPurge(for: itemHandle)
+      guard !Task.isCancelled else {
+        return
+      }
+      self?.finishPurgePreparation(
+        result,
+        target: target,
+        operation: operation
+      )
+    }
+    operationTask = task
+    return task
+  }
+
+  @discardableResult
+  func requestPurgeRetry(
+    for rowID: QuarantineRecoveryPurgeRetryRowID
+  ) -> Task<Void, Never>? {
+    guard
+      case .loaded(let inventory) = inventoryState,
+      inventory.purgeRetryRows.first(where: { $0.id == rowID })?.canRetry == true,
+      let retryHandle = purgeRetryHandles[rowID],
+      allowsNewAction
+    else {
+      return nil
+    }
+
+    let target = QuarantineRecoveryPurgeTarget.explicitRetry(rowID)
+    let operation = beginOperation()
+    restoreState = .idle
+    purgeState = .preparing(target)
+    preparedRestore = nil
+    preparedPurge = nil
+    let workflow = workflow
+    let task = Task { [weak self] in
+      let result = await workflow.beginPurgeRetry(for: retryHandle)
+      guard !Task.isCancelled else {
+        return
+      }
+      self?.finishPurgePreparation(
+        result,
+        target: target,
         operation: operation
       )
     }
@@ -150,24 +265,27 @@ final class QuarantineRecoveryViewModel {
     }
 
     let operation = beginOperation()
+    purgeState = .idle
     restoreState = .restoring(confirmation.rowID)
     let workflow = workflow
     let task = Task { [weak self] in
-      let execution = await withTaskCancellationHandler {
-        await workflow.authorizeAndRestore(
-          preparedRestore.handle,
-          statement: preparedRestore.requiredStatement
-        )
-      } onCancel: {
-        Task {
-          await workflow.cancelPendingRestore()
-        }
+      let execution = await workflow.authorizeAndRestore(
+        preparedRestore.handle,
+        statement: preparedRestore.requiredStatement
+      )
+      if self?.operationGeneration == operation {
+        self?.inventoryState = .loading
       }
-      guard !Task.isCancelled, self?.operationGeneration == operation else {
-        return
-      }
+      let refreshedInventory = await Self.reconcileAfterExecution(using: workflow)
+      guard self?.operationGeneration == operation else { return }
 
       self?.preparedRestore = nil
+      self?.finishInventoryLoad(
+        refreshedInventory,
+        operation: operation,
+        preserveRestoreState: true,
+        preservePurgeState: true
+      )
       switch execution {
       case .success(let result):
         self?.restoreState = .finished(
@@ -178,19 +296,68 @@ final class QuarantineRecoveryViewModel {
           QuarantineRecoveryIssuePresentation(workflowFailure: failure)
         )
       }
+    }
+    operationTask = task
+    return task
+  }
 
-      // Every attempted execution is followed by a fresh reconciliation. The
-      // bounded result remains visible even when this refresh itself fails.
-      self?.inventoryState = .loading
-      let refreshedInventory = await workflow.reconcileAndLoadInventory()
-      guard !Task.isCancelled else {
-        return
+  /// The exact statement is itself the permanent-deletion acknowledgement.
+  /// The remaining three booleans independently cover the other irreversible
+  /// risks represented in Core's attempt-bound statement.
+  @discardableResult
+  func confirmAndPurge(
+    confirmationID: QuarantineRecoveryPurgeConfirmationID,
+    exactPermanentDeletionStatementWasConfirmed: Bool,
+    restoreCutoffAndPartialDeletionWereAccepted: Bool,
+    workWasStoppedAndActivityRisksWereAccepted: Bool,
+    capacityAndSecureEraseLimitsWereAccepted: Bool
+  ) -> Task<Void, Never>? {
+    guard
+      exactPermanentDeletionStatementWasConfirmed,
+      restoreCutoffAndPartialDeletionWereAccepted,
+      workWasStoppedAndActivityRisksWereAccepted,
+      capacityAndSecureEraseLimitsWereAccepted,
+      case .awaitingConfirmation(let confirmation) = purgeState,
+      confirmation.id == confirmationID,
+      let preparedPurge,
+      preparedPurge.attemptKind == confirmation.attemptKind,
+      preparedPurge.requiredStatement == confirmation.requiredStatement
+    else {
+      return nil
+    }
+
+    let operation = beginOperation()
+    restoreState = .idle
+    purgeState = .purging(confirmation.target)
+    let workflow = workflow
+    let task = Task { [weak self] in
+      let execution = await workflow.authorizeAndPurge(
+        preparedPurge.handle,
+        statement: preparedPurge.requiredStatement
+      )
+      if self?.operationGeneration == operation {
+        self?.inventoryState = .loading
       }
+      let refreshedInventory = await Self.reconcileAfterExecution(using: workflow)
+      guard self?.operationGeneration == operation else { return }
+
+      self?.preparedPurge = nil
       self?.finishInventoryLoad(
         refreshedInventory,
         operation: operation,
-        preserveRestoreState: true
+        preserveRestoreState: true,
+        preservePurgeState: true
       )
+      switch execution {
+      case .success(let result):
+        self?.purgeState = .finished(
+          QuarantineRecoveryPurgeResultPresentation(result: result)
+        )
+      case .failure(let failure):
+        self?.purgeState = .failed(
+          QuarantineRecoveryIssuePresentation(purgeWorkflowFailure: failure)
+        )
+      }
     }
     operationTask = task
     return task
@@ -211,11 +378,37 @@ final class QuarantineRecoveryViewModel {
     restoreState = .cancellingConfirmation
     let workflow = workflow
     let task = Task { [weak self] in
-      await workflow.cancelPendingRestore()
+      await workflow.cancelPendingAction()
       guard !Task.isCancelled, self?.operationGeneration == operation else {
         return
       }
       self?.restoreState = .idle
+      self?.operationTask = nil
+    }
+    operationTask = task
+    return task
+  }
+
+  @discardableResult
+  func cancelPurgeConfirmation(
+    _ confirmationID: QuarantineRecoveryPurgeConfirmationID
+  ) -> Task<Void, Never>? {
+    guard
+      case .awaitingConfirmation(let confirmation) = purgeState,
+      confirmation.id == confirmationID
+    else {
+      return nil
+    }
+    let operation = beginOperation()
+    preparedPurge = nil
+    purgeState = .cancellingConfirmation
+    let workflow = workflow
+    let task = Task { [weak self] in
+      await workflow.cancelPendingAction()
+      guard !Task.isCancelled, self?.operationGeneration == operation else {
+        return
+      }
+      self?.purgeState = .idle
       self?.operationTask = nil
     }
     operationTask = task
@@ -232,24 +425,46 @@ final class QuarantineRecoveryViewModel {
     restoreState = .idle
   }
 
+  func dismissPurgeStatus() {
+    guard case .finished = purgeState else {
+      if case .failed = purgeState {
+        purgeState = .idle
+      }
+      return
+    }
+    purgeState = .idle
+  }
+
   func stopForDismissal() {
     invalidateOperation()
     inventoryState = .notLoaded
     restoreState = .idle
+    purgeState = .idle
     preparedRestore = nil
+    preparedPurge = nil
     itemHandles.removeAll(keepingCapacity: false)
+    purgeRetryHandles.removeAll(keepingCapacity: false)
     let workflow = workflow
     Task {
-      await workflow.cancelPendingRestore()
+      await workflow.cancelPendingAction()
     }
   }
 
-  private var allowsNewRestoreAttempt: Bool {
+  private var allowsNewAction: Bool {
+    let restoreAllowsAction: Bool
     switch restoreState {
     case .idle, .finished, .failed:
-      true
+      restoreAllowsAction = true
     case .preparing, .awaitingConfirmation, .cancellingConfirmation, .restoring:
-      false
+      restoreAllowsAction = false
+    }
+    guard restoreAllowsAction else { return false }
+
+    switch purgeState {
+    case .idle, .finished, .failed:
+      return true
+    case .preparing, .awaitingConfirmation, .cancellingConfirmation, .purging:
+      return false
     }
   }
 
@@ -267,7 +482,8 @@ final class QuarantineRecoveryViewModel {
   private func finishInventoryLoad(
     _ result: Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>,
     operation: UInt64,
-    preserveRestoreState: Bool = false
+    preserveRestoreState: Bool = false,
+    preservePurgeState: Bool = false
   ) {
     guard operationGeneration == operation else {
       return
@@ -285,10 +501,17 @@ final class QuarantineRecoveryViewModel {
           (row.id, item.handle)
         }
       )
+      purgeRetryHandles = Dictionary(
+        uniqueKeysWithValues: zip(presentation.purgeRetryRows, inventory.purgeRetries).map {
+          row, item in
+          (row.id, item.handle)
+        }
+      )
       inventoryState = .loaded(presentation)
 
     case .failure(let failure):
       itemHandles.removeAll(keepingCapacity: true)
+      purgeRetryHandles.removeAll(keepingCapacity: true)
       inventoryState = .failed(
         QuarantineRecoveryIssuePresentation(loadFailure: failure)
       )
@@ -296,6 +519,9 @@ final class QuarantineRecoveryViewModel {
 
     if !preserveRestoreState {
       restoreState = .idle
+    }
+    if !preservePurgeState {
+      purgeState = .idle
     }
     operationTask = nil
   }
@@ -328,5 +554,63 @@ final class QuarantineRecoveryViewModel {
       )
     }
     operationTask = nil
+  }
+
+  private func finishPurgePreparation(
+    _ result: Result<QuarantineRecoveryPreparedPurge, QuarantinePurgePreparationFailure>,
+    target: QuarantineRecoveryPurgeTarget,
+    operation: UInt64
+  ) {
+    guard operationGeneration == operation else {
+      return
+    }
+
+    switch result {
+    case .success(let preparedPurge):
+      let targetMatchesAttempt: Bool
+      switch (target, preparedPurge.attemptKind) {
+      case (.initial, .initial), (.explicitRetry, .explicitRetry):
+        targetMatchesAttempt = true
+      default:
+        targetMatchesAttempt = false
+      }
+      guard targetMatchesAttempt else {
+        self.preparedPurge = nil
+        purgeState = .failed(
+          QuarantineRecoveryIssuePresentation(
+            purgePreparationFailure: .authorization(.invalidPreparedEvidence)
+          ))
+        let workflow = workflow
+        Task {
+          await workflow.cancelPendingAction()
+        }
+        operationTask = nil
+        return
+      }
+
+      self.preparedPurge = preparedPurge
+      purgeState = .awaitingConfirmation(
+        QuarantineRecoveryPurgeConfirmationPresentation(
+          target: target,
+          confirmationID: QuarantineRecoveryPurgeConfirmationID(
+            identity: QuarantineRecoveryPurgeConfirmationIdentity()
+          ),
+          preparedPurge: preparedPurge
+        ))
+    case .failure(let failure):
+      preparedPurge = nil
+      purgeState = .failed(
+        QuarantineRecoveryIssuePresentation(purgePreparationFailure: failure)
+      )
+    }
+    operationTask = nil
+  }
+
+  nonisolated private static func reconcileAfterExecution(
+    using workflow: any QuarantineRecoveryWorkflowHandling
+  ) async -> Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure> {
+    await Task.detached {
+      await workflow.reconcileAndLoadInventory()
+    }.value
   }
 }
