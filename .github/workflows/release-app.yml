@@ -214,23 +214,16 @@ jobs:
           scripts/release/verify-metadata.sh "$TAG_NAME"
           scripts/release/verify-toolchain.sh
 
-      - name: Validate signing and notarization credentials
+      - name: Validate signing credentials
         shell: bash
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVSIFT_DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVSIFT_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-          NOTARY_KEY_BASE64: ${{ secrets.DEVSIFT_NOTARY_KEY_BASE64 }}
-          NOTARY_KEY_ID: ${{ secrets.DEVSIFT_NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.DEVSIFT_NOTARY_ISSUER_ID }}
         run: |
           set -euo pipefail
-          command -v jq >/dev/null
           [[ "$DEVSIFT_APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
           [[ -n "$CERTIFICATE_BASE64" ]]
           [[ -n "$CERTIFICATE_PASSWORD" ]]
-          [[ -n "$NOTARY_KEY_BASE64" ]]
-          [[ "$NOTARY_KEY_ID" =~ ^[A-Z0-9]{10}$ ]]
-          [[ "$NOTARY_ISSUER_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
 
       - name: Import the Developer ID Application identity
         shell: bash
@@ -313,6 +306,19 @@ jobs:
           [[ "${#original_keychains[@]}" -gt 0 ]]
           security list-keychains -d user -s "${original_keychains[@]}"
           security delete-keychain "$RUNNER_TEMP/devsift-signing.keychain-db"
+
+      - name: Validate notarization credentials
+        shell: bash
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.DEVSIFT_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.DEVSIFT_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.DEVSIFT_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          command -v jq >/dev/null
+          [[ -n "$NOTARY_KEY_BASE64" ]]
+          [[ "$NOTARY_KEY_ID" =~ ^[A-Z0-9]{10}$ ]]
+          [[ "$NOTARY_ISSUER_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
 
       - name: Submit to Apple and staple the accepted ticket
         shell: bash
