@@ -16,6 +16,7 @@ repository_root=$(CDPATH= cd -- "$script_directory/../.." && pwd -P)
 version_file="$repository_root/VERSION"
 status_file="$repository_root/Sources/DevSiftCore/DevSiftStatus.swift"
 changelog_file="$repository_root/CHANGELOG.md"
+app_build_number_file="$repository_root/APP_BUILD_NUMBER"
 
 [ -f "$version_file" ] || fail "VERSION is missing"
 [ ! -L "$version_file" ] || fail "VERSION must not be a symbolic link"
@@ -33,6 +34,18 @@ printf '%s\n' "$version" \
 
 [ "$version" != "0.0.0-dev" ] || fail "development placeholders cannot be released"
 [ -f "$status_file" ] || fail "DevSiftStatus.swift is missing"
+
+[ -f "$app_build_number_file" ] || fail "APP_BUILD_NUMBER is missing"
+[ ! -L "$app_build_number_file" ] || fail "APP_BUILD_NUMBER must not be a symbolic link"
+app_build_line_count=$(awk 'END { print NR }' "$app_build_number_file")
+[ "$app_build_line_count" -eq 1 ] \
+  || fail "APP_BUILD_NUMBER must contain exactly one line"
+app_build_newline_count=$(wc -l < "$app_build_number_file" | tr -d '[:space:]')
+[ "$app_build_newline_count" -eq 1 ] \
+  || fail "APP_BUILD_NUMBER must end with one newline"
+app_build_number=$(sed -n '1p' "$app_build_number_file")
+printf '%s\n' "$app_build_number" | LC_ALL=C grep -Eq '^[1-9][0-9]{0,3}$' \
+  || fail "APP_BUILD_NUMBER must be a canonical positive integer of at most four digits"
 
 status_line="    version: \"$version\","
 status_count=$(LC_ALL=C grep -Fxc "$status_line" "$status_file" || true)

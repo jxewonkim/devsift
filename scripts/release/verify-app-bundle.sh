@@ -42,10 +42,6 @@ printf '%s\n' "$expected_version" \
   || fail "expected version is not a canonical alpha semantic version"
 
 short_version=${expected_version%-alpha.*}
-alpha_sequence=${expected_version##*.}
-[ "$alpha_sequence" -le 255 ] \
-  || fail "alpha sequence cannot be represented by an Apple bundle version"
-apple_bundle_version="${short_version}a${alpha_sequence}"
 
 [ -d "$app_bundle" ] || fail "application bundle is missing: $app_bundle"
 [ ! -L "$app_bundle" ] || fail "application bundle must not be a symbolic link"
@@ -55,7 +51,7 @@ apple_bundle_version="${short_version}a${alpha_sequence}"
 app_parent=$(CDPATH= cd -- "$(dirname -- "$app_bundle")" && pwd -P)
 app_bundle="$app_parent/DevSift.app"
 
-for command_name in codesign file find lipo nm otool plutil stat strings; do
+for command_name in awk cmp codesign file find grep lipo nm otool plutil sed stat strings tr wc; do
   command -v "$command_name" >/dev/null 2>&1 \
     || fail "required command is unavailable: $command_name"
 done
@@ -68,6 +64,18 @@ fi
 
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 repository_root=$(CDPATH= cd -- "$script_directory/../.." && pwd -P)
+build_number_file="$repository_root/APP_BUILD_NUMBER"
+[ -f "$build_number_file" ] && [ ! -L "$build_number_file" ] \
+  || fail "repository APP_BUILD_NUMBER is unavailable for comparison"
+build_number_line_count=$(awk 'END { print NR }' "$build_number_file")
+[ "$build_number_line_count" -eq 1 ] \
+  || fail "APP_BUILD_NUMBER must contain exactly one line"
+build_number_newline_count=$(wc -l < "$build_number_file" | tr -d '[:space:]')
+[ "$build_number_newline_count" -eq 1 ] \
+  || fail "APP_BUILD_NUMBER must end with exactly one newline"
+apple_bundle_version=$(sed -n '1p' "$build_number_file")
+printf '%s\n' "$apple_bundle_version" | grep -Eq '^[1-9][0-9]{0,3}$' \
+  || fail "APP_BUILD_NUMBER must be a canonical positive integer of at most four digits"
 
 contents="$app_bundle/Contents"
 info_plist="$contents/Info.plist"

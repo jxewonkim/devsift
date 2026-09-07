@@ -51,12 +51,14 @@ info_template="$repository_root/packaging/DevSiftApp/Info.plist.template"
 entitlements="$repository_root/packaging/DevSiftApp/DevSift.entitlements"
 license_source="$repository_root/LICENSE"
 version_source="$repository_root/VERSION"
+build_number_source="$repository_root/APP_BUILD_NUMBER"
 
 for source_file in \
   "$info_template" \
   "$entitlements" \
   "$license_source" \
-  "$version_source"; do
+  "$version_source" \
+  "$build_number_source"; do
   [ -f "$source_file" ] || fail "packaging input is missing: $source_file"
   [ ! -L "$source_file" ] \
     || fail "packaging inputs must not be symbolic links: $source_file"
@@ -65,10 +67,15 @@ done
 "$script_directory/verify-metadata.sh"
 version=$(sed -n '1p' "$version_source")
 marketing_version=${version%-alpha.*}
-alpha_number=${version##*.}
-[ "$alpha_number" -le 255 ] \
-  || fail "alpha sequence exceeds Apple's CFBundleVersion limit of 255"
-bundle_version="${marketing_version}a${alpha_number}"
+build_number_line_count=$(awk 'END { print NR }' "$build_number_source")
+[ "$build_number_line_count" -eq 1 ] \
+  || fail "APP_BUILD_NUMBER must contain exactly one line"
+build_number_newline_count=$(wc -l < "$build_number_source" | tr -d '[:space:]')
+[ "$build_number_newline_count" -eq 1 ] \
+  || fail "APP_BUILD_NUMBER must end with exactly one newline"
+bundle_version=$(sed -n '1p' "$build_number_source")
+printf '%s\n' "$bundle_version" | LC_ALL=C grep -Eq '^[1-9][0-9]{0,3}$' \
+  || fail "APP_BUILD_NUMBER must be a canonical positive integer of at most four digits"
 
 plutil -lint "$info_template" >/dev/null \
   || fail "Info.plist template is invalid"

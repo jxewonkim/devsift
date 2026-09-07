@@ -21,6 +21,10 @@ app_bundle=$1
 output_directory=$2
 expected_version=$3
 
+printf '%s\n' "$expected_version" \
+  | LC_ALL=C grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.[1-9][0-9]*$' \
+  || fail "expected version is not a canonical alpha semantic version"
+
 [ -d "$app_bundle" ] || fail "app bundle is missing: $app_bundle"
 [ ! -L "$app_bundle" ] || fail "app bundle must not be a symbolic link"
 [ "$(basename -- "$app_bundle")" = "DevSift.app" ] \
@@ -28,7 +32,7 @@ expected_version=$3
 [ -n "$output_directory" ] || fail "output directory must not be empty"
 
 for command_name in \
-  awk chmod codesign cp find plutil sed shasum sort touch tr unzip wc xattr zip; do
+  awk chmod codesign cp find grep plutil sed shasum sort touch tr unzip wc xattr zip; do
   command -v "$command_name" >/dev/null 2>&1 \
     || fail "required command is unavailable: $command_name"
 done
@@ -165,7 +169,9 @@ archive_name="DevSift-$expected_version-macos-universal.zip"
 archive_path="$output_directory/$archive_name"
 checksum_path="$output_directory/SHA256SUMS"
 [ ! -e "$archive_path" ] || fail "archive already exists: $archive_path"
+[ ! -L "$archive_path" ] || fail "archive path must not be a symbolic link"
 [ ! -e "$checksum_path" ] || fail "checksum file already exists: $checksum_path"
+[ ! -L "$checksum_path" ] || fail "checksum path must not be a symbolic link"
 
 archive_stage=$(mktemp -d /private/tmp/devsift-app-archive.XXXXXX)
 case "$archive_stage" in
