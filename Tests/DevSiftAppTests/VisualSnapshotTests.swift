@@ -31,6 +31,21 @@ struct VisualSnapshotTests {
       to: outputDirectory.appendingPathComponent("empty-light.png")
     )
 
+    let koreanEmptyModel = ScanViewModel(
+      scanner: ImmediateScanner(outcome: .report(AppTestReportFactory.report())),
+      securityScope: SecurityScopeSpy()
+    )
+    try render(
+      ScanDashboardView(
+        viewModel: koreanEmptyModel,
+        languageSelection: .constant(.korean)
+      )
+      .environment(\.appLanguage, .korean)
+      .environment(\.locale, AppLanguage.korean.locale),
+      appearance: .aqua,
+      to: outputDirectory.appendingPathComponent("empty-korean-light.png")
+    )
+
     let scanRoot = URL(
       fileURLWithPath: "/private/tmp/DevSiftVisualFixture/synthetic-cache",
       isDirectory: true
@@ -124,6 +139,43 @@ struct VisualSnapshotTests {
       appearance: .aqua,
       size: CGSize(width: 900, height: 620),
       to: outputDirectory.appendingPathComponent("result-minimum-light.png")
+    )
+    try render(
+      ScanDashboardView(
+        viewModel: resultModel,
+        languageSelection: .constant(.korean)
+      )
+      .environment(\.appLanguage, .korean)
+      .environment(\.locale, AppLanguage.korean.locale),
+      appearance: .aqua,
+      size: CGSize(width: 900, height: 620),
+      to: outputDirectory.appendingPathComponent("result-minimum-korean-light.png")
+    )
+    try render(
+      ScanDashboardView(
+        viewModel: resultModel,
+        policyDetailsInitiallyExpanded: true,
+        languageSelection: .constant(.korean)
+      )
+      .environment(\.appLanguage, .korean)
+      .environment(\.locale, AppLanguage.korean.locale),
+      appearance: .aqua,
+      size: CGSize(width: 900, height: 620),
+      to: outputDirectory.appendingPathComponent(
+        "policy-expanded-minimum-korean-light.png"
+      )
+    )
+    try render(
+      ScanDashboardView(
+        viewModel: resultModel,
+        policyDetailsInitiallyExpanded: true,
+        languageSelection: .constant(.korean)
+      )
+      .environment(\.appLanguage, .korean)
+      .environment(\.locale, AppLanguage.korean.locale),
+      appearance: .aqua,
+      size: CGSize(width: 1_000, height: 900),
+      to: outputDirectory.appendingPathComponent("policy-expanded-korean-light.png")
     )
 
     let reviewRoot = URL(
@@ -481,6 +533,41 @@ struct VisualSnapshotTests {
         to: outputDirectory.appendingPathComponent("purge-result-\(suffix).png")
       )
     }
+
+    let koreanPurgeConfirmationModel = QuarantineRecoveryViewModel(
+      workflow: SnapshotRecoveryWorkflow(
+        inventories: [.success(snapshotRecoveryInventory(includePurgeRetry: true))],
+        initialPurgePreparation: .success(snapshotPreparedPurge(kind: .initial))
+      )
+    )
+    await koreanPurgeConfirmationModel.loadInventory().value
+    guard
+      case .loaded(let koreanPurgeInventory) =
+        koreanPurgeConfirmationModel.inventoryState,
+      let koreanPurgeRow = koreanPurgeInventory.rows.first,
+      let koreanPurgePreparation = koreanPurgeConfirmationModel.requestInitialPurge(
+        for: koreanPurgeRow.id
+      )
+    else {
+      throw SnapshotError.couldNotPrepareRecovery
+    }
+    await koreanPurgePreparation.value
+    guard case .awaitingConfirmation = koreanPurgeConfirmationModel.purgeState else {
+      throw SnapshotError.couldNotPrepareRecovery
+    }
+    try render(
+      QuarantineRecoveryView(
+        viewModel: koreanPurgeConfirmationModel,
+        languageSelection: .constant(.korean)
+      )
+      .environment(\.appLanguage, .korean)
+      .environment(\.locale, AppLanguage.korean.locale),
+      appearance: .aqua,
+      size: CGSize(width: 680, height: 620),
+      to: outputDirectory.appendingPathComponent(
+        "purge-confirmation-minimum-korean-light.png"
+      )
+    )
   }
 
   private func render<Content: View>(
