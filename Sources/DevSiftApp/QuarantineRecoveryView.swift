@@ -77,7 +77,7 @@ struct QuarantineRecoveryView: View {
         Text("Quarantine is not permanent deletion")
           .font(.headline)
         Text(
-          "DevSift quarantine is a same-volume move. You can restore a current item or separately confirm permanent deletion of its exact receipt-bound contents. Capacity readings are observational: deletion may show zero change, and DevSift does not provide secure erase or guaranteed reclaimed space."
+          "Quarantine is a same-volume move and frees 0 B. Restore and receipt-bound permanent deletion are separate. Capacity change may be zero; DevSift provides neither secure erase nor guaranteed reclaimed space."
         )
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -513,7 +513,7 @@ private struct QuarantineRecoveryConfirmationView: View {
 
   var body: some View {
     GroupBox {
-      VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 6) {
         Text(
           "Core prepared one attempt to restore the current quarantined \(confirmation.originalName) for \(confirmation.responsibleTool). It will fail rather than overwrite the original name."
         )
@@ -594,6 +594,16 @@ private struct QuarantinePurgeConfirmationView: View {
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
+
+        Label {
+          Text(confirmation.dataRemanenceDisclosure)
+            .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+          Image(systemName: "exclamationmark.triangle.fill")
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.red)
+        .accessibilityIdentifier("quarantinePurgeDataRemanenceDisclosure")
 
         VStack(alignment: .leading, spacing: 5) {
           Text("Exact Core-required statement")

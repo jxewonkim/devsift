@@ -259,6 +259,10 @@ struct QuarantineRecoveryPurgeConfirmationPresentation: Equatable, Sendable {
     attemptKind == .explicitRetry
   }
 
+  var dataRemanenceDisclosure: String {
+    "This is not secure erase: APFS snapshots or clones, backups, open file descriptors, and storage-device behavior may retain data or blocks."
+  }
+
   init(
     target: QuarantineRecoveryPurgeTarget,
     confirmationID: QuarantineRecoveryPurgeConfirmationID,

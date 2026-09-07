@@ -59,6 +59,11 @@ struct QuarantineRecoveryPurgePresentationTests {
     #expect(retry.isExplicitRetry)
     #expect(initial.responsibleTool == "npm")
     #expect(initial.originalName == "_cacache")
+    #expect(initial.dataRemanenceDisclosure.contains("not secure erase"))
+    #expect(initial.dataRemanenceDisclosure.contains("APFS snapshots or clones"))
+    #expect(initial.dataRemanenceDisclosure.contains("backups"))
+    #expect(initial.dataRemanenceDisclosure.contains("open file descriptors"))
+    #expect(initial.dataRemanenceDisclosure.contains("storage-device behavior"))
     #expect(
       initial.id.customMirror.children.first?.label
         == "opaquePurgeConfirmation"
