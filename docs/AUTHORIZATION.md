@@ -6,7 +6,7 @@ recoverable-quarantine attempt. `CleanupQuarantineAuthorization` contract
 version 1 is implemented. A Core-internal npm-only executor now consumes its
 single-use handoff and surrounds its atomic move with an internal durable
 intent/receipt journal and recovery engine. Restore, purge, deletion, public
-execution API, and CLI action are not part of this authorization. The source-run
+execution API, and CLI action are not part of this authorization. The native
 app can drive one exact npm quarantine attempt only through an app-local
 workflow and package-scoped executor. After the final UI confirmation, that
 workflow derives and briefly holds Core's process-local approval, attempt,
@@ -89,7 +89,7 @@ was accepted. DevSift still reports activity as
 access, and cannot authenticate who supplied the value.
 
 User-facing wording conveys both parts without making a safety claim. The
-source-run app's review surface separately asks the user to state that npm work
+native app's review surface separately asks the user to state that npm work
 using the cache was stopped and acknowledge that DevSift did not observe
 inactivity and another process could still access it. The UI does not display or
 construct the raw Core request. After the independent review and stopped-risk

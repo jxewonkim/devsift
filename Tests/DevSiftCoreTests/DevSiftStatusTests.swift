@@ -5,8 +5,8 @@ import Testing
 
 @Suite("Product status")
 struct DevSiftStatusTests {
-  @Test("Published version matches repository metadata")
-  func publishedVersionMatchesRepositoryMetadata() throws {
+  @Test("Product version matches repository metadata")
+  func productVersionMatchesRepositoryMetadata() throws {
     let repositoryRoot = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()
       .deletingLastPathComponent()
@@ -14,7 +14,7 @@ struct DevSiftStatusTests {
     let versionFile = repositoryRoot.appendingPathComponent("VERSION")
     let storedVersion = try String(contentsOf: versionFile, encoding: .utf8)
 
-    #expect(DevSiftStatus.current.version == "0.3.0-alpha.1")
+    #expect(DevSiftStatus.current.version == "0.3.0-alpha.2")
     #expect(storedVersion == DevSiftStatus.current.version + "\n")
   }
 

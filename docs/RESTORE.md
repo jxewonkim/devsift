@@ -2,7 +2,7 @@
 
 This document defines the Core-internal, npm-only workflow for manually
 restoring one item that DevSift previously moved into its private quarantine
-namespace, plus the bounded package-scoped facade used by the source-run app. It
+namespace, plus the bounded package-scoped facade used by the native app. It
 extends the
 [quarantine execution contract](QUARANTINE.md) and the
 [durability contract](DURABILITY.md); it does not broaden quarantine
@@ -324,7 +324,8 @@ The restore authority and executor add no:
   restore, or non-npm executor;
 - persisted approval or attestation, import, export, general-purpose `Codable`
   domain state, telemetry, network access, npm invocation, privilege escalation,
-  private process-inspection API, or distributed app artifact; or
+  private process-inspection API, or new runtime authority from app
+  packaging; or
 - change to public `SafetyMode.scanOnly` or its
   `allowsFilesystemMutation == false` result.
 

@@ -697,17 +697,18 @@ and that commit's normal CI must be green before the tag is pushed. A failed or
 withdrawn pre-release is superseded by a new version; a published tag is never
 moved to different source.
 
-Milestone status: not reached. The immutable `v0.3.0-alpha.1` source tag exists,
+Milestone status at the Phase 8 cut: not reached. The immutable
+`v0.3.0-alpha.1` source tag exists,
 but no GitHub Release, universal CLI archive, checksum, or provenance asset was
-published. A future attempt must use a new version. The app remains source-only
-and all available CLI commands remain read-only.
+published. A future attempt must use a new version. At that cut, the app
+remained source-only and all available CLI commands remained read-only.
 
 ## Phase 9: native recoverable npm quarantine
 
-Status: implemented. The source-run native app now exposes the bounded workflow
-described below. The CLI and public DevSiftCore API remain read-only, no public
-binary archive is currently available, and the low-level mutation and journal
-machinery remains behind package and internal boundaries.
+Status at the Phase 9 cut: implemented in the source-run native app. The CLI
+and public DevSiftCore API remained read-only, no public binary archive was
+available, and the low-level mutation and journal machinery remained behind
+package and internal boundaries.
 
 This phase turns the existing Core-internal npm transaction into the first
 user-facing, recoverable native-app workflow without broadening the supported
@@ -827,8 +828,8 @@ remains a later phase.
 
 ## Phase 10: explicit quarantine purge and observed volume-capacity change
 
-Status: implemented in the source-run app; no signed or downloadable artifact
-exists yet.
+Status at the Phase 10 cut: implemented in the source-run app; no signed or
+downloadable artifact existed.
 
 This phase adds the first irreversible operation, restricted to one exact
 canonical npm quarantine receipt already admitted by the recovery inventory. It
@@ -925,22 +926,43 @@ existing safety and authorization boundaries remain unchanged.
 
 ## Phase 11: signed and downloadable native app
 
-Status: next; no installable app artifact exists.
+Status: implementation complete; public milestone pending credentials, merge,
+and live release gates.
 
-- Package the SwiftUI executable as a hardened-runtime `.app` with reviewed
-  entitlements and no broader filesystem authority than the source-run build.
-- Add Developer ID signing, notarization, stapling, deterministic archive
-  inspection, checksums, and GitHub provenance for a new immutable pre-release
-  version. Never reuse or move the failed `v0.3.0-alpha.1` tag.
-- Publish only after the merge commit's normal CI, app transaction tests,
-  synthetic purge tests, architecture checks, signature validation, Gatekeeper
-  assessment, and a clean-machine install/launch smoke test pass.
+- Package the SwiftUI executable as a deterministic universal hardened-runtime
+  `.app`. Its reviewed entitlement dictionary is empty, its bundle tree and
+  metadata are allowlisted, and it has no broader filesystem authority than the
+  source-run build.
+- Provide separate ad-hoc, pre-notarization Developer ID, and final stapled
+  verification modes, including architecture, deployment target, dependency,
+  rpath, source-path, signature, timestamp, Team ID, Gatekeeper, and ticket
+  checks.
+- Keep the automatic tag workflow's verified CLI handoff in a hidden draft.
+  A manually approved second workflow signs, notarizes, staples, re-archives,
+  checks both archive checksums, creates app provenance, verifies the original
+  CLI provenance, runs fresh arm64 and x86_64 install/launch smoke tests, and
+  alone may publish the exact four assets.
+- Prepare the new `0.3.0-alpha.2` source and app-build metadata. Never reuse or
+  move the failed `v0.3.0-alpha.1` tag.
 - Add no updater, telemetry, account, network dependency, Homebrew tap, or
   automatic cleanup as an implicit part of packaging.
 
-Milestone: users can download and verify a signed, notarized DevSift app from a
-GitHub Release. Any unattended or scheduled cleanup remains a separate future
-proposal rather than part of this packaging milestone.
+Local gate completed: two independent `arm64` + `x86_64` builds produced the
+same ad-hoc ZIP, the extracted bundle passed structural and signature
+verification, and the packaged app launched without an error log.
+
+External blocker: the repository has no Developer ID or App Store Connect
+notarization secrets, and the current development keychain has no Developer ID
+Application identity. The implementation therefore cannot truthfully exercise
+the live signed/notarized path or publish a release yet.
+
+The focused implementation review is recorded in
+[APP_RELEASE_SECURITY_REVIEW.md](APP_RELEASE_SECURITY_REVIEW.md).
+
+Milestone not yet reached: users can download and verify a signed, notarized
+DevSift app only after the candidate is merged, the protected credentials are
+provisioned, and every live release gate succeeds. Any unattended or scheduled
+cleanup remains a separate future proposal.
 
 ## Definition of done for every code commit
 

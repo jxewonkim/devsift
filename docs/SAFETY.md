@@ -67,7 +67,7 @@ authorization, intent, receipt, and bounded diagnostics. A third internal path
 can permanently delete one exact receipt-bound quarantine item after separate
 confirmation and single-use purge authorization, or continue one exact staged
 remainder after a fresh explicit retry. Public mutation API, automatic restore
-or purge, and automatic app-launch recovery do not exist. The source-run app
+or purge, and automatic app-launch recovery do not exist. The native app
 can reach all three kernels only through narrow package-scoped facades for one
 exact npm cache at the current non-root account's passwd-home
 `~/.npm/_cacache`; the CLI and public Core API remain read-only.
@@ -355,7 +355,7 @@ bytes. See the [purge contract](PURGE.md).
   authorization layers cannot mutate files. Only the internal npm quarantine,
   manual-restore, and purge executors own their narrow namespace operations;
   their authorizations grant no standalone filesystem capability.
-- The source-run app's package-scoped facade is the sole frontend mutation
+- The native app's package-scoped facade is the sole frontend mutation
   surface, fixed to one exact npm cache at the current non-root account's
   passwd-home `~/.npm/_cacache`. The CLI and public Core API expose no cleanup,
   move, quarantine, restore, purge, or permission-escalation action.
@@ -366,8 +366,8 @@ bytes. See the [purge contract](PURGE.md).
   deallocates no file data and guarantees exactly 0 B of freed capacity.
 - No automatic or arbitrary-path permanent deletion, retention policy,
   background cleanup, batch or custom-path mutation, network access, telemetry,
-  or distributed app exists. The sole permanent-deletion surface is the manual,
-  receipt-bound npm purge defined above.
+  or distribution-added runtime authority exists. The sole permanent-deletion
+  surface is the manual, receipt-bound npm purge defined above.
 - The app never presents a partial, bounded, or overflowed observation as
   complete or as evidence that an item can be cleaned.
 - Core logic does not construct or execute shell commands.

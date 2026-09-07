@@ -9,18 +9,25 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Deterministic local packaging for a hardened-runtime universal `DevSift.app`
+  with a reviewed empty-entitlement boundary, fixed bundle allowlist, numeric
+  app build metadata, an ad-hoc development signature, and SHA-256 transport
+  checksums.
+- A manually gated Developer ID signing and notarization workflow. It validates
+  the accepted notarization log, staples the ticket, checks Gatekeeper, runs the
+  installed app on fresh arm64 and x86_64 runners, creates GitHub provenance,
+  and publishes only an exact four-asset pre-release.
 - Runtime native-app language selection with persisted `System`, `English`, and
   `Korean` choices. Scan, review, quarantine, recovery, restore, permanent-
   deletion, and accessibility copy can render in Korean while filesystem
   paths and names, tool names, policy identifiers, POSIX codes, and exact Core-
   required confirmation statements remain verbatim.
 
-- A source-run native-app workflow for one exact npm cache at the current
+- A native-app workflow for one exact npm cache at the current
   non-root account's passwd-home `~/.npm/_cacache`. It retains the Core-issued
-  review session,
-  requires explicit review plus separate stopped-npm/risk and final-move
-  confirmations, repeats descriptor-held validation, and can record one durable
-  same-volume quarantine transaction on macOS 26 or newer.
+  review session, requires explicit review plus separate stopped-npm/risk and
+  final-move confirmations, repeats descriptor-held validation, and can record
+  one durable same-volume quarantine transaction on macOS 26 or newer.
 - An explicit recovery inventory workflow that reconciles, rereads, validates,
   and projects the fixed npm journal under one exclusive lock. It returns a
   deterministic bounded set of ordinary restore/initial-purge rows from
@@ -31,11 +38,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   trusted parents, and aggregate resource exhaustion fail atomically; item-
   level failures remain visible as unavailable rows.
 - A separately confirmed, receipt-bound single-item restore workflow for the
-  source-run app. Core revalidates the canonical records, fixed roots, exact
+  native app. Core revalidates the canonical records, fixed roots, exact
   quarantined tree, and absent `_cacache` destination before one single-use,
   non-overwriting reverse rename.
 - A separately confirmed, receipt-bound permanent-deletion workflow for the
-  source-run app. It displays an exact initial or retry statement, requires four
+  native app. It displays an exact initial or retry statement, requires four
   independent acknowledgements including acceptance of that statement, and
   then issues a single-use purge authority. Core durably records the initial
   intent, atomically stages only the selected quarantine item, and performs
@@ -47,7 +54,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
-- Phase 10 is implemented for the source-run native app. Initial inventory
+- The tag workflow now leaves the verified CLI assets in a draft pre-release.
+  The separately approved native-app workflow is the sole transition that may
+  publish that draft after the signed app passes every distribution gate.
+- Phase 10 is implemented for the native app. Initial inventory
   loading remains explicit and never runs automatically at app launch. Every
   started restore or purge execution is followed by fresh reconciliation and
   inventory refresh; stale or cancelled UI work cannot publish the result.
@@ -59,7 +69,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   recovery inventory retain no transaction identifier.
 - The focused Phase 10 security and privacy review records the same-account
   name-replacement race as an explicitly acknowledged residual limitation and
-  closes all blocking and high-priority findings for the narrow source-run
+  closes all blocking and high-priority findings for the narrow native-app
   boundary.
 - The permanent-deletion scope remains manual, single-item, npm-only, and bound
   to canonical quarantine receipts. There is no automatic, launch-time,

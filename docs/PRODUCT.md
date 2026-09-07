@@ -5,7 +5,7 @@
 DevSift helps macOS developers and AI builders understand storage created by
 their tools and make narrowly scoped, reviewable decisions about it. It favors
 evidence and user control over opaque "one-click optimization." The current
-source-run app has one narrowly scoped receipt-bound npm permanent-deletion
+native app has one narrowly scoped receipt-bound npm permanent-deletion
 feature; it is not a general storage-reclaim tool.
 
 ## Target users
@@ -41,15 +41,15 @@ continue one exact, safely validated and synchronized staged remainder after a
 new confirmation. Unsafe or durability-unresolved state requires manual
 recovery.
 The CLI target can internally project one draft into a privacy-profiled,
-review-only JSON schema, but no command or file export exposes it. The source-
-run app retains the Core-issued review session and, after explicit review plus
+review-only JSON schema, but no command or file export exposes it. The native
+app retains the Core-issued review session and, after explicit review plus
 stopped-risk and final-move confirmations, can quarantine one exact npm cache
 at the current non-root account's passwd-home `~/.npm/_cacache` on macOS 26 or
 newer. A separate explicit action loads reconciled bounded inventory and can
 confirm one receipt-bound, non-overwriting restore or permanent deletion. The
 CLI and public Core API remain read-only. Automatic app-launch recovery,
-automatic restore, and automatic purge are absent. The Phase 10 source build
-reports bounded purge outcomes and observational same-volume capacity change.
+automatic restore, and automatic purge are absent. The native app reports
+bounded purge outcomes and observational same-volume capacity change.
 Job 5 remains broader product direction because DevSift cannot report exact
 causal reclaimed bytes.
 
@@ -157,7 +157,7 @@ condition and risk were reviewed, not that npm stopped. Approval is all-or-
 nothing; mismatched or foreign-session values fail even when their visible path,
 rule, and condition are equal. A different subset requires a new draft and
 review. Approval contract version 2 is non-`Codable`, performs no filesystem
-I/O, and is never reconstructed from app display state. The source-run app can
+I/O, and is never reconstructed from app display state. The native app can
 produce it transiently inside its app-local workflow without placing it in UI
 state; the CLI does not expose it. It
 records intent, not activity attestation, proof of human review, freshness,
@@ -229,7 +229,7 @@ between a check and an operation. The current product therefore leaves this
 fact unknown. The project uses distinct explicit caller-attested risk for
 recoverable quarantine and receipt-bound purge. Core binds each assertion to
 one exact authorization attempt without changing the observation. For
-quarantine, the source-run app collects the stopped-npm/unobserved-risk value
+quarantine, the native app collects the stopped-npm/unobserved-risk value
 independently from review and asks for a separate final move confirmation; it
 neither displays nor constructs the raw Core attestation request. Purge
 separately requires four independent acknowledgements in one confirmation flow,
@@ -248,7 +248,7 @@ DevSift is not:
 - an automatic remover of user documents or unfamiliar large files;
 - a wrapper around arbitrary shell deletion commands.
 
-No public Core or CLI cleanup operation exists. The source-run app's sole
+No public Core or CLI cleanup operation exists. The native app's sole
 mutation surface is package-scoped and fixed to the current non-root account's
 exact passwd-home `~/.npm/_cacache`; it cannot supply arbitrary paths, roots,
 journal records, or transaction identifiers. Its explicit recovery inventory
@@ -259,8 +259,10 @@ same opaque inventory references and never targets the active cache name.
 The internal npm purge kernel performs permanent deletion only beneath one
 exact receipt-bound staged work descriptor. General storage reclaim, retention,
 batch or background operation, custom-path or active-cache mutation, network
-access, telemetry, automatic app-launch recovery/restore/purge, and a
-distributed app all remain absent. Same-volume quarantine deallocates no file
-data and guarantees exactly 0 B of freed capacity; purge capacity change is
+access, telemetry, automatic app-launch recovery/restore/purge, and any
+distribution-added runtime authority all remain absent. A publicly signed app
+also remains unavailable until the release pipeline completes. Same-volume
+quarantine deallocates no file data and guarantees exactly 0 B of freed
+capacity; purge capacity change is
 observational and may be zero or unavailable. See the
 [manual restore contract](RESTORE.md) and [purge contract](PURGE.md).

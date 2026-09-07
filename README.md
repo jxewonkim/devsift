@@ -8,7 +8,7 @@ folder, shows where apparent allocation is concentrated, and applies
 explainable policy rules to recognized development caches.
 
 > [!IMPORTANT]
-> DevSift is pre-alpha. The source-run native app can durably quarantine one
+> DevSift is pre-alpha. The native app can durably quarantine one
 > exact npm cache at the current non-root account's passwd-home
 > `~/.npm/_cacache` after explicit review and two confirmation gates, then
 > explicitly reconcile and load its bounded recovery inventory. From that
@@ -16,8 +16,9 @@ explainable policy rules to recognized development caches.
 > overwrite or, after four independent risk acknowledgements, permanently
 > delete only its exact quarantined contents. An interrupted deletion requires
 > a separately confirmed retry. Mutation requires macOS 26 or newer. The CLI
-> and public DevSiftCore API remain read-only, and no distributed app or
-> guaranteed storage-reclaim feature exists.
+> and public DevSiftCore API remain read-only. A local ad-hoc `.app` can now be
+> packaged, but no signed public download or guaranteed storage-reclaim feature
+> exists yet.
 
 ## Why DevSift?
 
@@ -181,7 +182,7 @@ causal attribution, or reclaimed bytes. See the
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v2 encoder pinned to Core manifest contract
 version 3, but no command invokes it and it never writes a file. The app review
-is not a saved or serialized manifest. The source-run app retains the exact
+is not a saved or serialized manifest. The native app retains the exact
 Core-issued review session only for its current supported npm transaction and
 reaches mutation only through package-scoped facades. It provides no manifest
 persistence, import, export, or diffing. The CLI invokes no approval,
@@ -216,7 +217,7 @@ grant standalone mutation authority. A wall-clock TTL is not freshness. See the
 ## Safety first
 
 Scanning, classification, planning, every CLI command, and the public
-DevSiftCore API remain read-only. The source-run app's package-scoped npm
+DevSiftCore API remain read-only. The native app's package-scoped npm
 workflow is the sole mutation surface. Quarantine uses one non-overwriting
 same-volume rename into `.devsift-quarantine-v1`, while a separately confirmed
 manual restore can use one non-overwriting reverse rename for the exact
@@ -264,6 +265,20 @@ swift run devsift classify --json .
 swift run DevSiftApp
 ```
 
+Build a Finder-launchable local app without installing it globally:
+
+```shell
+scripts/release/package-app.sh /private/tmp/devsift-local-app
+open /private/tmp/devsift-local-app/DevSift.app
+```
+
+That local bundle is universal, hardened-runtime enabled, and ad-hoc signed. It
+is not Developer ID signed or notarized and must not be redistributed as an
+official release. The release pipeline and its remaining credential gate are
+documented in the [release contract](docs/RELEASE.md). The packager requires a
+fresh nonexistent output path; remove that exact temporary output after use or
+choose a new path for the next run.
+
 Use the globe menu in the dashboard or recovery header to choose `System`,
 `English`, or `Korean`. The choice is saved for later launches and changes the
 current window without discarding its scan, review, recovery, or confirmation state.
@@ -271,16 +286,17 @@ Filesystem paths and names, tool names, rule identifiers and revisions, POSIX
 codes, and exact Core-required confirmation statements remain verbatim in both
 languages.
 
-### Try the Phase 10 source build
+### Try the native app
 
 This is a pre-alpha workflow that can perform a real rename and permanent
 deletion if every corresponding confirmation is completed. On macOS 26 or
 newer:
 
 1. Stop npm work that may use the cache.
-2. Run `swift run DevSiftApp`, choose `Select Folder…`, and select the current
-   account's exact `~/.npm` directory—not `_cacache` itself. Because `.npm` is
-   hidden, press `⌘⇧G` in the folder picker and enter `~/.npm` if needed.
+2. Launch either `swift run DevSiftApp` or the locally packaged app above,
+   choose `Select Folder…`, and select the current account's exact `~/.npm`
+   directory—not `_cacache` itself. Because `.npm` is hidden, press `⌘⇧G` in
+   the folder picker and enter `~/.npm` if needed.
 3. If `_cacache` passes the conservative policy, include it and choose
    `Review Draft…`.
 4. Read the complete draft, select the review and stopped-npm/risk checkboxes,
@@ -315,7 +331,7 @@ policy implementation. Its review shows all seven stored observation and
 uncertainty quantities as point-in-time estimates, not guaranteed savings, and
 shows a pending npm condition as unobserved rather than as a safety or
 inactivity claim. For the exact npm cache at the current non-root account's
-passwd-home, that same source-run app can retain the Core review authority,
+passwd-home, that same native app can retain the Core review authority,
 require the two separate confirmation gates, perform a durable quarantine on
 macOS 26 or newer, and explicitly load a reconciled inventory for one-at-a-time
 restore or separately confirmed permanent deletion. See the
@@ -336,19 +352,23 @@ synthetic fixtures and never scan or clean a contributor's real home directory.
 ## Pre-release distribution status
 
 The source tag `v0.3.0-alpha.1` exists, but its release workflow did not
-complete. There is currently no GitHub Release, downloadable CLI archive,
-`SHA256SUMS` asset, provenance attestation, or installable native app. Do not
-treat that tag as a binary distribution. The immutable failed pre-release must
-be superseded by a new version rather than moved or republished with different
-source.
+complete. There is currently no GitHub Release or public downloadable asset.
+Do not treat that tag as a binary distribution, move it, or reuse it.
 
-The intended archive remains a read-only universal CLI; the SwiftUI executable
-is source-only. See the [release contract](docs/RELEASE.md) and the historical
-[version-specific release notes](docs/releases/v0.3.0-alpha.1.md).
+`v0.3.0-alpha.2` is the next candidate. Local deterministic app packaging and
+the gated Developer ID signing, notarization, stapling, two-architecture launch,
+checksum, and provenance workflow are implemented. Publication still requires
+the protected Developer ID and notarization credentials plus merge and release
+approval. See the [release contract](docs/RELEASE.md), the
+[distribution security review](docs/APP_RELEASE_SECURITY_REVIEW.md), and the
+[alpha.2 candidate notes](docs/releases/v0.3.0-alpha.2.md). The
+[alpha.1 notes](docs/releases/v0.3.0-alpha.1.md) are retained as an unpublished
+historical record.
 
 ## Project status
 
-- Current phase: Phase 10 implemented. The source-run native app can move one
+- Current phase: Phase 11 implementation complete; signed publication pending.
+  The native app can move one
   explicitly reviewed npm cache at the current non-root account's passwd-home
   `~/.npm/_cacache` into durable same-volume quarantine on macOS 26 or newer
   after two confirmation gates, explicitly reconcile and load a bounded
@@ -366,9 +386,10 @@ is source-only. See the [release contract](docs/RELEASE.md) and the historical
   operation, custom-path mutation, active-cache deletion, automatic restore,
   automatic purge, or automatic app-launch recovery. Quarantine guarantees 0 B
   of freed capacity; purge reports only an observational capacity change
-- Distribution status: the `v0.3.0-alpha.1` source tag exists, but no GitHub
-  Release or downloadable assets were published; the native app remains
-  source-only
+- Distribution status: a reproducible local ad-hoc universal `.app` is
+  buildable and the alpha.2 signing/notarization pipeline is implemented and
+  fail-closed; its live signed/notarized path remains unexercised and no
+  Developer ID-signed GitHub Release has been published
 - Supported platform target: macOS 14 or newer for scanning and read-only
   surfaces; app quarantine, restore, and purge require macOS 26 or newer and
   fail closed before mutation on older systems

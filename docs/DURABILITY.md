@@ -21,7 +21,7 @@ The durability layer may:
 It may not resume an interrupted move, recreate process-local authorization,
 automatically restore or roll back a candidate, overwrite a record or item,
 delete or compact anything. Its raw recovery entry points, records, and reports
-remain unavailable to the app and CLI. The source-run app can request only the
+remain unavailable to the app and CLI. The native app can request only the
 package-scoped explicit recovery/inventory projection; the CLI and public Core
 API expose no mutation path.
 
@@ -288,8 +288,9 @@ remainder for explicit retry; unsafe or durability-unresolved state requires
 manual recovery. Recovery never invokes a staging rename or unlink itself.
 Journal compaction, record
 deletion, automatic rollback, retention, batch or background action,
-custom-root or multi-rule execution, public or CLI mutation, distributed app
-packaging, analytics, telemetry, and network access remain absent. Quarantine
+custom-root or multi-rule execution, public or CLI mutation, analytics,
+telemetry, and runtime network access remain absent. App packaging grants no
+additional runtime authority. Quarantine
 is a same-volume rename that deallocates no data and guarantees exactly 0 B of
 freed capacity. See the [manual restore contract](RESTORE.md) and
 [receipt-bound quarantine purge contract](PURGE.md).

@@ -39,8 +39,10 @@ git diff --exit-code
 
 Release-only changes must also follow the [release contract](docs/RELEASE.md).
 Do not create or move a public tag from a feature branch. The release packager
-requires macOS and a fresh output path; the official artifact is built only by
-the pinned tag workflow after normal `main` CI succeeds.
+requires macOS and a fresh output path. After normal `main` CI succeeds, the
+pinned tag workflow builds and attests the CLI into a hidden draft. A separate
+manual workflow at that same tag signs, notarizes, staples, tests, and attests
+the app, and is the only workflow allowed to publish the complete pre-release.
 
 DevSift is pre-alpha. Public Swift APIs and unversioned presentation may change
 before 1.0. Versioned JSON, policy, manifest, authorization, report, and journal

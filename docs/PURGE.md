@@ -1,11 +1,11 @@
 # Receipt-bound quarantine purge contract
 
-Status: implemented in the source-run Phase 10 app on macOS 26 or newer. The
-app now exposes separately confirmed initial purge and explicit-retry actions;
-Core provides the single-use authority, canonical journal records,
-descriptor-relative bounded unlink engine, recovery/terminalization, and
-observational same-volume capacity result described here. There is still no
-signed, notarized, or downloadable app artifact.
+Status: implemented in the native app on macOS 26 or newer. The app exposes
+separately confirmed initial purge and explicit-retry actions; Core provides the
+single-use authority, canonical journal records, descriptor-relative bounded
+unlink engine, recovery/terminalization, and observational same-volume capacity
+result described here. A local ad-hoc app bundle is buildable, but no signed,
+notarized, public download exists until the guarded release workflow succeeds.
 
 This contract extends the existing
 [quarantine durability contract](DURABILITY.md) and
@@ -16,7 +16,7 @@ through an opaque, process-local inventory reference.
 
 ## Scope and exact milestone
 
-The implemented Phase 10 source build can:
+The implemented native app can:
 
 - explicitly load and reconcile the fixed npm quarantine inventory;
 - select one exact item whose canonical quarantine intent and matching final

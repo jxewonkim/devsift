@@ -3,9 +3,9 @@
 DevSift uses one safety-critical Swift core shared by its native app and CLI.
 
 ```text
-source-run DevSift app ---> DevSiftCore <--- devsift CLI (read-only)
-        |                      |
-        +-> scan -> rules -> plan -> review/approve
+DevSift app ------------> DevSiftCore <--- devsift CLI (read-only)
+  source-run/local bundle      |
+  or signed release            +-> scan -> rules -> plan -> review/approve
                                |
                                +-> package-scoped npm transaction facades
                                       |          |
@@ -103,11 +103,13 @@ regenerated rather than migrated.
 The mutation architecture intentionally contains no general storage-reclaim,
 retention, batch or background executor, custom-root, active-cache, or non-npm
 executor, network, telemetry, or privilege-escalation component. The app remains
-source-run rather than distributed. Core runs locked recovery during restore
-preparation, quarantine/restore/purge mutation admission, and an explicit
-inventory load or refresh. After a restore or purge execution begins, the app
-schedules one fresh reconciliation regardless of success, failure, or late
-cancellation;
+the same executable whether source-run, locally bundled, or Developer ID
+packaged; distribution adds no Core authority. A public signed build remains
+pending until the guarded release workflow succeeds. Core runs locked recovery
+during restore preparation, quarantine/restore/purge mutation admission, and an
+explicit inventory load or refresh. After a restore or purge execution begins,
+the app schedules one fresh reconciliation regardless of success, failure, or
+late cancellation;
 stale UI publication is still suppressed after dismissal or superseding work.
 Recovery never runs merely because the app launched or as periodic or
 background work.
@@ -115,7 +117,7 @@ background work.
 Phase 10's implemented irreversible boundary is specified separately in the
 [receipt-bound quarantine purge contract](PURGE.md). That contract requires a
 durable intent, an atomic move of the selected receipt-bound item to a dedicated
-work name, and only then bounded descriptor-relative unlink. The source-run app
+work name, and only then bounded descriptor-relative unlink. The native app
 reaches it only through four independent risk acknowledgements, the exact
 attempt-specific statement, and a fresh single-use authority.
 
@@ -155,7 +157,7 @@ observation results, partial-result details, explainable policy assessments,
 accessibility, explicit eligible-candidate inclusion, and a read-only in-memory
 draft review. Table focus and draft inclusion are separate, and every result
 starts with zero included candidates. For one exact npm `_cacache` in the
-current non-root account's passwd-home, the source-run app also provides an
+current non-root account's passwd-home, the native app also provides an
 explicit reviewed quarantine transaction plus explicit recovery-inventory and
 manual-restore transactions.
 Those are package-scoped integrations, not general frontend filesystem access.
@@ -174,6 +176,22 @@ request's reference time and original `ScanReport` before rendering it. This
 shared Core boundary checks path coverage, scan-report structure, common
 finding states, semantic invariants, and aggregate resource limits; malformed
 output never reaches a frontend-specific projection.
+
+### Distribution boundary
+
+Release tooling builds both macOS architectures from the same `DevSiftApp`
+Swift Package product and creates a fixed `DevSift.app` bundle. The bundle adds
+only reviewed metadata, `LICENSE` and `VERSION` resources, hardened runtime, an
+empty entitlement set, code signature, and notarization ticket. It adds no
+helper executable, framework, plug-in, login item, updater, or network client.
+
+Local packaging applies an ad-hoc signature and must reproduce byte for byte.
+The protected release workflow instead imports one pinned-team Developer ID
+identity into a temporary keychain, signs with a secure timestamp, removes the
+identity, notarizes and staples the app, verifies Gatekeeper, launches both
+native slices on fresh runners, and binds exact archive bytes to a checksum and
+GitHub provenance before adding the app assets to the existing draft and
+publishing the pre-release.
 
 The Core planner repeats that validation at its own boundary before joining an
 explicit `CleanupCandidateSelection` to a scan summary and rule evaluation by

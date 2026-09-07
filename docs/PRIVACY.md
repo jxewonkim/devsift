@@ -12,7 +12,7 @@ DevSift is designed to work locally and reveal as little as possible.
 - No scan outside roots explicitly selected by the user.
 - The Core-internal npm quarantine, manual-restore, and receipt-bound purge
   kernels read only metadata and canonical journal records needed for
-  descriptor-held validation. The source-run app can invoke them only through
+  descriptor-held validation. The native app can invoke them only through
   package-scoped facades fixed to the current non-root account's exact passwd-
   home `~/.npm/_cacache`. Quarantine and restore issue namespace mutations only
   between that exact source name and the fixed quarantine namespace. Purge can
@@ -61,7 +61,7 @@ DevSift is designed to work locally and reveal as little as possible.
   process-local entry and pending-condition references. A final approval itself
   retains the exact root, manifest, and pending-condition review
   acknowledgements, but not that larger source request. These values are
-  non-`Codable` and perform no filesystem or network I/O. The source-run app
+  non-`Codable` and perform no filesystem or network I/O. The native app
   retains one only for its current explicit review; the CLI never creates one.
   No session or approval is persisted, logged, uploaded, imported, or exported.
   Non-`Codable` does not prevent in-memory copying or provide confidentiality.
@@ -124,8 +124,8 @@ DevSift is designed to work locally and reveal as little as possible.
   guarantees 0 B of freed capacity. Purge reports only observed same-volume
   capacity change, which may be zero or unavailable and is not exact causal
   attribution. No automatic or arbitrary-path permanent deletion, retention,
-  batch or custom-path mutation, distributed app, network service, or telemetry
-  path exists.
+  batch or custom-path mutation, runtime network service, telemetry, or
+  distribution-added authority exists.
 - Every Phase 9 filesystem mutation, including recovery receipt publication,
   requires macOS 26 or newer and rejects before creating new transaction state
   or invoking a rename on older systems.
@@ -193,7 +193,7 @@ its exact root, manifest, and `preconditionReviewAcknowledgements`. Callers can
 still copy the session, source request, references, entry confirmations, review
 acknowledgements, and approval, and must discard every copy when the analysis
 session ends. These values remain non-`Codable`, unpersisted,
-unlogged, and unuploaded. The source-run app creates and retains them only for
+unlogged, and unuploaded. The native app creates and retains them only for
 the current explicit in-memory review; only the sole supported npm shape can
 continue to a mutation attempt. The CLI never creates one.
 Non-`Codable` supplies no encryption, zeroization, confidentiality, or copy
@@ -343,7 +343,7 @@ receipt.
 
 The implemented restore and purge paths are manual, npm-only, and limited to
 one exact receipt-bound item. Their separate confirmations and authorizations
-do not broaden quarantine authorization or each other. The source-run app can
+do not broaden quarantine authorization or each other. The native app can
 explicitly request bounded inventory, restore, initial purge, or explicit purge
 retry through package-scoped facades. Its app-local adapter briefly handles
 package-scoped authorization but cannot access raw paths, records, internal

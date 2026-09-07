@@ -5,7 +5,7 @@ npm `_cacache` quarantine attempt. The tenth adds a durable journal and recovery
 engine around that move. The kernel consumes only the internal claim from a
 single-use `CleanupQuarantineAuthorization`, revalidates the approved object
 while descriptors remain held, and can perform one same-volume, exclusive
-namespace move. After explicit review and two confirmation gates, the source-run
+namespace move. After explicit review and two confirmation gates, the native
 app's local workflow derives the approval and authorization, then passes only
 that authorization into the package-scoped executor for this exact operation.
 The CLI and public package API expose neither execution nor recovery.
@@ -208,7 +208,7 @@ namespace truth is required for receipt-less intent recovery and for promoting
 a canonical receipt stage, where the intent, digest, and terminal namespace
 must all agree. The later Core-internal manual restore and purge increments add
 separate authorization and record families without broadening this quarantine
-authority. The source-run app exposes only their bounded receipt-driven
+authority. The native app exposes only their bounded receipt-driven
 facades. See the exact state machine, record boundary, synchronization order,
 and recovery table in the [quarantine durability contract](DURABILITY.md), plus
 the [manual restore contract](RESTORE.md) and [purge contract](PURGE.md).
@@ -239,4 +239,4 @@ for their local persistence and validation contract.
 Quarantine is not storage reclamation: the same-volume rename deallocates no
 file data and guarantees exactly 0 B of freed capacity. This contract adds no
 purge, permanent deletion, retention, batch or custom-path operation,
-networking, telemetry, or distributed app.
+runtime networking, telemetry, or authority introduced by app packaging.

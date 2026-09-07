@@ -3,7 +3,7 @@
 The DevSift macOS app is a SwiftUI projection of DevSiftCore. Its analysis
 surfaces let the user choose exactly one folder, observe filesystem metadata,
 apply the same versioned rule classifier as the CLI, and review an explicitly
-selected in-memory draft. Those stages remain read-only. The source-run app can
+selected in-memory draft. Those stages remain read-only. The native app can
 also use package-scoped Core workflows to durably quarantine one exact npm cache
 at the current non-root account's passwd-home `~/.npm/_cacache` after explicit
 review and two confirmation gates, explicitly reconcile and load a bounded
@@ -24,10 +24,24 @@ Run the development executable on macOS 14 or newer:
 swift run DevSiftApp
 ```
 
-The current Swift Package product is an unsigned development executable, not a
-distributed `.app` bundle. Scanning and review are available on macOS 14 or
-newer; every quarantine or restore mutation requires macOS 26 or newer.
-Purge uses the same minimum platform and fails before mutation on older systems.
+Create a Finder-launchable local candidate without changing `/Applications`:
+
+```shell
+scripts/release/package-app.sh /private/tmp/devsift-local-app
+open /private/tmp/devsift-local-app/DevSift.app
+```
+
+The local bundle is a deterministic universal hardened-runtime `.app` with a
+reviewed empty entitlement set and an ad-hoc signature. It is not an official
+Developer ID-signed or notarized download. The separate release workflow can
+produce that artifact only after its protected credentials and all publication
+gates are satisfied. The packager requires a fresh nonexistent output path;
+remove the exact temporary output after use. See the
+[release contract](RELEASE.md) and
+[distribution security review](APP_RELEASE_SECURITY_REVIEW.md). Scanning and
+review are available on macOS 14 or newer;
+every quarantine, restore, or purge mutation requires macOS 26 or newer and
+fails before mutation on older systems.
 
 The dashboard and recovery headers provide a language menu with `System`,
 `English`, and `Korean`. `System` resolves supported macOS language preferences
@@ -229,8 +243,8 @@ See the [authorization contract](AUTHORIZATION.md),
 
 ## Implemented Phase 9 and Phase 10 transaction contract
 
-Status: implemented for the source-run native app. The distributed CLI archive
-and public DevSiftCore API have no mutation surface.
+Status: implemented for the native app. The CLI and public DevSiftCore API have
+no mutation surface.
 
 The native mutation workflow is restricted to one exact npm
 `_cacache` selected from a scan of the current non-root account's exact
@@ -312,11 +326,13 @@ no data and guarantees exactly 0 B of freed capacity. The UI labels displayed
 bytes as observed allocation, not reclaimed capacity. Phase 10 purge reports a
 same-volume available-capacity change only as an observation; zero, negative,
 or unavailable is valid and does not prove secure erasure or causal reclamation.
-The app still adds no retention policy, batch or background cleanup, custom
-path, non-npm mutation, launch-time or unattended recovery/restore/purge, CLI
-or public-Core mutation, networking, telemetry, distributed application bundle,
-signing, notarization, installer, or updater. Mandatory mutation-admission and
-restore-preparation recovery remains inside explicitly initiated operations.
+The app runtime still adds no retention policy, batch or background cleanup,
+custom path, non-npm mutation, launch-time or unattended
+recovery/restore/purge, CLI or public-Core mutation, networking, telemetry,
+installer, or updater. Packaging, signing, and notarization tooling adds no new
+runtime authority, and no public signed artifact exists until the guarded
+release workflow succeeds. Mandatory mutation-admission and restore-preparation
+recovery remains inside explicitly initiated operations.
 
 ## Observation and policy language
 
@@ -409,6 +425,13 @@ capacity wording, and real descriptor-relative unlink over synthetic fixtures.
 Localization tests additionally cover deterministic system-language resolution,
 English fallback, Korean safety copy and formatting, verbatim raw values, and
 the invariant that Core-required confirmation statements are never translated.
+
+Release scripts additionally inspect the fixed `.app` tree, plist values,
+resource bytes, file modes, deployment floor, both architectures, dependencies,
+rpaths, build-path leakage, hardened runtime, empty entitlements, signature
+stage, publisher Team ID, secure timestamp, stapled ticket, and Gatekeeper
+assessment. Independent local package builds must produce byte-identical ZIPs;
+fresh release runners install and launch both native slices before publication.
 
 The optional native snapshot harness renders representative empty, scanning,
 classifying, complete, partial, policy, selection, and draft-review states. It

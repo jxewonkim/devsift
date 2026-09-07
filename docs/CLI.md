@@ -191,7 +191,7 @@ A minimal synthetic envelope has this shape:
 
 ```json
 {
-  "devsiftVersion": "0.3.0-alpha.1",
+  "devsiftVersion": "0.3.0-alpha.2",
   "limits": {
     "maximumDepth": "128",
     "maximumEntries": "10000000",

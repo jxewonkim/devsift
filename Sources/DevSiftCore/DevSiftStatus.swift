@@ -8,7 +8,7 @@ public enum SafetyMode: String, Codable, Sendable {
 
 public struct DevSiftStatus: Equatable, Sendable {
   public static let current = DevSiftStatus(
-    version: "0.3.0-alpha.1",
+    version: "0.3.0-alpha.2",
     safetyMode: .scanOnly
   )
 

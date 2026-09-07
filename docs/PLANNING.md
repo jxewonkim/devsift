@@ -15,7 +15,7 @@ review over Core planning. It does not expose Core diffing. The CLI target has
 an internal, one-way review JSON projection over an already constructed
 manifest, but no command invokes it and it writes no file. Core `Codable`
 persistence, saved drafts, user-facing export, import, and frontend diffing
-remain absent. For the supported exact npm shape, the source-run app separately
+remain absent. For the supported exact npm shape, the native app separately
 retains the Core-issued review session and can pass it through package-scoped
 quarantine and explicit recovery/restore workflows. Planning and its
 presentation remain read-only; neither display state nor any individual value
@@ -246,7 +246,7 @@ identifier nor a secret. It correlates an explicit caller action with one Core-
 built review only; Core cannot prove that a human actually saw or understood
 it. Approval is not an activity attestation, fresh observation, stable digest,
 signature, authentication proof, single-use token, execution capability, or
-permission to mutate a path. The source-run app invokes the approver only for
+permission to mutate a path. The native app invokes the approver only for
 its retained current review session; the CLI does not. Version-1 approval values
 are unsupported and must be regenerated through a new current review; there is
 no import migration.
@@ -361,7 +361,7 @@ uses an opaque object-identity seal so equal entry values from two live sessions
 remain distinct without creating a serialized digest or stable identifier. The
 seal is process-local correlation, not an authenticity or execution token.
 Core still cannot prove that the caller displayed the session's manifest or
-that a human approved it; the source-run app therefore requires explicit review
+that a human approved it; the native app therefore requires explicit review
 interaction before its package-scoped npm transaction can continue.
 
 The manifest is a review artifact, not an authenticity proof. Swift `let`

@@ -42,7 +42,7 @@ exact canonical pending set, not activity evidence, human proof, or
 authentication. The resulting single-use authorization grants no standalone
 mutation authority. A Core-internal npm-only executor now consumes it for one
 descriptor-held atomic quarantine move. No public mutation API exists. After
-explicit review and two confirmation gates, the source-run app's local workflow
+explicit review and two confirmation gates, the native app's local workflow
 can pass only the resulting authorization to the exact package-scoped executor.
 See the
 [authorization contract](AUTHORIZATION.md) and
@@ -178,7 +178,7 @@ Under the selected narrow policy, the current executor must:
 
 The internal journal and recovery engine now reconcile receipt-less intents
 without resuming, reversing, restoring, overwriting, or deleting the authorized
-object. The source-run app can explicitly request recovery inventory even when
+object. The native app can explicitly request recovery inventory even when
 `_cacache` is absent, but app launch never invokes recovery. Recovery and final
 inventory validation/projection share one exclusive lock and return no partial
 list for unresolved or unsafe state. A separate receipt-bound restore is
@@ -221,10 +221,11 @@ source manifest version 3.
 
 Older manifests, approvals, and exports are regenerated rather than migrated;
 there is no import path. The quarantine, restore, and purge executors, journal,
-and recovery engine are internal. The source-run app reaches only package-
+and recovery engine are internal. The native app reaches only package-
 scoped quarantine and receipt-bound recovery, restore, initial-purge, and
 explicit-retry facades. Public mutation API, CLI action, automatic app-launch
 recovery, restore, or purge, batch or custom-path operation, networking,
-telemetry, and a distributed app remain unimplemented. Same-volume quarantine
+telemetry, and a publicly distributed signed app remain unavailable until the
+release pipeline completes. Same-volume quarantine
 guarantees exactly 0 B of freed capacity; purge reports only observational
 same-volume capacity change.
