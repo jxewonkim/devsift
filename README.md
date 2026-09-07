@@ -11,11 +11,13 @@ explainable policy rules to recognized development caches.
 > DevSift is pre-alpha. The source-run native app can durably quarantine one
 > exact npm cache at the current non-root account's passwd-home
 > `~/.npm/_cacache` after explicit review and two confirmation gates, then
-> explicitly reconcile and load its bounded recovery
-> inventory and manually restore one receipt-bound item without overwriting a
-> recreated source. Mutation requires macOS 26 or newer. The CLI and public
-> DevSiftCore API remain read-only, and no distributed app, permanent deletion,
-> or storage-reclaim feature exists.
+> explicitly reconcile and load its bounded recovery inventory. From that
+> inventory, the app can manually restore one receipt-bound item without
+> overwrite or, after four independent risk acknowledgements, permanently
+> delete only its exact quarantined contents. An interrupted deletion requires
+> a separately confirmed retry. Mutation requires macOS 26 or newer. The CLI
+> and public DevSiftCore API remain read-only, and no distributed app or
+> guaranteed storage-reclaim feature exists.
 
 ## Why DevSift?
 
@@ -67,13 +69,14 @@ application data are never treated as disposable merely because they are large.
   deterministic compatible-manifest diffing, plus exact review-bound approval,
   revalidation, process-local quarantine-attempt authorization, and an
   internal npm-only atomic quarantine kernel, durable mixed journal and
-  observational recovery engine, single-item manual restore workflow, and
-  package-scoped app facades over those mutation kernels;
+  observational recovery engine, single-item manual restore and receipt-bound
+  purge workflows, and package-scoped app facades over those mutation kernels;
 - `devsift`: a scriptable command-line interface;
 - `DevSift`: a native SwiftUI dashboard with explicit folder selection,
   cancellable scans, observation results, policy explanations, explicit draft
   candidate selection, in-memory review, narrowly scoped npm quarantine,
-  explicit recovery inventory loading, and receipt-bound manual restore.
+  explicit recovery inventory loading, receipt-bound manual restore, and
+  separately confirmed permanent deletion with explicit retry.
 
 The native app can ask Core to create an in-memory draft from an explicitly
 selected eligible subset and display an identity-free review projection. It
@@ -148,14 +151,30 @@ journal bytes, paths, or transaction identifiers. After a separate exact
 confirmation, Core reopens and revalidates the fixed npm namespace, publishes a
 durable restore intent, and performs at most one non-overwriting reverse rename
 of the receipt-bound item to `_cacache` before recording a conclusive receipt.
-When that execution returns to the still-current, uncancelled view-model
-operation, the app performs one post-attempt reconciliation and inventory
-refresh. Dismissed, cancelled, or superseded UI work cannot publish stale state.
-Core also performs locked recovery during quarantine transaction admission,
-restore preparation, and restore transaction admission. Nothing invokes recovery or
-restore automatically at app launch. The low-level selection, journal, claims, and executors remain
+After every started restore or purge execution, the app performs a detached
+post-attempt reconciliation and inventory refresh. Dismissed, cancelled, or
+superseded UI work cannot publish stale state, but it does not cancel that Core
+reconciliation. Core also performs locked recovery during restore preparation
+and quarantine, restore, or purge mutation admission. Nothing invokes recovery,
+restore, or purge automatically at app launch. The low-level selection,
+journal, claims, and executors remain
 unavailable to the CLI and public library API. See the
 [manual restore contract](docs/RESTORE.md).
+
+Core also implements a separate receipt-bound purge authority for one exact
+quarantined item or one exact, safely validated and synchronized staged
+remainder exposed by that reconciled inventory. Unsafe or durability-unresolved
+state requires manual recovery. Initial purge and explicit retry use different
+Core-required statements and fresh single-use authorities. The executor records
+a durable intent, performs one protected rename from the selected quarantine name to an
+internally derived work name, and only then traverses and unlinks beneath held
+descriptors with strict bounds and no symbolic-link following. A retry uses the
+existing work item and never creates a second intent or staging rename. The
+active `_cacache`, arbitrary paths, caller-provided IDs, overwrite, automatic
+cleanup, and CLI mutation remain unreachable. Results report only observed
+unlink progress and same-volume capacity change; neither proves secure erase,
+causal attribution, or reclaimed bytes. See the
+[purge contract](docs/PURGE.md).
 
 Manifest diffing remains Core-only. The CLI target contains an internal,
 one-way manifest-review JSON v2 encoder pinned to Core manifest contract
@@ -170,11 +189,12 @@ Current semantic contracts are explainable classification revision 3, cleanup
 manifest version 3, manifest diff version 2, approval version 2, and
 revalidation version 2. Quarantine authorization and the internal process-local
 quarantine execution report are contract version 1 and version 2 respectively.
-Restore authorization and its internal report are contract version 1. The
-private quarantine and restore intent/receipt wire records are version 1. CLI
-scan JSON remains version 2; classification JSON is version 2, and the internal
-manifest-review JSON is version 2 over source manifest version 3. The built-in
-catalog is version 6, with npm at rule revision 5.
+Restore authorization and its internal report are contract version 1. Purge
+authorization, purge intent/receipt records, and the bounded purge report are
+version 1. The private quarantine and restore intent/receipt wire records are
+also version 1. CLI scan JSON remains version 2; classification JSON is version
+2, and the internal manifest-review JSON is version 2 over source manifest
+version 3. The built-in catalog is version 6, with npm at rule revision 5.
 
 The app and CLI share the same core behavior. There will be no separate,
 less-safe cleanup implementation hidden in either frontend.
@@ -195,16 +215,22 @@ grant standalone mutation authority. A wall-clock TTL is not freshness. See the
 
 Scanning, classification, planning, every CLI command, and the public
 DevSiftCore API remain read-only. The source-run app's package-scoped npm
-workflow is the sole mutation surface. It performs no deletion: quarantine uses
-one non-overwriting same-volume rename into `.devsift-quarantine-v1`, while a
-separately confirmed manual restore can use one non-overwriting reverse rename
-for the exact receipt-bound item. Each mutation publishes its own canonical
-immutable intent first, requires the specified `F_FULLFSYNC` record and
-namespace barriers, and records a terminal receipt only for conclusive state.
-Explicit recovery observes receipt-less intents and may complete a provable
-receipt, but never retries a rename. Same-volume quarantine deallocates no file
-data and therefore guarantees exactly 0 B of freed capacity. Purge and permanent
-removal remain absent.
+workflow is the sole mutation surface. Quarantine uses one non-overwriting
+same-volume rename into `.devsift-quarantine-v1`, while a separately confirmed
+manual restore can use one non-overwriting reverse rename for the exact
+receipt-bound item. Permanent deletion is a third, independently confirmed
+operation: it can target only that exact receipt-bound quarantine item, stages
+it under an internal managed name, and performs bounded descriptor-relative
+unlink operations. It never targets the active `_cacache`. Every initial
+mutation publishes its own canonical immutable intent first; explicit purge
+retry reuses its existing intent and staged work name without a second rename.
+All paths require the specified `F_FULLFSYNC` record and namespace barriers and
+record a terminal receipt only for conclusive state. Explicit recovery observes
+receipt-less intents and may complete a provable receipt, but never retries a
+rename or deletion. Same-volume
+quarantine deallocates no file data and therefore guarantees exactly 0 B of
+freed capacity. Purge capacity reporting is observational and may be zero,
+negative, or unavailable.
 
 Read the full [rules contract](docs/RULES.md),
 [planning contract](docs/PLANNING.md), [revalidation contract](docs/REVALIDATION.md),
@@ -212,6 +238,7 @@ Read the full [rules contract](docs/RULES.md),
 [quarantine contract](docs/QUARANTINE.md),
 [durability contract](docs/DURABILITY.md),
 [manual restore contract](docs/RESTORE.md),
+[purge contract](docs/PURGE.md),
 [activity safety contract](docs/ACTIVITY.md), [safety model](docs/SAFETY.md),
 and [privacy contract](docs/PRIVACY.md).
 
@@ -235,10 +262,11 @@ swift run devsift classify --json .
 swift run DevSiftApp
 ```
 
-### Try the Phase 9 source build
+### Try the Phase 10 source build
 
-This is a pre-alpha workflow that performs a real rename if every confirmation
-is completed. On macOS 26 or newer:
+This is a pre-alpha workflow that can perform a real rename and permanent
+deletion if every corresponding confirmation is completed. On macOS 26 or
+newer:
 
 1. Stop npm work that may use the cache.
 2. Run `swift run DevSiftApp`, choose `Select Folder…`, and select the current
@@ -251,17 +279,25 @@ is completed. On macOS 26 or newer:
 5. To inspect or undo that move, choose `Recovery…`, then
    `Load and Reconcile`. A ready receipt can be restored only after all three
    restore confirmations.
+6. To delete it instead, choose `Permanently Delete…`, read the exact
+   Core-required statement, select all four independent risk acknowledgements,
+   then choose `Permanently Delete`. This is the irreversible step.
+7. If a staged deletion stops partway, refresh the inventory and use
+   `Continue Deletion…`. The retry has its own statement and again requires all
+   four acknowledgements; it never silently resumes.
 
-Quarantine is a recoverable same-volume move. It frees exactly 0 B; permanent
-purge and real storage reclamation are not implemented yet.
+Quarantine is a recoverable same-volume move and frees exactly 0 B. Permanent
+deletion removes names only from the exact receipt-bound staged tree; it is not
+secure erase. The displayed capacity change is an observation and may be zero
+or unavailable, not a guarantee that DevSift reclaimed that amount.
 
 DevSiftCore contains a read-only allocated-size scanner, rule classifier,
 Core-only draft-manifest planner, fail-closed manifest differ, in-memory
 approval sessions, a read-only approval revalidator, a Core-only in-memory
 quarantine-attempt authorizer, and an internal npm-only atomic quarantine
 kernel with durable journal and recovery components, plus an internal
-single-item manual npm restore workflow and package-scoped app facades. The CLI
-exposes the scanner and classifier as
+single-item manual npm restore workflow, a receipt-bound purge executor, and
+package-scoped app facades. The CLI exposes the scanner and classifier as
 deterministic text and separately versioned JSON. It also owns an internal,
 non-importable review projection for privacy-contract testing; this is not a
 CLI command or file-export feature. The native app invokes the same Core
@@ -273,14 +309,16 @@ inactivity claim. For the exact npm cache at the current non-root account's
 passwd-home, that same source-run app can retain the Core review authority,
 require the two separate confirmation gates, perform a durable quarantine on
 macOS 26 or newer, and explicitly load a reconciled inventory for one-at-a-time
-restore. See the
+restore or separately confirmed permanent deletion. See the
 [app contract](docs/APP.md),
 [CLI contract](docs/CLI.md), [scanning contract](docs/SCANNING.md),
 [rules contract](docs/RULES.md), [planning contract](docs/PLANNING.md),
 [authorization contract](docs/AUTHORIZATION.md), and
 [quarantine contract](docs/QUARANTINE.md), plus the
 [durability contract](docs/DURABILITY.md) and
-[manual restore contract](docs/RESTORE.md).
+[manual restore contract](docs/RESTORE.md), and the
+[purge contract](docs/PURGE.md). The completed Phase 10 acceptance record is the
+[focused purge security and privacy review](docs/PURGE_SECURITY_REVIEW.md).
 
 Development uses small Conventional Commits. Every code commit must build and
 pass tests before it is pushed. Filesystem tests operate only inside temporary,
@@ -301,27 +339,30 @@ is source-only. See the [release contract](docs/RELEASE.md) and the historical
 
 ## Project status
 
-- Current phase: Phase 9 implemented. The source-run native app can move one
+- Current phase: Phase 10 implemented. The source-run native app can move one
   explicitly reviewed npm cache at the current non-root account's passwd-home
   `~/.npm/_cacache` into durable same-volume quarantine on macOS 26 or newer
   after two confirmation gates, explicitly reconcile and load a bounded
   recovery inventory, and separately confirm one receipt-bound non-overwriting
-  restore. The CLI and public Core API remain read-only
+  restore or one receipt-bound permanent deletion. Interrupted deletion is
+  exposed only as a separately confirmed explicit retry. The CLI and public
+  Core API remain read-only
 - Current behavior: Core scanner, rule classifier, in-memory draft planner,
   compatible-manifest differ, approver, revalidator, and quarantine-attempt
   authorizer, plus the existing text/JSON CLI and native analysis dashboard
   with explicit in-memory draft review of pending execution conditions; no
   manifest-review CLI command, persistence, import, or user-facing export. The
-  app alone reaches the package-scoped quarantine and recovery/restore facades;
-  there is no CLI or public Core mutation API, purge, deletion, retention,
-  batch operation, custom-path mutation, automatic restore, or automatic
-  app-launch recovery. Quarantine guarantees 0 B of freed capacity
+  app alone reaches the package-scoped quarantine, recovery/restore, and purge
+  facades; there is no CLI or public Core mutation API, retention, batch
+  operation, custom-path mutation, active-cache deletion, automatic restore,
+  automatic purge, or automatic app-launch recovery. Quarantine guarantees 0 B
+  of freed capacity; purge reports only an observational capacity change
 - Distribution status: the `v0.3.0-alpha.1` source tag exists, but no GitHub
   Release or downloadable assets were published; the native app remains
   source-only
 - Supported platform target: macOS 14 or newer for scanning and read-only
-  surfaces; app quarantine and restore require macOS 26 or newer and fail closed
-  before mutation on older systems
+  surfaces; app quarantine, restore, and purge require macOS 26 or newer and
+  fail closed before mutation on older systems
 - Implementation language: Swift 6
 
 See [CHANGELOG.md](CHANGELOG.md) for changes and

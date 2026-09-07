@@ -8,11 +8,12 @@ also use package-scoped Core workflows to durably quarantine one exact npm cache
 at the current non-root account's passwd-home `~/.npm/_cacache` after explicit
 review and two confirmation gates, explicitly reconcile and load a bounded
 recovery inventory, and separately confirm a receipt-bound, non-overwriting
-restore.
+restore or a receipt-bound permanent deletion. An interrupted deletion is
+exposed only as a separately confirmed explicit retry.
 
 The app has no manifest persistence, import, export, or diff action. It has no
-purge, permanent deletion, retention, background cleanup, batch operation,
-custom-path mutation, network, or telemetry feature. It never invokes recovery
+retention, background cleanup, batch operation, custom-path or active-cache
+mutation, network, or telemetry feature. It never invokes recovery or deletion
 automatically on launch. The low-level journal, descriptor scopes, transaction
 identifiers, and execution claims remain behind Core's package boundary, and
 the CLI and public Core API remain read-only.
@@ -26,6 +27,7 @@ swift run DevSiftApp
 The current Swift Package product is an unsigned development executable, not a
 distributed `.app` bundle. Scanning and review are available on macOS 14 or
 newer; every quarantine or restore mutation requires macOS 26 or newer.
+Purge uses the same minimum platform and fails before mutation on older systems.
 
 ## Explicit scope
 
@@ -76,6 +78,8 @@ review --explicit review + stopped-risk confirmation--> final confirmation
 final confirmation --confirm--> executing --> quarantine result
 any stable state --explicit recovery action--> reconcile/load --> inventory
 inventory --select one ready receipt + confirm--> restoring --> restore result
+inventory --select one ready receipt + four acknowledgements--> purging --> purge result
+inventory --select staged remainder + new four acknowledgements--> retrying purge --> purge result
 ```
 
 Core does not expose a known total or progress callback, so scanning and policy
@@ -213,7 +217,7 @@ See the [authorization contract](AUTHORIZATION.md),
 [quarantine execution contract](QUARANTINE.md), and
 [durability contract](DURABILITY.md).
 
-## Implemented Phase 9 transaction contract
+## Implemented Phase 9 and Phase 10 transaction contract
 
 Status: implemented for the source-run native app. The distributed CLI archive
 and public DevSiftCore API have no mutation surface.
@@ -223,7 +227,7 @@ The native mutation workflow is restricted to one exact npm
 passwd-home `~/.npm`. The app reaches it only through a package-scoped
 DevSiftCore facade;
 the low-level executor, descriptor-held scopes, journal codecs, recovery engine,
-and restore claims remain unavailable to the app and to public library
+restore and purge claims remain unavailable to the app and to public library
 clients. The CLI remains read-only.
 
 Draft preparation retains the exact Core-issued approval review session in
@@ -251,22 +255,25 @@ transaction complete.
 
 Recovery is never an app-launch side effect. The initial inventory load and a
 manual refresh require an explicit user action. Core also runs locked recovery
-as a fail-closed prerequisite during quarantine transaction admission, restore
-preparation, and restore transaction admission. When a restore execution
-returns to the still-current, uncancelled view-model operation, that view model performs one fresh
-reconciliation and inventory refresh while preserving the bounded result.
-Dismissal, cancellation, or a superseding operation suppresses stale UI
-publication and can prevent or cancel that follow-up refresh. Each inventory
-load runs fixed-npm recovery, journal reread, validation, and bounded projection
-under the same validated exclusive lock. Inventory rows originate only from canonical durable
-quarantine receipts that have not been restored and carry opaque process-local
-action references rather than frontend-provided paths, quarantine names, record
-bytes, or transaction identifiers. Malformed or unresolved journal state, an
-unsafe trusted parent, or aggregate resource exhaustion rejects the complete
-load instead of returning a partial list. Source readiness distinguishes a clear
-original name, the previously expected object, and another occupant. Item
-readiness preserves missing, changed, unsafe, and per-item over-bound contents as
-visible non-restorable rows rather than hiding them.
+as a fail-closed prerequisite during restore preparation and quarantine,
+restore, or purge mutation admission. After a restore or purge execution
+begins, the view model performs one fresh detached reconciliation
+and inventory refresh regardless of the execution result or late task
+cancellation. Dismissal or a superseding operation may suppress stale UI
+publication, but it does not skip that reconciliation. Each inventory load runs
+fixed-npm recovery, journal reread, validation, and bounded projection under the
+same validated exclusive lock. Inventory rows originate only from canonical
+durable quarantine receipts with no successful restore or terminal item-absent
+purge and carry opaque process-local action references rather than frontend-
+provided paths, quarantine names, record bytes, or transaction identifiers. A
+separately typed row represents an exact, safely validated and synchronized
+staged purge remainder.
+Malformed or unresolved journal state, an unsafe trusted parent, or aggregate
+resource exhaustion rejects the complete load instead of returning a partial
+list. Source readiness distinguishes a clear original name, the previously
+expected object, and another occupant. Item readiness preserves missing,
+changed, unsafe, and per-item over-bound contents as visible disabled rows
+rather than hiding them.
 
 One ready receipt-bound inventory row can start a separate explicit manual
 restore. The restore confirmation identifies the fixed original name and exact
@@ -277,16 +284,29 @@ presentation state. Core reopens and revalidates the fixed roots, journal pair,
 exact item, complete tree, and destination absence before its one non-
 overwriting reverse rename.
 
+One purge-ready row can instead start a separate permanent-deletion attempt.
+Initial purge and explicit retry display different exact Core-required
+statements. Both require four independent acknowledgements covering permanent
+deletion and the lack of secure erase, restore cutoff and possible partial
+deletion, stopped npm/other work plus unobserved activity and same-account
+races, and observational capacity limits. Restore, initial purge, and retry are
+mutually exclusive. The app retains only opaque handles; Core derives the exact
+journal records and managed names, consumes one authority once, and never
+accepts the active `_cacache` or an arbitrary path. A partial pass produces a
+fresh retry row only after safe validation and successful synchronization;
+otherwise it produces a manual-recovery result. It never resumes without a new
+confirmation.
+
 Quarantine is a same-volume rename into `.devsift-quarantine-v1`; it deallocates
 no data and guarantees exactly 0 B of freed capacity. The UI labels displayed
-bytes as observed allocation, not reclaimed capacity. Phase 9 adds no purge,
-permanent deletion, retention policy, batch or background cleanup, custom path,
-non-npm mutation, launch-time or unattended recovery or restore, CLI or public-
-Core mutation, networking, telemetry, distributed application bundle, signing,
-notarization, installer, or updater. The bounded post-attempt inventory refresh
-described above is the only recovery follow-up scheduled by the UI; mandatory
-quarantine admission, restore preparation, and restore admission still perform
-locked recovery inside explicitly initiated operations.
+bytes as observed allocation, not reclaimed capacity. Phase 10 purge reports a
+same-volume available-capacity change only as an observation; zero, negative,
+or unavailable is valid and does not prove secure erasure or causal reclamation.
+The app still adds no retention policy, batch or background cleanup, custom
+path, non-npm mutation, launch-time or unattended recovery/restore/purge, CLI
+or public-Core mutation, networking, telemetry, distributed application bundle,
+signing, notarization, installer, or updater. Mandatory mutation-admission and
+restore-preparation recovery remains inside explicitly initiated operations.
 
 ## Observation and policy language
 
@@ -370,12 +390,18 @@ late cancellation, and guaranteed freed capacity of 0 B. Recovery and restore
 tests use only synthetic journal fixtures and cover explicit (never launch-time)
 reconciliation, atomic inventory rejection, deterministic receipt-bound rows,
 honest source/item readiness, opaque-reference isolation, exact restore
-confirmation, single use, and non-overwriting outcomes.
+confirmation, single use, and non-overwriting outcomes. Purge tests additionally
+cover separate initial/retry statements, all four acknowledgements, stale and
+cross-attempt handles, single-use execution, mandatory post-attempt refresh,
+late cancellation, partial deletion, active-cache preservation, bounded
+capacity wording, and real descriptor-relative unlink over synthetic fixtures.
 
 The optional native snapshot harness renders representative empty, scanning,
 classifying, complete, partial, policy, selection, and draft-review states. It
 also renders light and dark npm quarantine review/results, recovery inventory,
-restore confirmation, and restore results without scanning a real directory:
+restore confirmation/results, purge inventory, initial/retry purge
+confirmations, minimum-window purge layout, and purge results without scanning
+a real directory:
 
 ```shell
 env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots \
@@ -384,5 +410,6 @@ env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots \
 
 The Swift Package does not yet define an Xcode UI-testing bundle. Keyboard and
 VoiceOver interaction for scanning, confirmations, quarantine, recovery
-inventory, and restore remains a local manual acceptance check; build and value-
-based behavior are the CI gate.
+inventory, restore, and purge remains a local manual acceptance check; build,
+synthetic transaction tests, value-based behavior, and native snapshots are the
+automated gate.

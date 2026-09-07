@@ -1,20 +1,22 @@
 # Receipt-bound quarantine purge contract
 
-Status: planned for Phase 10. No purge executor, recursive unlink, purge
-authorization, purge journal record, purge volume-capacity observer, or app
-purge action is implemented in the current build. This document defines the
-boundary that must be satisfied before permanent deletion can become reachable.
+Status: implemented in the source-run Phase 10 app on macOS 26 or newer. The
+app now exposes separately confirmed initial purge and explicit-retry actions;
+Core provides the single-use authority, canonical journal records,
+descriptor-relative bounded unlink engine, recovery/terminalization, and
+observational same-volume capacity result described here. There is still no
+signed, notarized, or downloadable app artifact.
 
 This contract extends the existing
 [quarantine durability contract](DURABILITY.md) and
 [manual restore contract](RESTORE.md). It does not broaden quarantine or restore
-authorization. The only prospective purge target is the current contents of one
+authorization. The only purge target is the current contents of one
 exact npm quarantine item selected from a canonical durable quarantine receipt
 through an opaque, process-local inventory reference.
 
 ## Scope and exact milestone
 
-Phase 10 may:
+The implemented Phase 10 source build can:
 
 - explicitly load and reconcile the fixed npm quarantine inventory;
 - select one exact item whose canonical quarantine intent and matching final
@@ -25,7 +27,9 @@ Phase 10 may:
 - atomically stage the exact selected item under one intent-bound purge-work
   name before recursive deletion begins;
 - delete only the staged work tree with bounded descriptor-relative operations;
-- preserve interrupted work for a separately confirmed explicit retry;
+- preserve a safely validated and synchronized interrupted remainder for a
+  separately confirmed explicit retry, while routing unsafe or
+  durability-unresolved state to manual recovery;
 - publish an immutable terminal purge receipt only after current namespace
   truth is conclusive; and
 - report the observed change in available capacity on the same held volume.
@@ -86,7 +90,7 @@ authority over that name. A state in which the historical expected object is
 observed at both its quarantine item name and another managed location is
 ambiguous and blocks.
 
-A future app facade may receive only a bounded presentation and an opaque,
+The app facade receives only a bounded presentation and an opaque,
 process-local reference tied to the exact inventory session. Core must resolve
 that reference to the canonical record bytes, reread and revalidate those bytes,
 and derive all path components and bindings internally. A stale or foreign
@@ -165,7 +169,7 @@ preserve the required per-entry validation, bounds, ordering, and reporting.
 
 ## Managed namespace and record families
 
-The planned Phase 10 namespace reserves these exact managed names beneath the
+The Phase 10 namespace reserves these exact managed names beneath the
 fixed private quarantine root, where `ID` is 32 lowercase hexadecimal digits:
 
 ```text
@@ -180,9 +184,10 @@ fixed private quarantine root, where `ID` is 32 lowercase hexadecimal digits:
 The purge-work name is not a record. It is the exact receipt-bound directory
 after the staging rename. It is derived inside Core from the fresh purge
 transaction identifier, is validated as one raw component, and is never
-caller-selected or reused.
+caller-selected or reused for a different purge transaction. An explicit retry
+retains the same intent-bound work name.
 
-Any future purge record must be a canonical immutable version-1 record published
+Each purge record is a canonical immutable version-1 record published
 through exclusive staged creation, complete bounded writes, metadata and named-
 binding validation, `F_FULLFSYNC`, exclusive beneath-root rename, quarantine-
 root `F_FULLFSYNC`, final byte revalidation, and a final record-descriptor
@@ -237,7 +242,7 @@ explicit retry or manual recovery.
 
 ## Mixed inventory and admission bounds
 
-Future quarantine, restore, and purge record handling must share one validated
+Quarantine, restore, and purge record handling shares one validated
 exclusive lock and one aggregate managed namespace. The inventory must pair
 every record, stage, item, and purge-work name before it exposes any row or
 admits any mutation. It must reject orphan, duplicate, conflicting, unsafe,
@@ -249,35 +254,48 @@ successfully removed. Checked capacity arithmetic reserves the larger of every
 reachable name combination. In particular, it accounts for the purge intent,
 work name, receipt stage or final record, and a possible unrelated object that
 recreates the original item name. Completed journal records remain immutable;
-Phase 10 performs no record retention, compaction, migration, or unlink.
+Phase 10 performs no record retention, compaction, or migration and never
+unlinks a completed journal record.
 
 ## Initial preflight and staging order
 
-The initial attempt uses this order:
+Inventory, preparation, and execution are separate lifecycle stages. Inventory
+and execution own distinct journal-lock lifetimes, preparation is lock-free,
+and an opaque reference never carries a live lock between them. The initial
+attempt uses this order:
 
-1. Hold the validated nonblocking exclusive journal lock and reconcile and
-   validate the complete mixed inventory without retrying any mutation.
-2. Verify macOS 26-or-newer support for the required rename flags, with no
-   fallback. Then resolve the opaque reference to its exact canonical
-   quarantine pair; reopen and hold the fixed account root, npm root,
-   quarantine root, records, and selected item; validate current eligibility
-   and capacity and perform the first complete canonical-tree traversal.
-3. Observe available capacity from the held volume. Failure or overflow before
+1. The explicit inventory load acquires the validated nonblocking exclusive
+   journal lock, runs recovery, validates the complete mixed inventory without
+   retrying any mutation, projects an opaque reference, and releases the lock.
+2. Preparation resolves that process-local reference to retained canonical
+   evidence and performs descriptor-held record, root, and tree revalidation
+   without holding the journal lock. It publishes no record and performs no
+   namespace mutation before issuing the confirmation session.
+3. After a matching authorization is consumed, the executor acquires a new
+   validated nonblocking exclusive journal lock. While holding it, the executor
+   repeats recovery, complete mixed-inventory validation, admission, and exact
+   evidence rebinding. It retains that lock through intent publication,
+   staging, bounded unlink, reconciliation, and terminalization.
+4. Verify macOS 26-or-newer support for the required rename flags, with no
+   fallback. Reopen and hold the fixed account root, npm root, quarantine root,
+   records, and selected item; validate current eligibility and capacity and
+   perform the first complete canonical-tree traversal.
+5. Observe available capacity from the held volume. Failure or overflow before
    the intent exists rejects the attempt without mutation.
-4. Publish and fully synchronize the immutable purge intent.
-5. Because publication changes quarantine-root metadata, take fresh parent
+6. Publish and fully synchronize the immutable purge intent.
+7. Because publication changes quarantine-root metadata, take fresh parent
    snapshots and repeat containment, identity, ownership, device, permissions,
    flags, ACL, record, selected-item, complete-tree, purge-policy, and work-name
    absence checks. After the final test hook and cancellation check, the staging
    rename is the next filesystem syscall.
-6. Invoke at most one quarantine-root-descriptor-relative rename from the exact
+8. Invoke at most one quarantine-root-descriptor-relative rename from the exact
    `item-v1-*` name to the exact purge-work name using `RENAME_EXCL`,
    `RENAME_NOFOLLOW_ANY`, and `RENAME_RESOLVE_BENEATH`.
-7. Reconcile both names despite late cancellation. Before the first unlink,
+9. Reconcile both names despite late cancellation. Before the first unlink,
    require the exact expected object at the work name, validate the parent
    bindings, apply `F_FULLFSYNC` to the quarantine root, and revalidate the
    synchronized named work binding.
-8. Only then may the bounded recursive deletion engine enter the work tree.
+10. Only then may the bounded recursive deletion engine enter the work tree.
 
 Failure before a durable intent performs no purge mutation. A conclusive failed
 staging attempt can publish `not-purged`. An indeterminate rename, failed parent
@@ -350,8 +368,8 @@ another object:
 | Current `Q` | Current `W` | Recovery result |
 | --- | --- | --- |
 | `expected` | missing | After full validation and synchronization, publish recovered `not-purged`; restore can become available through a fresh inventory. |
-| missing | `expected` | Preserve the complete or partial work tree and report explicit purge retry required; restore remains unavailable. |
-| another object | `expected` | Preserve the recreated `Q`; expose only the exact work tree for explicit retry; restore remains unavailable. |
+| missing | `expected` | After remainder validation and successful synchronization, preserve the complete or partial work tree and report explicit purge retry required; otherwise require manual recovery. Restore remains unavailable. |
+| another object | `expected` | Preserve the recreated `Q`; after remainder validation and successful synchronization, expose only the exact work tree for explicit retry; otherwise require manual recovery. Restore remains unavailable. |
 | missing | missing | Synchronize and publish recovered `item-absent` with observational wording. |
 | another object | missing | Preserve the unrelated `Q`, synchronize, and publish recovered `item-absent` for the selected expected object. |
 | `expected` | `expected` | Ambiguous; preserve both observations and require manual recovery. |
@@ -439,14 +457,16 @@ freed or reclaimed bytes.
 An in-process execution report may distinguish observed staging with no unlink
 yet from one or more unlinks observed during that same call. No durable progress
 marker or complete original-entry manifest exists, so a later process or
-recovery pass must combine both as `staged-or-partially-purged`, requiring
-explicit retry. Process-local execution and recovery reports otherwise
-distinguish at least:
+recovery pass must combine both as `staged-or-partially-purged`. That state
+becomes explicit retry only after the exact remainder is safely validated and
+successfully synchronized; otherwise it requires manual recovery. Process-local
+execution and recovery reports otherwise distinguish at least:
 
 - no mutation before a durable intent;
 - staging not committed with a terminal `not-purged` receipt;
-- staged-or-partially-purged work requiring explicit retry, with finer progress
-  wording only when observed inside the current execution call;
+- safely validated and synchronized staged-or-partially-purged work requiring
+  explicit retry, with finer progress wording only when observed inside the
+  current execution call;
 - item absence with a terminal receipt;
 - cancellation before and after individual irreversible boundaries;
 - unsafe, changed, busy, unsupported, over-bound, unavailable, durability, and
@@ -507,16 +527,17 @@ must cover:
   preservation, terminal receipt publication, and permanent restore refusal
   after staging;
 - capacity-observer unavailable and overflow paths, increase, unchanged, and
-  decrease results, APFS clone/snapshot uncertainty, delayed release, and
-  cross-process provenance without causal wording;
+  decrease results, plus cross-process provenance without causal wording;
+- presentation disclosure covering APFS snapshots or clones, backups, open
+  file descriptors, and storage-device data or block retention;
 - package-scoped app confirmation, accessibility, cancellation, dismissal,
   stale-result suppression, and bounded presentation; and
 - source-visibility and CLI negative tests proving that no public, arbitrary,
   automatic, batch, or command-line deletion path exists.
 
-A focused irreversible-deletion filesystem-security and privacy review must
-assess the same-UID limitation and record its disposition. The app action must
-remain unreachable unless that residual risk is explicitly accepted and every
-priority-zero and priority-one finding is closed. Strict formatting, manifest
-validation, debug and release builds, the complete parallel test suite, and
-`git diff --check` must also pass.
+The completed
+[focused irreversible-deletion security and privacy review](PURGE_SECURITY_REVIEW.md)
+records acceptance of the disclosed same-UID limitation for this narrow manual
+boundary and confirms that no priority-zero or priority-one finding remains.
+Strict formatting, manifest validation, debug and release builds, the complete
+parallel test suite, and `git diff --check` remain release gates.

@@ -7,11 +7,11 @@ source-run DevSift app ---> DevSiftCore <--- devsift CLI (read-only)
         |                      |
         +-> scan -> rules -> plan -> review/approve
                                |
-                               +-> package-scoped npm quarantine facade
+                               +-> package-scoped npm transaction facades
                                       |          |
                                durable move   explicit reconcile/inventory
                                                      |
-                                             receipt-bound restore
+                                      receipt-bound restore or purge/retry
 
 public DevSiftCore API: read-only analysis/review/authorization values;
 mutation executors, journal records, and raw transaction selectors stay hidden.
@@ -65,7 +65,7 @@ Core layers are:
   reject before namespace mutation because the safety boundary requires
   `RENAME_RESOLVE_BENEATH`;
 - **Durability and recovery:** a private canonical intent/receipt journal that
-  serializes cooperating quarantine and restore attempts, applies required
+  serializes cooperating quarantine, restore, and purge attempts, applies required
   `F_FULLFSYNC` record and namespace barriers, and reconciles receipt-less
   intents from current descriptor-bound namespace truth without retrying a
   rename, overwriting, or deleting. Recovery is never wired to app launch. A
@@ -81,33 +81,43 @@ Core layers are:
   package-scoped opaque references, readiness, exact confirmation text, and
   bounded results. The app-local adapter briefly holds the package authorization
   before passing it back to Core; the internal claim remains Core-only;
+- **Permanent deletion:** a distinct npm-only inventory selector, confirmation,
+  single-use authorization, descriptor preflight, durable staging transaction,
+  bounded unlink engine, terminalizer, and explicit-retry path. Initial purge
+  can target only one exact canonical quarantine receipt. Retry can target only
+  its existing intent-bound staged remainder and creates neither a second intent
+  nor a staging rename. The active `_cacache`, arbitrary paths, and raw journal
+  selectors never cross the package facade;
 - **Reporting:** structured outcomes without frontend-specific rendering.
 
 Current Core semantic versions are explainable classification revision 3,
 cleanup manifest version 3, manifest diff version 2, approval version 2, and
 revalidation version 2. Quarantine authorization and its internal execution
 report are contract version 1 and version 2 respectively. Restore authorization
-and its internal report are contract version 1. Private quarantine and restore
-intent/receipt wire records are version 1. The
-built-in catalog is version 6 and npm is rule revision 5. Older manifests and
-approvals are regenerated rather than migrated.
+and its internal report are contract version 1. Purge authorization, purge
+intent/receipt records, and its bounded report are version 1. Private quarantine
+and restore intent/receipt wire records are also version 1. The built-in catalog
+is version 6 and npm is rule revision 5. Older manifests and approvals are
+regenerated rather than migrated.
 
-The mutation architecture intentionally contains no purge, permanent deletion,
-storage-reclaim, retention, batch or background executor, custom-root or non-npm
+The mutation architecture intentionally contains no general storage-reclaim,
+retention, batch or background executor, custom-root, active-cache, or non-npm
 executor, network, telemetry, or privilege-escalation component. The app remains
-source-run rather than distributed. Core runs locked recovery during quarantine
-transaction admission, restore preparation, and restore transaction admission,
-and during an explicit inventory load or refresh. A restore execution that returns
-to the still-current, uncancelled view-model operation schedules one follow-up
-refresh; dismissal, cancellation, or superseding work can prevent or cancel it
-and suppresses stale UI publication. Recovery never runs merely because the app
-launched or as periodic or background work.
+source-run rather than distributed. Core runs locked recovery during restore
+preparation, quarantine/restore/purge mutation admission, and an explicit
+inventory load or refresh. After a restore or purge execution begins, the app
+schedules one fresh reconciliation regardless of success, failure, or late
+cancellation;
+stale UI publication is still suppressed after dismissal or superseding work.
+Recovery never runs merely because the app launched or as periodic or
+background work.
 
-Phase 10's prospective irreversible boundary is specified separately in the
+Phase 10's implemented irreversible boundary is specified separately in the
 [receipt-bound quarantine purge contract](PURGE.md). That contract requires a
 durable intent, an atomic move of the selected receipt-bound item to a dedicated
-work name, and only then bounded descriptor-relative unlink. It defines no
-capability in the current architecture.
+work name, and only then bounded descriptor-relative unlink. The source-run app
+reaches it only through four independent risk acknowledgements, the exact
+attempt-specific statement, and a fresh single-use authority.
 
 ### devsift CLI
 
@@ -296,9 +306,27 @@ a receipt from namespace truth but never invokes the rename. These low-level
 types and entry points remain internal and non-`Codable`. The app can reach only
 a package-scoped facade that explicitly reconciles and validates the complete
 bounded inventory, issues opaque process-local item references, and projects
-honest restore readiness and bounded outcomes. The CLI and public library
-clients cannot reach either mutation path. See the
-[manual restore contract](RESTORE.md).
+honest restore readiness and bounded outcomes.
+
+Permanent deletion is a third, mutually separate internal authority chain. Its
+package-scoped workflow resolves only an opaque reference from that complete
+inventory, creates either a fresh initial-purge attempt or a fresh explicit
+retry for one existing staged remainder, and obtains a distinct single-use
+purge authorization. The internal executor durably records the initial intent,
+atomically stages the receipt-bound item under an intent-bound work name, and
+performs bounded descriptor-relative unlink only inside that staged tree.
+Recovery may finish a conclusive receipt or expose a safely validated and
+synchronized remainder for explicit retry; unsafe or durability-unresolved
+state requires manual recovery. Recovery never automatically resumes unlink.
+The active `_cacache` name is not a purge target. Package facades project the
+fixed responsible tool, fixed original name, attempt kind, exact statement,
+opaque process-local handles, and bounded readiness, counts, outcomes, and
+observational same-volume capacity change. The app itself adds the static
+data-remanence disclosure and holds the four local acknowledgement states. No
+app projection contains a raw path, record bytes, transaction identifier,
+filesystem identity, or internal execution claim. The CLI and public library
+clients cannot reach any of the three mutation paths. See the
+[manual restore contract](RESTORE.md) and [purge contract](PURGE.md).
 
 The internal manifest-review projection always removes root and candidate
 filesystem identities and has no dedicated absolute-root field. Its redacted
@@ -412,7 +440,8 @@ pending condition, not observed inactivity.
 Scan-time `(device, inode)` values are read-only observation-binding tokens,
 not persistent object identities or deletion authority. Copying them into a
 draft manifest does not establish trusted location, ownership, approval, or
-cleanup authority. The internal quarantine and restore executors therefore
+cleanup authority. The internal quarantine, restore, and purge executors
+therefore
 revalidate containment, kind, identity, and policy evidence immediately before
 their respective mutations.
 Any observer added for the remaining facts must preserve descriptor-relative

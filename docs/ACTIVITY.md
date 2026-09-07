@@ -18,7 +18,10 @@ an advisory lock. Runtime npm activity remains literally
 `unknown(.notCollected)`.
 
 DevSift has selected policy option 2 below only for recoverable npm quarantine
-attempts. When every non-deferred npm finding is satisfied, the
+attempts. The separately authorized purge path preserves activity as unknown
+and requires a fresh acknowledgement of the unobserved-activity and same-
+account race risk; it does not reuse this quarantine attestation. When every
+non-deferred npm finding is satisfied, the
 classifier applies
 `RuleActivityRequirement.mustBeInactiveOrDeferToAttestationWhenUnobserved` and
 may return `matched` / `review-required` while preserving the unknown activity
@@ -217,10 +220,11 @@ and internal manifest-review JSON are version 2, with the latter pinned to
 source manifest version 3.
 
 Older manifests, approvals, and exports are regenerated rather than migrated;
-there is no import path. The executor, atomic quarantine kernel, journal, and
-recovery engine are internal. The source-run app reaches only package-scoped
-quarantine and receipt-bound recovery/restore facades. Purge, permanent
-deletion, public mutation API, CLI action, automatic app-launch recovery or
-restore, batch or custom-path operation, networking, telemetry, and a
-distributed app remain unimplemented. Same-volume quarantine guarantees exactly
-0 B of freed capacity.
+there is no import path. The quarantine, restore, and purge executors, journal,
+and recovery engine are internal. The source-run app reaches only package-
+scoped quarantine and receipt-bound recovery, restore, initial-purge, and
+explicit-retry facades. Public mutation API, CLI action, automatic app-launch
+recovery, restore, or purge, batch or custom-path operation, networking,
+telemetry, and a distributed app remain unimplemented. Same-volume quarantine
+guarantees exactly 0 B of freed capacity; purge reports only observational
+same-volume capacity change.

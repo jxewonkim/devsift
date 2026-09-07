@@ -5,7 +5,8 @@
 DevSift helps macOS developers and AI builders understand storage created by
 their tools and make narrowly scoped, reviewable decisions about it. It favors
 evidence and user control over opaque "one-click optimization." The current
-product has no permanent-removal or storage-reclaim feature.
+source-run app has one narrowly scoped receipt-bound npm permanent-deletion
+feature; it is not a general storage-reclaim tool.
 
 ## Target users
 
@@ -18,7 +19,8 @@ product has no permanent-removal or storage-reclaim feature.
 ## Core jobs
 
 The current pre-alpha implements jobs 1 through 4 for analysis and review, plus
-one narrow recoverable native transaction. It can recognize selected path
+one narrow recoverable native transaction and one explicit receipt-bound purge.
+It can recognize selected path
 shapes, explain why missing evidence keeps them protected, and build an
 immutable draft from explicitly selected eligible classifications.
 The app starts with zero included candidates and presents an identity-free
@@ -33,17 +35,23 @@ attempt. A Core-internal npm-only kernel can consume that authorization and
 atomically quarantine one exact `_cacache` behind a durable intent/receipt
 journal and recovery engine. A separate Core-internal workflow can explicitly
 confirm, authorize, and durably restore one exact receipt-bound quarantine item.
+Another separately authorized workflow can stage and permanently delete only
+that exact quarantined item with bounded descriptor-relative unlink, or
+continue one exact, safely validated and synchronized staged remainder after a
+new confirmation. Unsafe or durability-unresolved state requires manual
+recovery.
 The CLI target can internally project one draft into a privacy-profiled,
 review-only JSON schema, but no command or file export exposes it. The source-
 run app retains the Core-issued review session and, after explicit review plus
 stopped-risk and final-move confirmations, can quarantine one exact npm cache
 at the current non-root account's passwd-home `~/.npm/_cacache` on macOS 26 or
 newer. A separate explicit action loads reconciled bounded inventory and can
-confirm one
-receipt-bound, non-overwriting restore. The CLI and public Core API remain
-read-only. Automatic app-launch recovery and automatic restore are absent, and
-job 5 remains later product direction because same-volume quarantine guarantees
-0 B of freed capacity.
+confirm one receipt-bound, non-overwriting restore or permanent deletion. The
+CLI and public Core API remain read-only. Automatic app-launch recovery,
+automatic restore, and automatic purge are absent. The Phase 10 source build
+reports bounded purge outcomes and observational same-volume capacity change.
+Job 5 remains broader product direction because DevSift cannot report exact
+causal reclaimed bytes.
 
 1. Show where allocated storage is being consumed.
 2. Attribute known storage to a tool or workflow when evidence supports it.
@@ -118,10 +126,13 @@ The long-term workflow is:
 8. **Report** bounded outcomes; reserve completed for a durably recorded,
    crash-recoverable result.
 9. **Recover inventory** on an explicit initial load or refresh, reconciling
-   durable state before presenting it; refresh once when a restore execution
-   returns to the still-current, uncancelled view-model operation.
+   durable state before presenting it; refresh after every started restore or
+   purge execution even when the result is failure or late cancellation.
 10. **Restore** one ready receipt-bound item after a separate exact confirmation.
-11. **Purge** quarantined data only as a later, explicit action.
+11. **Purge** one ready receipt-bound item only after four independent risk
+    acknowledgements and the exact attempt-specific Core statement.
+12. **Retry explicitly** when a staged remainder exists; never resume deletion
+    automatically or reuse the initial confirmation.
 
 The planning layer uses in-memory Core manifest version 3, typed Core diff
 version 2, an internal CLI-owned review schema version 2 pinned to source
@@ -215,13 +226,17 @@ The remaining npm execution fact is activity. The capability review in the
 [activity safety contract](ACTIVITY.md) found no supported, unprivileged macOS
 primitive that can prove subtree-wide inactivity or prevent a new cache access
 between a check and an operation. The current product therefore leaves this
-fact unknown. The project has selected explicit caller-attested risk only for
-recoverable quarantine. Core now accepts that assertion for one exact
-authorization attempt without changing the observation. The source-run app
-collects the stopped-npm/unobserved-risk value independently from review and
-asks for a separate final move confirmation; it neither displays nor constructs
-the raw Core attestation request. A quiet-tree, empty-process snapshot, caller
-assertion, or authorization is never called inactivity evidence.
+fact unknown. The project uses distinct explicit caller-attested risk for
+recoverable quarantine and receipt-bound purge. Core binds each assertion to
+one exact authorization attempt without changing the observation. For
+quarantine, the source-run app collects the stopped-npm/unobserved-risk value
+independently from review and asks for a separate final move confirmation; it
+neither displays nor constructs the raw Core attestation request. Purge
+separately requires four independent acknowledgements in one confirmation flow,
+covering permanent deletion, the restore cutoff, unobserved activity and same-
+account races, and observational capacity change. A quiet-tree, empty-process
+snapshot, caller assertion, or authorization is never called inactivity
+evidence.
 
 ## Non-goals
 
@@ -237,11 +252,15 @@ No public Core or CLI cleanup operation exists. The source-run app's sole
 mutation surface is package-scoped and fixed to the current non-root account's
 exact passwd-home `~/.npm/_cacache`; it cannot supply arbitrary paths, roots,
 journal records, or transaction identifiers. Its explicit recovery inventory
-and single-item restore surface uses opaque receipt-bound references and never
-overwrites `_cacache`.
+and single-item restore surfaces use opaque receipt-bound references and never
+overwrites `_cacache`. Its separately confirmed purge surface accepts only the
+same opaque inventory references and never targets the active cache name.
 
-The internal npm kernels perform no permanent deletion. Purge, storage reclaim,
-retention, batch or background operation, custom-path mutation, network access,
-telemetry, automatic app-launch recovery or restore, and a distributed app all
-remain absent. Same-volume quarantine deallocates no file data and guarantees
-exactly 0 B of freed capacity. See the [manual restore contract](RESTORE.md).
+The internal npm purge kernel performs permanent deletion only beneath one
+exact receipt-bound staged work descriptor. General storage reclaim, retention,
+batch or background operation, custom-path or active-cache mutation, network
+access, telemetry, automatic app-launch recovery/restore/purge, and a
+distributed app all remain absent. Same-volume quarantine deallocates no file
+data and guarantees exactly 0 B of freed capacity; purge capacity change is
+observational and may be zero or unavailable. See the
+[manual restore contract](RESTORE.md) and [purge contract](PURGE.md).

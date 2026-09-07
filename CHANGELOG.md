@@ -17,33 +17,56 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   same-volume quarantine transaction on macOS 26 or newer.
 - An explicit recovery inventory workflow that reconciles, rereads, validates,
   and projects the fixed npm journal under one exclusive lock. It returns a
-  deterministic bounded set of unrestored canonical quarantine receipts with
-  honest source/item readiness and opaque process-local references. Malformed or
-  unresolved journal state, unsafe trusted parents, and aggregate resource
-  exhaustion fail atomically; item-level failures remain visible as non-
-  restorable rows.
+  deterministic bounded set of ordinary restore/initial-purge rows from
+  canonical quarantine receipts with no successful restore or terminal
+  item-absent purge, plus at most one separately typed staged-remainder retry
+  row. Every row carries an opaque
+  process-local reference. Malformed or unresolved journal state, unsafe
+  trusted parents, and aggregate resource exhaustion fail atomically; item-
+  level failures remain visible as unavailable rows.
 - A separately confirmed, receipt-bound single-item restore workflow for the
   source-run app. Core revalidates the canonical records, fixed roots, exact
   quarantined tree, and absent `_cacache` destination before one single-use,
   non-overwriting reverse rename.
+- A separately confirmed, receipt-bound permanent-deletion workflow for the
+  source-run app. It displays an exact initial or retry statement, requires four
+  independent acknowledgements including acceptance of that statement, and
+  then issues a single-use purge authority. Core durably records the initial
+  intent, atomically stages only the selected quarantine item, and performs
+  bounded descriptor-relative unlink. Only a safely validated and successfully
+  synchronized staged remainder is preserved for explicit retry; unsafe,
+  unavailable, or barrier-failed state requires manual recovery. A terminal
+  receipt is published only from conclusive namespace truth. The active
+  `_cacache` name is never a purge target.
 
 ### Changed
 
-- Phase 9 is implemented for the source-run native app. Initial inventory
-  loading remains explicit and never runs automatically at app launch. A
-  restore execution accepted by the still-current, uncancelled view-model
-  operation schedules one post-attempt reconciliation and refresh; stale or
-  cancelled UI work cannot publish it. Core also runs locked recovery during
-  quarantine transaction admission, restore preparation, and restore
-  transaction admission. The CLI and public DevSiftCore API remain read-only, and no public
-  binary archive is currently available.
+- Phase 10 is implemented for the source-run native app. Initial inventory
+  loading remains explicit and never runs automatically at app launch. Every
+  started restore or purge execution is followed by fresh reconciliation and
+  inventory refresh; stale or cancelled UI work cannot publish the result.
+  Core also runs locked recovery during mutation admission. The CLI and public
+  DevSiftCore API remain read-only, and no public binary archive is currently
+  available.
 - The package-scoped quarantine result now discards internal journal transaction
   identifiers before crossing into the app workflow. UI presentation and
   recovery inventory retain no transaction identifier.
-- Quarantine and restore add no purge, permanent deletion, storage reclamation,
-  retention, batch or background operation, custom-path mutation, network
-  access, telemetry, or distributed app. Same-volume quarantine deallocates no
-  data and guarantees exactly 0 B of freed capacity.
+- The focused Phase 10 security and privacy review records the same-account
+  name-replacement race as an explicitly acknowledged residual limitation and
+  closes all blocking and high-priority findings for the narrow source-run
+  boundary.
+- The permanent-deletion scope remains manual, single-item, npm-only, and bound
+  to canonical quarantine receipts. There is no automatic, launch-time,
+  background, batch, arbitrary-path, custom-root, active-cache, public-API, or
+  CLI deletion. Same-volume quarantine deallocates no data and guarantees
+  exactly 0 B of freed capacity; purge capacity change is observational and may
+  be zero or unavailable.
+- Descriptor preflight now tolerates unrelated child churn in trusted ancestor
+  directories while retaining exact binding, owner, mode, and flag checks on
+  those ancestors and strict validation of the npm, quarantine, and item roots.
+- Hardened synthetic journal fixtures now normalize and remove only their exact
+  UUID-scoped test trees without following symbolic links, preventing read-only
+  test directories from accumulating after successful runs.
 
 ## [0.3.0-alpha.1] - 2026-09-05
 

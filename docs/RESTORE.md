@@ -55,8 +55,10 @@ observations: it consumes the claim once, reacquires the journal lock, reopens
 the real account's exact passwd-home `~/.npm` root, and establishes every
 filesystem fact again while descriptors remain held. No public restore
 authorization, claim, executor, report, or inventory type is exposed. The
-package-scoped app facade projects only bounded readiness, opaque references,
-the exact confirmation statement, and bounded outcomes.
+package-scoped app facade projects only the fixed responsible tool, fixed
+original name, whether the quarantine receipt was produced by recovery,
+bounded readiness, opaque references, the exact confirmation statement, and
+bounded outcomes.
 
 ## Exact eligibility
 
@@ -78,9 +80,10 @@ true under one bounded, descriptor-held inventory pass:
    policy for identity, kind, ownership, device, safe permissions and flags,
    ACLs, link counts, cacache grammar, and traversal limits.
 6. The original exact `_cacache` name is absent immediately before mutation.
-7. No successful restore receipt already exists for the source quarantine
-   transaction, no mutation intent of either kind is pending, and the complete
-   mixed journal inventory is structurally admissible.
+7. No successful restore receipt or terminal `item-absent` purge receipt already
+   exists for the source quarantine transaction, no conflicting quarantine,
+   restore, or purge intent is pending, and the complete mixed journal inventory
+   is structurally admissible.
 
 A `not-moved` or `rolled-back` quarantine receipt is not restorable. A missing,
 replaced, unverifiable, or unsafe quarantined item is never adopted. An occupied
@@ -139,17 +142,19 @@ signatures, secrets, or caller authentication.
 
 ## Inventory and admission
 
-Quarantine and restore records form one managed inventory beneath the same held
-quarantine-root descriptor. Before either operation publishes a new intent,
-Core must:
+Quarantine, restore, and purge records form one managed inventory beneath the
+same held quarantine-root descriptor. Before an initial operation publishes a
+new intent, Core must:
 
-- reconcile every receipt-less quarantine or restore intent without executing
-  its rename;
+- reconcile every receipt-less quarantine, restore, or purge intent without
+  executing a rename or unlink;
 - validate all stage/final pairings, record digests, parent bindings,
-  transaction links, destination ownership, and successful-restore uniqueness;
+  transaction links, destination ownership, and terminal restore/purge
+  uniqueness;
 - reject orphan, duplicate, conflicting, unsafe, or unmanaged records and
   items;
-- allow at most one receipt-less mutation intent across both operation kinds;
+- allow at most one receipt-less mutation intent across all three operation
+  kinds;
   and
 - reserve entry-count and raw-name-byte capacity with checked arithmetic for the
   operation's worst-case peak.
@@ -171,33 +176,38 @@ quarantine filename, or item path. Its production facade is fixed to the current
 non-root account's passwd-home `~/.npm` and fixed quarantine namespace.
 
 The initial inventory load and a manual refresh explicitly open that namespace.
-When a restore execution returns to the still-current, uncancelled view-model
-operation, the app invokes the same operation once to publish current state.
-Dismissal, cancellation, or superseding work can prevent or cancel that refresh
-and suppresses stale UI publication without bypassing Core's transaction-level
-durability handling. Under one validated exclusive lock, Core runs observational
-recovery, rereads and revalidates the complete mixed
-inventory after recovery, and only then projects a result. Malformed or
+After every started restore or purge execution, the app invokes the same
+operation in a detached follow-up. Dismissal, cancellation, or superseding work
+suppresses stale UI publication but does not cancel that Core reconciliation.
+Under one validated exclusive lock, Core runs observational recovery, rereads
+and revalidates the complete mixed inventory after recovery, and only then
+projects a result. Malformed or
 unresolved journal state, unsafe trusted parents, and aggregate resource
 exhaustion reject the complete request; there is no partial-success list. An
 individual missing, changed, unsafe, or per-item over-bound quarantine item
 remains visible as a non-restorable row. App launch does not call this operation.
 
-The successful projection contains a deterministic bounded list of items whose
-canonical quarantine intent has a matching durable final `quarantined` receipt
-and no successful restore receipt. Each row reports whether the original source
+The successful projection contains a deterministic bounded list of ordinary
+item rows whose canonical quarantine intent has a matching durable final
+`quarantined` receipt, no successful `restored` receipt, and no terminal
+`item-absent` purge receipt. A durable `not-restored` or `not-purged` receipt
+does not by itself remove the row. Each row reports whether the original source
 is clear or occupied and whether the quarantined item is available, missing,
 changed, unsafe, or over its validation bound. A row is restore-ready only when
-the original `_cacache` name is absent and the exact quarantined item remains
-available.
+the original `_cacache` name is absent, the exact quarantined item remains
+available, and no purge staging state blocks it. The projection separately
+contains at most one typed retry row for an exact safely
+validated and synchronized staged purge remainder; that row is never
+restore-ready and requires a new explicit purge confirmation.
 
-Each row carries an opaque process-local reference bound to that one inventory
-session. A reference from another or older session fails even when visible row
-fields match. Preparing restore rebinds the reference to the exact canonical
-intent and receipt observed by that session and rejects intervening inventory
-change. Core then issues the exact restore confirmation statement, and a
-matching confirmation can authorize one execution only. The app cannot derive
-restore authority from presentation state.
+Each ordinary or retry row carries its own typed opaque process-local reference
+bound to that one inventory session. A reference from another or older session
+fails even when visible row fields match. Preparing restore rebinds the ordinary
+item reference to the exact canonical intent and receipt observed by that
+session and rejects intervening inventory change. Core then issues the exact
+restore confirmation statement, and a matching confirmation can authorize one
+execution only. The app cannot derive restore or purge authority from
+presentation state.
 
 ## Mutation and synchronization order
 
@@ -302,7 +312,7 @@ persisted, uploaded, or included in a CLI schema.
 Restore, like quarantine, is a same-volume namespace rename. Neither operation
 deallocates file data, and quarantine guarantees exactly 0 B of freed capacity.
 
-This increment adds no:
+The restore authority and executor add no:
 
 - purge, permanent deletion, unlink, recursive removal, overwrite, journal
   cleanup, compaction, retention policy, or record migration;
@@ -318,9 +328,11 @@ This increment adds no:
 - change to public `SafetyMode.scanOnly` or its
   `allowsFilesystemMutation == false` result.
 
-Purge and permanent removal remain a later, separately reviewed policy,
-authorization, and explicit user action. No restore artifact may be interpreted
-as purge authority.
+Phase 10 now implements purge and permanent removal as a separately reviewed
+policy, authorization family, journal transaction, executor, and explicit user
+action. No restore artifact may be interpreted as purge authority, and a purge
+artifact cannot authorize restore. See the
+[receipt-bound quarantine purge contract](PURGE.md).
 
 ## Verification gate
 
@@ -357,8 +369,7 @@ repository-wide definition of done in
 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md#definition-of-done-for-every-code-commit).
 The completed repository-internal review and its closed findings are recorded
 in [MANUAL_RESTORE_SECURITY_REVIEW.md](MANUAL_RESTORE_SECURITY_REVIEW.md). The
-separately planned permanent-deletion authority, atomic work staging, explicit
-retry, and restore cutoff are defined in the
-[receipt-bound quarantine purge contract](PURGE.md). No purge workflow is
-currently implemented; any later purge workflow must remain separate from this
-restore authority.
+separately implemented permanent-deletion authority, atomic work staging,
+explicit retry, and restore cutoff are defined in the
+[receipt-bound quarantine purge contract](PURGE.md). That purge workflow remains
+separate from this restore authority.

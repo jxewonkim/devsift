@@ -10,13 +10,16 @@ DevSift is designed to work locally and reveal as little as possible.
 - No network access required for scanning.
 - No background or automatic scanning.
 - No scan outside roots explicitly selected by the user.
-- The Core-internal npm quarantine and manual-restore kernels read only metadata
-  and canonical journal records needed for descriptor-held validation. The
-  source-run app can invoke them only through package-scoped facades fixed to
-  the current non-root account's exact passwd-home `~/.npm/_cacache`. They issue
-  mutations only between that exact source name and the fixed quarantine
-  namespace. They do not read cached file contents, invoke npm, inspect
-  processes, use the network, or emit telemetry.
+- The Core-internal npm quarantine, manual-restore, and receipt-bound purge
+  kernels read only metadata and canonical journal records needed for
+  descriptor-held validation. The source-run app can invoke them only through
+  package-scoped facades fixed to the current non-root account's exact passwd-
+  home `~/.npm/_cacache`. Quarantine and restore issue namespace mutations only
+  between that exact source name and the fixed quarantine namespace. Purge can
+  rename only one exact receipt-bound item to its intent-bound work name and
+  unlink only inside that descriptor-held staged tree. The kernels do not read
+  cached file contents, invoke npm, inspect processes, use the network, or emit
+  telemetry.
 - Scanning reads POSIX inode modification times but retains only one maximum
   aggregate per root or top-level summary, not a timestamp for every
   descendant. It does not read file contents.
@@ -86,26 +89,41 @@ DevSift is designed to work locally and reveal as little as possible.
   readiness, and bounded result. The CLI and public library clients receive none
   of these restore values. They are not authentication, proof of human action,
   or standalone filesystem authority.
+- Core purge preparation retains the canonical quarantine and purge evidence
+  for one exact opaque inventory reference and exposes a separate process-local
+  confirmation subject. Initial purge and explicit retry use distinct exact
+  statements but one mutually exclusive purge authority family. Its
+  authorization and internal claim are single-use, non-`Codable`, unpersisted,
+  and neither authentication nor standalone filesystem authority. Core's
+  package projections may expose the fixed responsible tool, fixed original
+  cache name, attempt kind, exact statement, opaque process-local handles, and
+  bounded readiness, counts, outcomes, and observational capacity change. The
+  app adds a static data-remanence disclosure and keeps the four local
+  acknowledgement states; Core does not project either as journal evidence.
+  Neither layer exposes a raw path, record bytes, transaction identifier,
+  filesystem identity, or internal claim. The CLI and public library clients
+  receive none of these values.
 - The internal durability layer necessarily persists canonical intent and
-  receipt records for both quarantine and restore inside the account-owned
+  receipt records for quarantine, restore, and purge inside the account-owned
   `.devsift-quarantine-v1` directory. Records contain exact raw relative paths,
   filesystem bindings, policy revisions, transaction links, digests, and
   outcome metadata. They remain local, are not telemetry or exports, and are
   accessed only by the internal executors and recovery engine. Package-scoped
   frontend projections expose no record bytes, paths, or transaction
   identifiers. The recovery UI receives only bounded rows with opaque process-
-  local references. Initial loading is explicit. When a restore execution
-  returns to the still-current, uncancelled view-model operation, the view model
-  runs one reconciliation and inventory refresh; dismissal, cancellation, or
-  superseding work can prevent or cancel that refresh and suppresses stale UI
-  publication. Core also runs locked recovery during quarantine transaction
-  admission, restore preparation, and restore transaction admission. App launch never triggers
-  recovery or inventory loading.
+  local references. Initial loading is explicit. After every started restore or
+  purge execution, the workflow performs fresh reconciliation and inventory
+  refresh even when dismissal, cancellation, or superseding work suppresses
+  stale UI publication. Core also runs locked recovery during restore
+  preparation and quarantine, restore, or purge mutation admission. App launch
+  never triggers recovery or inventory loading.
 - The CLI target contains an internal one-way manifest-review JSON encoder, but
   no command invokes it and it does not write standard output or a file. No
   manifest importer, persistence path, upload, or background export exists.
 - Quarantine is a same-volume namespace move. It deallocates no file data and
-  guarantees 0 B of freed capacity. No purge, permanent deletion, retention,
+  guarantees 0 B of freed capacity. Purge reports only observed same-volume
+  capacity change, which may be zero or unavailable and is not exact causal
+  attribution. No automatic or arbitrary-path permanent deletion, retention,
   batch or custom-path mutation, distributed app, network service, or telemetry
   path exists.
 - Every Phase 9 filesystem mutation, including recovery receipt publication,
@@ -219,16 +237,22 @@ observed identity. None is persisted, logged, uploaded, or exported. The app
 does not receive the raw report; its package-scoped facade emits only a bounded
 projection. The CLI receives neither value.
 
-The package-scoped inventory snapshot contains only a deterministic bounded set
-of npm rows with the fixed original name, recovery provenance, readiness, and
-opaque process-local references. It contains no journal bytes, transaction
-identifier, quarantine filename, arbitrary root, or caller-selected item path
-and is not `Codable`, persisted, logged, uploaded, or reusable across inventory
-sessions. Initial loading and manual refresh are explicit actions that may read
-and reconcile the local journal. A restore execution accepted by the active,
-uncancelled view-model operation schedules one reconciliation and refresh;
-stale or cancelled UI work cannot publish it. There is no launch-time,
-periodic, or background load.
+The package-scoped inventory snapshot contains a deterministic bounded set of
+ordinary npm item rows from canonical quarantine receipts with no successful
+restore or terminal item-absent purge. Those rows contain the fixed original
+name, recovery provenance, source/item and action readiness, and opaque item
+references. A separately typed retry row may appear only for a safely validated
+and synchronized staged purge remainder; it contains only the fixed responsible
+tool, fixed original name, and opaque retry reference. The snapshot contains no
+journal bytes, transaction identifier, quarantine filename, arbitrary root, or
+caller-selected item path and is not `Codable`, persisted, logged, uploaded, or
+reusable across inventory sessions.
+Initial loading and manual refresh are explicit actions that may read and
+reconcile the local journal. After every started restore or purge execution,
+the workflow performs a detached Core reconciliation and refresh. Dismissal,
+cancellation, or superseding work suppresses stale UI publication but does not
+cancel that reconciliation. There is no launch-time, periodic, or background
+load.
 
 Trusted-location observation resolves the current account home from the local
 operating-system account record and compares only bounded raw path components
@@ -311,30 +335,33 @@ revalidation report may not. Its process-local, non-`Codable` execution report
 can retain a raw relative path, rule revision, bounded outcome, and quarantine
 location whose optional evidence includes an observed filesystem identity, but
 it is not itself persisted or exported. The private journal now persists
-canonical quarantine and restore intent/receipt DTOs, not Core domain reports
-or authorization values. Final receipts are immutable historical transaction
-evidence; live namespace truth is consulted for receipt-less intent recovery
-and receipt-stage promotion, not to rewrite a valid final receipt.
+canonical quarantine, restore, and purge intent/receipt DTOs, not Core domain
+reports or authorization values. Final receipts are immutable historical
+transaction evidence; live namespace truth is consulted for receipt-less
+intent recovery and receipt-stage promotion, not to rewrite a valid final
+receipt.
 
-The implemented restore path is manual, npm-only, and limited to one exact
-receipt-bound item. Its separate confirmation and authorization do not broaden
-quarantine authorization or create purge authority. The source-run app can
-explicitly request a bounded inventory and restore through the package-scoped
-facade. Its app-local adapter briefly handles package-scoped authorization but
-cannot access raw paths, records, internal execution claims, or executors.
-Frontend projections expose no transaction identifiers. Public API, CLI
-mutation, launch-time, unattended, periodic, or background recovery or restore,
-batch operation, custom paths, retention, and purge remain outside the current
-privacy boundary. The post-attempt refresh described above is the only recovery
-follow-up scheduled by the UI. Core's mandatory locked recovery during
-quarantine transaction admission, restore preparation, and restore transaction
-admission is not a launch-time or background task.
+The implemented restore and purge paths are manual, npm-only, and limited to
+one exact receipt-bound item. Their separate confirmations and authorizations
+do not broaden quarantine authorization or each other. The source-run app can
+explicitly request bounded inventory, restore, initial purge, or explicit purge
+retry through package-scoped facades. Its app-local adapter briefly handles
+package-scoped authorization but cannot access raw paths, records, internal
+execution claims, or executors. Frontend projections expose no transaction
+identifiers. Public API, CLI mutation, launch-time, unattended, periodic, or
+background recovery, restore, or purge, batch operation, arbitrary/custom
+paths, and retention remain outside the current privacy boundary. The
+post-attempt refresh described above is the only recovery follow-up scheduled
+by the UI. Core's mandatory locked recovery during mutation admission is not a
+launch-time or background task; restore preparation performs the same locked
+recovery.
 Adding any broader surface must receive separate privacy and security review
 and must not silently make Core domain models `Codable`. See the
 [authorization contract](AUTHORIZATION.md),
 [quarantine execution contract](QUARANTINE.md),
 [durability contract](DURABILITY.md), and
-[manual restore contract](RESTORE.md).
+[manual restore contract](RESTORE.md), plus the
+[purge contract](PURGE.md).
 
 Any feature that introduces networking, update checks, telemetry, crash upload,
 or third-party services must be documented before release, disabled by default

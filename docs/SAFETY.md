@@ -30,16 +30,22 @@ scan -> classify -> plan -> review/approve -> authorize attempt
   -> inline descriptor revalidation -> durable quarantine -> recover/report
 canonical quarantined receipt -> confirm restore -> authorize restore
   -> inline descriptor revalidation -> durable manual restore -> recover/report
+canonical quarantined receipt -> confirm initial purge -> authorize purge
+  -> inline descriptor revalidation -> durable intent and staging
+  -> bounded unlink -> recover/report
+validated staged remainder -> confirm explicit retry -> authorize purge
+  -> revalidate existing intent and work tree -> bounded unlink -> recover/report
 
 optional read-only diagnostic: approval -> CleanupRevalidator -> report
 ```
 
 Current versions are classifier contract 3, cleanup manifest 3, manifest diff
 2, approval 2, revalidation 2, quarantine authorization 1, internal quarantine
-execution report 2, restore authorization 1, restore report 1, classification
-JSON 2, and internal manifest-review JSON 2 over source manifest 3. npm is rule
-revision 5 in built-in catalog 6. Scan JSON remains version 2. Old manifests,
-approvals, and exports are regenerated rather than imported or migrated.
+execution report 2, restore authorization 1, restore report 1, purge
+authorization 1, purge report 1, classification JSON 2, and internal manifest-
+review JSON 2 over source manifest 3. npm is rule revision 5 in built-in catalog
+6. Scan JSON remains version 2. Old manifests, approvals, and exports are
+regenerated rather than imported or migrated.
 
 Scanning and planning are read-only. A plan records the exact candidate,
 evidence, expected identity, rule version, and estimated allocated bytes. Before
@@ -57,12 +63,14 @@ and an internal npm-only atomic quarantine kernel. The kernel now surrounds its
 rename with canonical immutable intent/receipt publication, required
 `F_FULLFSYNC` barriers, and descriptor-bound recovery. Core also has a separate
 internal, explicitly confirmed, single-item npm restore path with its own
-authorization, intent, receipt, and bounded diagnostics. Purge, permanent
-deletion, public mutation API, automatic restore, and automatic app-launch
-recovery do not exist. The source-run app can reach both kernels only through
-narrow package-scoped facades for one exact npm cache at the current non-root
-account's passwd-home `~/.npm/_cacache`; the CLI and public Core API remain
-read-only.
+authorization, intent, receipt, and bounded diagnostics. A third internal path
+can permanently delete one exact receipt-bound quarantine item after separate
+confirmation and single-use purge authorization, or continue one exact staged
+remainder after a fresh explicit retry. Public mutation API, automatic restore
+or purge, and automatic app-launch recovery do not exist. The source-run app
+can reach all three kernels only through narrow package-scoped facades for one
+exact npm cache at the current non-root account's passwd-home
+`~/.npm/_cacache`; the CLI and public Core API remain read-only.
 
 The native app can include an explicit subset of conservative candidates and
 show Core's result as an unapproved in-memory review. Inclusion starts at zero
@@ -141,9 +149,10 @@ the sole consumer. See the [authorization contract](AUTHORIZATION.md) and
 Manual restore does not reuse quarantine authorization. An explicit inventory
 load first runs recovery, final reread/revalidation, and projection under one
 validated exclusive lock. It admits only canonical durable `quarantined`
-receipts not already restored. Malformed or unresolved journal state, unsafe
-parents, and aggregate resource exhaustion fail the entire request. Individual
-item failures remain visible as non-restorable rows. The UI receives
+receipts with no successful restore or terminal item-absent purge. Malformed or
+unresolved journal state, unsafe parents, and aggregate resource exhaustion fail
+the entire request. Individual item failures remain visible as non-restorable
+rows. The UI receives
 deterministic bounded rows, honest source/item readiness, and opaque process-
 local references—not paths, record bytes, or transaction identifiers.
 
@@ -158,6 +167,17 @@ may invoke one exclusive reverse rename only while `_cacache` is absent.
 Observational recovery may finish a conclusive restore receipt but never retries
 that rename. Neither recovery nor restore runs automatically at app launch. See
 the [manual restore contract](RESTORE.md).
+
+Permanent deletion does not reuse quarantine or restore authorization. A fresh
+initial-purge or explicit-retry confirmation can issue one single-use purge
+authorization for the opaque inventory-selected item. The initial executor
+publishes a durable intent, validates and synchronizes one atomic move to an
+intent-bound work name, then unlinks only beneath the held staged-tree
+descriptor within strict traversal bounds. Retry reuses the existing canonical
+intent and work name; it creates neither a second intent nor a second staging
+rename. Recovery never resumes unlink automatically. The active `_cacache` is
+never a purge target, and observed capacity change is not exact causal reclaimed
+bytes. See the [purge contract](PURGE.md).
 
 ## Hard invariants
 
@@ -278,18 +298,23 @@ the [manual restore contract](RESTORE.md).
   bounded cacache tree, and refuses an occupied `_cacache`; no caller-selected
   path or item name reaches the rename.
 - Initial inventory loading and manual refresh require an explicit action and
-  never run at app launch. When a restore execution returns to the still-current,
-  uncancelled view-model operation, it schedules one reconciliation and
-  inventory refresh. Dismissal, cancellation, or superseding work can prevent or
-  cancel that refresh and suppresses stale UI publication.
+  never run at app launch. Every started restore or purge execution schedules a
+  detached reconciliation and inventory refresh. Dismissal, cancellation, or
+  superseding work suppresses stale UI publication but does not cancel that
+  Core reconciliation.
   Recovery, complete canonical reread/revalidation, and projection share one
   validated exclusive lock. Malformed or unresolved journal state, unsafe
   parents, and aggregate resource exhaustion fail the whole request.
-- Inventory contains only canonical durable quarantined receipts not already
-  restored, in deterministic bounded order. Its opaque process-local references
-  cannot cross sessions. Source readiness distinguishes a missing original name,
-  the previously expected object, and another occupant. Item readiness reports
-  available, missing, changed, unsafe, and over-bound contents.
+- Inventory contains deterministic bounded ordinary item rows from canonical
+  durable quarantined receipts with no successful restore or terminal
+  item-absent purge. Their opaque process-local references cannot cross sessions;
+  source and item readiness distinguish a missing original name, the previously
+  expected object, another occupant, and unavailable item state. At most one
+  separately typed retry row may appear, and its presence means the exact
+  staged remainder was safely validated and synchronized; it projects only the
+  fixed tool, fixed original name, and opaque retry reference. An unsafe,
+  unavailable, or barrier-failed remainder fails the load with manual recovery
+  instead of becoming a retry row.
 - Restore uses a fresh process-local confirmation and single-use authorization,
   then at most one same-volume, no-follow, beneath-root, exclusive reverse
   rename. It cannot overwrite, copy, link, unlink, purge, or delete.
@@ -297,16 +322,18 @@ the [manual restore contract](RESTORE.md).
   its quarantine-directory publication barrier exist. Cooperating transactions
   hold a validated nonblocking exclusive journal lock through reconciliation
   and terminal receipt publication. The same ordering applies to the separate
-  restore intent before a reverse rename.
+  restore intent before a reverse rename and to the initial purge intent before
+  staging. Explicit purge retry reuses its existing canonical intent and staged
+  work name; it publishes no second intent and invokes no staging rename.
 - Record and namespace durability requires every specified `F_FULLFSYNC` call
   to succeed; Core does not downgrade to `fsync` or report durable success after
   a failed barrier. An inconclusive post-intent state remains receipt-less and
   blocks later mutation.
 - Recovery treats a valid final receipt as immutable historical evidence. It
   consults current source and destination truth only for a receipt-less
-  quarantine or restore intent or canonical receipt-stage promotion. It may
-  publish a conclusive receipt but never invokes or retries either rename,
-  adopts an occupant, overwrites, compacts, or deletes.
+  quarantine, restore, or purge intent or canonical receipt-stage promotion. It
+  may publish a conclusive receipt but never invokes or retries a rename or
+  unlink, adopts an occupant, overwrites, compacts, or deletes.
 - Quarantine report contract version 2 declares only a terminal receipt durably
   recorded.
   A validated, canonically reachable intent or receipt is crash-recoverable;
@@ -316,23 +343,31 @@ the [manual restore contract](RESTORE.md).
 - Restore report contract version 1 uses the same durability rule. A terminal
   `not-restored` receipt is durably recorded without claiming a restore, and a
   report is durably restored only when its terminal receipt records `restored`.
+- Purge report contract version 1 distinguishes no mutation, a conclusive
+  terminal outcome, and an explicit retry requirement. A terminal receipt is
+  published only from conclusive managed-namespace truth; a partial staged tree
+  becomes explicit retry work only after exact validation and successful
+  synchronization and is never reported as complete. Unsafe, unavailable, or
+  barrier-failed state requires manual recovery.
 - Broad paths such as `/`, `/System`, `/Applications`, `/Users`, and a home
   directory itself are protected cleanup targets.
-- Scan, classification, planning, approval, revalidation, and both authorization
-  layers cannot mutate files. Only the internal npm quarantine and manual-
-  restore executors own their narrow atomic namespace operations; their
-  authorizations grant no standalone filesystem capability.
+- Scan, classification, planning, approval, revalidation, and all three
+  authorization layers cannot mutate files. Only the internal npm quarantine,
+  manual-restore, and purge executors own their narrow namespace operations;
+  their authorizations grant no standalone filesystem capability.
 - The source-run app's package-scoped facade is the sole frontend mutation
   surface, fixed to one exact npm cache at the current non-root account's
   passwd-home `~/.npm/_cacache`. The CLI and public Core API expose no cleanup,
   move, quarantine, restore, purge, or permission-escalation action.
-- Quarantine and restore mutation require macOS 26 or newer. Older supported
-  systems fail before namespace creation, durable intent publication, or rename
-  and retain all read-only analysis surfaces.
+- Quarantine, restore, and purge mutation require macOS 26 or newer. Older
+  supported systems fail before namespace creation, durable intent publication,
+  rename, or unlink and retain all read-only analysis surfaces.
 - Quarantine is a same-volume namespace rename, not storage reclamation. It
   deallocates no file data and guarantees exactly 0 B of freed capacity.
-- No purge, permanent deletion, retention policy, background cleanup, batch or
-  custom-path mutation, network access, telemetry, or distributed app exists.
+- No automatic or arbitrary-path permanent deletion, retention policy,
+  background cleanup, batch or custom-path mutation, network access, telemetry,
+  or distributed app exists. The sole permanent-deletion surface is the manual,
+  receipt-bound npm purge defined above.
 - The app never presents a partial, bounded, or overflowed observation as
   complete or as evidence that an item can be cleaned.
 - Core logic does not construct or execute shell commands.
@@ -378,7 +413,8 @@ the [manual restore contract](RESTORE.md).
   with the pending attestation precondition, but it is not eligible to execute.
 - A changed candidate is skipped during revalidation.
 - Partial failures are reported item by item.
-- Permanent deletion is not part of the initial milestones.
+- Permanent deletion was deferred from the initial milestones and is now
+  implemented only as the narrow receipt-bound Phase 10 workflow above.
 
 Activity is the remaining npm execution fact. The
 [activity safety contract](ACTIVITY.md) records that no supported,
@@ -547,16 +583,21 @@ internal consumption across copies, terminal cancellation, non-`Codable`
 values, and the absence of process, npm, clock, filesystem, persistence,
 public mutation, and CLI operations.
 
-Durability and restore tests use only synthetic temporary journal namespaces.
-They cover canonical quarantine and restore record bytes, exclusive
-publication, lock contention, sync failures, staged and orphan records, mixed
-bounded inventory, capacity boundaries, destination-plan collisions, both
-receipt-less recovery tables, single-use restore confirmation and execution,
-descriptor/path races, non-overwriting reverse rename, and preservation outside
-the exact journal namespace. Package-facade tests additionally cover explicit
-same-lock reconciliation and inventory validation, deterministic bounded rows,
-atomic failure, readiness distinctions, opaque-reference isolation, exact
-confirmation, and single-use restore without touching a real home.
+Durability, restore, and purge tests use only synthetic temporary journal
+namespaces. They cover canonical quarantine, restore, and purge record bytes,
+exclusive publication, lock contention, sync failures, staged and orphan
+records, mixed bounded inventory, capacity boundaries, destination-plan
+collisions, all three receipt-less recovery families, single-use restore
+confirmation and execution, descriptor/path races, non-overwriting reverse
+rename, and preservation outside the exact journal namespace. Purge coverage
+additionally exercises initial and
+retry authorization, atomic staging, bounded unlink, partial-deletion recovery,
+restore cutoff, active-cache preservation, and observational capacity results.
+Package-facade tests cover explicit same-lock reconciliation and inventory
+validation, deterministic bounded rows, atomic failure, readiness distinctions,
+opaque-reference isolation, exact confirmation, and single-use restore and
+purge without touching a real home.
 
-Any future permanent-removal feature requires a separate design review, threat
-model, and release milestone.
+Any broader permanent-removal feature—automatic, arbitrary-path, custom-root,
+batch, or background—requires a separate design review, threat model, and
+release milestone.

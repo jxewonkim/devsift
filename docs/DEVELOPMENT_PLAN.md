@@ -763,17 +763,21 @@ Implementation commit sequence:
   cannot be described as completed cleanup.
 - Reconcile the fixed npm journal when the user explicitly asks for the initial
   recovery inventory or a manual refresh; app launch does not trigger recovery.
-  Also run locked recovery during quarantine transaction admission, restore
-  preparation, and restore transaction admission. After a restore execution returns to
-  the still-current, uncancelled view-model operation, perform one
-  reconciliation and inventory refresh while preserving the bounded result.
-  Cancellation, dismissal, or superseding work must suppress stale UI
-  publication and may prevent or cancel that follow-up refresh.
+  At the Phase 9 cut, also run locked recovery during quarantine transaction
+  admission, restore preparation, and restore transaction admission. A restore
+  execution that returned to the still-current, uncancelled view-model
+  operation performed one reconciliation and inventory refresh; cancellation,
+  dismissal, or superseding work suppressed stale UI publication and could
+  prevent or cancel that follow-up. Phase 10 later replaced that follow-up with
+  detached reconciliation after every started restore or purge execution.
   Perform recovery, final inventory reread and validation, and bounded projection
-  under the same validated exclusive lock. Build inventory only from canonical
-  durable quarantine receipts that have not been restored and issue opaque,
-  process-local item references to the app; do not let the frontend select an
-  arbitrary path, quarantine filename, journal record, or transaction identifier.
+  under the same validated exclusive lock. At the Phase 9 cut, build inventory
+  only from canonical durable quarantine receipts with no successful restore
+  and issue opaque process-local item references to the app; do not let the
+  frontend select an arbitrary path, quarantine filename, journal record, or
+  transaction identifier. Phase 10 later added terminal purge filtering and a
+  separately typed, safely validated and synchronized staged-remainder retry
+  row.
   Reject malformed or unresolved journal state, unsafe parents, and aggregate
   resource exhaustion atomically. Preserve individual item failures as visible
   non-restorable rows rather than returning a misleading partial success.
@@ -814,27 +818,30 @@ transaction and privacy review must find no open priority-zero or priority-one
 issue. Strict formatting, manifest validation, build, the complete test suite,
 and `git diff --check` must pass before merge.
 
-Milestone reached: a source-run native development app can explicitly
-quarantine and later restore one exact durable npm `_cacache` transaction. The
-CLI remains read-only, the SwiftUI executable remains undistributed, and the
-operation has reclaimed no storage. Permanent purge and distributable app
-packaging remain absent and require separate, later phases.
+Milestone reached at the Phase 9 cut: a source-run native development app could
+explicitly quarantine and later restore one exact durable npm `_cacache`
+transaction. The CLI remained read-only, the SwiftUI executable remained
+undistributed, and that same-volume move reclaimed no storage. Permanent purge
+was intentionally deferred to Phase 10, while distributable app packaging
+remains a later phase.
 
 ## Phase 10: explicit quarantine purge and observed volume-capacity change
 
-Status: planned; no purge or permanent deletion is implemented.
+Status: implemented in the source-run app; no signed or downloadable artifact
+exists yet.
 
-This phase may add the first irreversible operation, restricted to one exact
+This phase adds the first irreversible operation, restricted to one exact
 canonical npm quarantine receipt already admitted by the recovery inventory. It
 must not accept an arbitrary path, active `_cacache`, caller-created transaction
 identifier, or unjournaled directory.
 
-The prospective transaction, interruption, same-UID race, restore-cutoff, and
+The implemented transaction, interruption, same-UID race, restore-cutoff, and
 capacity-observation boundaries are defined in the
-[receipt-bound quarantine purge contract](PURGE.md). None of that contract is a
-current capability until the implementation and review gates below pass.
+[receipt-bound quarantine purge contract](PURGE.md). The app reaches them only
+through an explicit inventory selection, four independent acknowledgements,
+the exact Core-requested statement, and a fresh single-use authority.
 
-Planned commit sequence:
+Completed implementation sequence:
 
 - `docs(purge): define receipt-bound irreversible purge contract`;
 - `feat(core): add canonical purge journal values and codecs`;
@@ -842,12 +849,24 @@ Planned commit sequence:
 - `feat(core): project purge readiness through opaque inventory references`;
 - `feat(core): add purge confirmation and single-use authorization`;
 - `feat(core): validate complete and interrupted purge trees`;
+- `feat(core): report observed quarantine purge capacity change`;
 - `feat(core): durably stage receipt-bound purge work`;
-- `feat(core): execute bounded purge and explicit retry`;
-- `feat(core): report observed volume-capacity change`;
-- `feat(app): present explicit quarantine purge`;
-- `test(app): cover irreversible purge surfaces`;
-- `docs(security): record the irreversible purge boundary`.
+- `feat(core): execute bounded staged purge traversal`;
+- `fix(core): close purge staging and unlink race gaps`;
+- `feat(core): recover retry and finish purge attempts`;
+- `feat(core): prepare descriptor-bound purge attempts`;
+- `feat(core): execute authorized quarantine purges`;
+- `feat(core): expose receipt-bound purge workflow`;
+- `test(core): exercise quarantine purge end to end`;
+- `feat(app): orchestrate confirmed purge attempts`;
+- `test(core): cover purge facade wiring end to end`;
+- `feat(app): add permanent deletion controls`;
+- `fix(core): tolerate unrelated ancestor churn in preflight`;
+- `test(core): remove hardened journal fixtures reliably`;
+- `fix(app): disclose permanent deletion data remanence`;
+- `docs(purge): document source-run permanent deletion`.
+
+Implemented product and security boundary:
 
 - Define a separate purge policy, threat model, confirmation statement,
   single-use authority, journal family, interruption model, and security review.
@@ -858,9 +877,9 @@ Planned commit sequence:
   item, ownership, device, permissions, and complete bounded tree immediately
   before deletion. Links, special files, mount crossings, identity changes,
   unexpected names, and exhausted bounds fail closed.
-- Design interruption honestly: recursive namespace removal is not an atomic rename,
-  so partial progress, retry authority, durable receipts, and recovery behavior
-  must be specified before any unlink operation exists.
+- Design interruption honestly: recursive namespace removal is not an atomic
+  rename. The implemented contract models partial progress, retry authority,
+  durable receipts, and observational recovery before permitting unlink.
 - Report only observed volume-capacity change after the attempt. Concurrent
   filesystem activity, APFS clones, snapshots, compression, and delayed block
   accounting prevent an exact causal reclaimed-byte guarantee.
@@ -872,20 +891,23 @@ Planned commit sequence:
   synchronized. An `item-absent` purge receipt keeps restore impossible; a
   validated `not-purged` receipt may re-enable it only through a fresh inventory.
 
-Gate: adversarial synthetic tests cover every traversal and interruption
-boundary, identity and parent swaps, hard links, clone/snapshot uncertainty,
+Gate completed: adversarial synthetic tests cover every traversal and
+interruption boundary, identity and parent swaps, hard links, remanence
+disclosure wording,
 permission changes, cancellation, duplicate authority, journal corruption,
-partial deletion, and preservation outside the exact quarantine item. A focused
-irreversible-deletion security and privacy review must close every blocking and
-high-priority finding before merge.
+partial deletion, and preservation outside the exact quarantine item. The
+[focused irreversible-deletion security and privacy review](PURGE_SECURITY_REVIEW.md)
+records the same-UID residual-risk disposition and no open blocking or high-
+priority finding.
 
-Milestone: one explicit receipt-bound purge can make the selected receipt-bound
-object absent from both managed names and report observed volume-capacity change
-without claiming that the observation is an exact causal measurement.
+Milestone reached: one explicit receipt-bound purge can make the selected
+receipt-bound object absent from both managed names and report observed
+volume-capacity change without claiming that the observation is an exact causal
+measurement.
 
 ## Phase 11: signed and downloadable native app
 
-Status: planned after Phase 10; no installable app artifact exists.
+Status: next; no installable app artifact exists.
 
 - Package the SwiftUI executable as a hardened-runtime `.app` with reviewed
   entitlements and no broader filesystem authority than the source-run build.
@@ -900,7 +922,7 @@ Status: planned after Phase 10; no installable app artifact exists.
 
 Milestone: users can download and verify a signed, notarized DevSift app from a
 GitHub Release. Any unattended or scheduled cleanup remains a separate future
-proposal rather than part of these two remaining milestones.
+proposal rather than part of this packaging milestone.
 
 ## Definition of done for every code commit
 

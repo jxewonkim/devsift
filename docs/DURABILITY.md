@@ -198,14 +198,13 @@ call returned successfully, not absolute survival on defective storage.
 
 ## Recovery reconciliation
 
-Recovery runs under the same exclusive session during quarantine transaction
-admission, restore preparation, restore transaction admission, an explicit
-inventory load or refresh, and the follow-up refresh when a restore execution
-returns to the still-current, uncancelled view-model operation. Dismissal,
-cancellation, or superseding work can prevent or cancel that UI refresh without
-bypassing Core's transaction-level durability handling. Recovery can therefore
-run later in the same process or after restart, but never merely because the app
-launched. It strictly
+Recovery runs under the same exclusive session during restore preparation,
+quarantine/restore/purge mutation admission, an explicit inventory load or
+refresh, and the detached follow-up after every started restore or purge
+execution. Dismissal, cancellation, or superseding work suppresses stale UI
+publication but does not cancel that Core reconciliation. Recovery can
+therefore run later in the same process or after
+restart, but never merely because the app launched. It strictly
 validates and pairs every final intent and receipt, rejects orphan receipts and
 unmanaged `item-v1-*` entries, and rejects destination reuse across intents. It
 applies the staged-record rules above before reconciling receipt-less intents. A
@@ -215,9 +214,9 @@ later. Validating a final receipt requires its record metadata, canonical bytes,
 filename, transaction pairing, and digest; live namespace truth is required only
 for a receipt-less intent or receipt-stage promotion.
 
-For each receipt-less intent, all root, quarantine-root, record, source, and
-planned-destination observations must be available and safe. Let `expected`
-mean the complete stable candidate binding sealed by the intent:
+For each receipt-less quarantine intent, all root, quarantine-root, record,
+source, and planned-destination observations must be available and safe. Let
+`expected` mean the complete stable candidate binding sealed by the intent:
 
 | Current source | Planned destinations | Recovery result |
 | --- | --- | --- |
@@ -234,6 +233,11 @@ unknown, zero, or future policy revision is ambiguous and blocks.
 Recovery records only what the current namespace proves. It never repeats the
 authorized rename, chooses another destination, removes an occupant, or
 performs an automatic reverse rename.
+
+Receipt-less restore and purge intents use their own namespace tables and the
+same observe-only rule: recovery may publish a conclusive receipt but never
+retries a reverse rename, staging rename, or unlink. See the
+[manual restore contract](RESTORE.md) and [purge contract](PURGE.md).
 
 ## Reports and cancellation
 
@@ -276,15 +280,19 @@ final journal reread/revalidation, and inventory projection under the same
 validated exclusive lock, and a separate receipt-bound confirmation can restore
 one item without overwrite. Neither operation runs automatically at app launch.
 
-Purge, permanent deletion, journal compaction, record deletion, automatic
-rollback, retention, batch or background action, custom-root or multi-rule
-execution, public or CLI mutation, distributed app packaging, analytics,
-telemetry, and network access remain absent. Quarantine is a same-volume rename
-that deallocates no data and guarantees exactly 0 B of freed capacity. See the
-[manual restore contract](RESTORE.md). The separately planned first irreversible
-operation is constrained by the
-[receipt-bound quarantine purge contract](PURGE.md); no purge record, recovery,
-or unlink described there is implemented by this durability layer.
+Phase 10 extends the shared mixed journal with a separate purge intent/receipt
+family and an explicitly authorized descriptor-relative deletion executor. The
+observational recovery layer can validate purge records, finish a provable
+terminal receipt, or expose an exact, safely validated and synchronized staged
+remainder for explicit retry; unsafe or durability-unresolved state requires
+manual recovery. Recovery never invokes a staging rename or unlink itself.
+Journal compaction, record
+deletion, automatic rollback, retention, batch or background action,
+custom-root or multi-rule execution, public or CLI mutation, distributed app
+packaging, analytics, telemetry, and network access remain absent. Quarantine
+is a same-volume rename that deallocates no data and guarantees exactly 0 B of
+freed capacity. See the [manual restore contract](RESTORE.md) and
+[receipt-bound quarantine purge contract](PURGE.md).
 
 ## Verification gate
 

@@ -12,7 +12,8 @@ workflow and package-scoped executor. After the final UI confirmation, that
 workflow derives and briefly holds Core's process-local approval, attempt,
 attestation, and authorization values. The UI and presentation never receive
 them, and the internal execution claim remains Core-only. Receipt-bound restore
-uses a separate confirmation and authority.
+and receipt-bound purge use separate, mutually non-interpretable confirmation
+and authority families.
 
 Authorization is not filesystem access. The public contract performs no scan,
 process inspection, npm invocation, clock read, network request, or filesystem
@@ -152,8 +153,9 @@ quarantine-destination facts while verified descriptors remain held. See the
 The scope is recoverable quarantine only. Durable quarantine intent, receipt,
 and recovery do not broaden it. Receipt-bound restore is implemented through a
 separate confirmation and single-use authority; it never reuses this
-authorization. Permanent deletion and purge require a later policy,
-authorization design, and explicit user action.
+authorization. Receipt-bound permanent deletion is likewise implemented through
+its own purge policy, confirmation statements, single-use authority, durable
+journal family, and explicit user action; it never reuses this authorization.
 
 ## Privacy, persistence, and failures
 
