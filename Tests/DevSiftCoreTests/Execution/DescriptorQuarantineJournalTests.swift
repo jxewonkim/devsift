@@ -687,6 +687,7 @@ final class DescriptorJournalTestFixture {
   let candidateDescriptor: Int32
   let absoluteRootComponents: [DescriptorPathComponent]
   let homeComponentCount: Int
+  private var descriptorsClosed = false
   private var removed = false
 
   init(createCandidate: Bool = true, createQuarantine: Bool = true) throws {
@@ -834,17 +835,57 @@ final class DescriptorJournalTestFixture {
   }
 
   func remove() {
+    if !descriptorsClosed {
+      descriptorsClosed = true
+      if candidateDescriptor >= 0 { descriptorCloseIgnoringErrors(candidateDescriptor) }
+      if quarantineDescriptor >= 0 { descriptorCloseIgnoringErrors(quarantineDescriptor) }
+      if rootDescriptor >= 0 { descriptorCloseIgnoringErrors(rootDescriptor) }
+    }
     guard !removed else { return }
-    removed = true
-    if candidateDescriptor >= 0 { descriptorCloseIgnoringErrors(candidateDescriptor) }
-    if quarantineDescriptor >= 0 { descriptorCloseIgnoringErrors(quarantineDescriptor) }
-    if rootDescriptor >= 0 { descriptorCloseIgnoringErrors(rootDescriptor) }
-    try? FileManager.default.removeItem(at: baseURL)
+    descriptorJournalTestNormalizeFixtureForRemoval(at: baseURL)
+    do {
+      try FileManager.default.removeItem(at: baseURL)
+      removed = true
+    } catch {
+      // Deinitialization retries after tests release any remaining handles.
+    }
   }
 
   deinit {
     remove()
   }
+}
+
+/// Tests deliberately make synthetic descendants read-only or flagged. Restore
+/// only this UUID-scoped fixture's removability, never following symlinks, so a
+/// passing test does not accumulate private temporary trees.
+private func descriptorJournalTestNormalizeFixtureForRemoval(at baseURL: URL) {
+  descriptorJournalTestNormalizeFixtureEntryForRemoval(baseURL)
+  guard
+    let enumerator = FileManager.default.enumerator(
+      at: baseURL,
+      includingPropertiesForKeys: nil,
+      options: [],
+      errorHandler: { _, _ in true }
+    )
+  else {
+    return
+  }
+  while let url = enumerator.nextObject() as? URL {
+    descriptorJournalTestNormalizeFixtureEntryForRemoval(url)
+  }
+}
+
+private func descriptorJournalTestNormalizeFixtureEntryForRemoval(_ url: URL) {
+  var information = stat()
+  guard Darwin.lstat(url.path, &information) == 0 else { return }
+  let fileType = information.st_mode & mode_t(S_IFMT)
+  guard fileType != mode_t(S_IFLNK) else { return }
+  if information.st_flags != 0 {
+    _ = Darwin.chflags(url.path, 0)
+  }
+  let mode: mode_t = fileType == mode_t(S_IFDIR) ? 0o700 : 0o600
+  _ = Darwin.chmod(url.path, mode)
 }
 
 enum DescriptorJournalTestError: Error {
