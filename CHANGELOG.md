@@ -9,6 +9,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Runtime native-app language selection with persisted `System`, `English`, and
+  `Korean` choices. Scan, review, quarantine, recovery, restore, permanent-
+  deletion, and accessibility copy can render in Korean while filesystem
+  paths and names, tool names, policy identifiers, POSIX codes, and exact Core-
+  required confirmation statements remain verbatim.
+
 - A source-run native-app workflow for one exact npm cache at the current
   non-root account's passwd-home `~/.npm/_cacache`. It retains the Core-issued
   review session,

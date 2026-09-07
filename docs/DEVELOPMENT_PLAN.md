@@ -905,6 +905,24 @@ receipt-bound object absent from both managed names and report observed
 volume-capacity change without claiming that the observation is an exact causal
 measurement.
 
+## Phase 10.5: runtime English and Korean app interface
+
+Status: implemented before signed-app packaging.
+
+- Add a persisted in-app `System` / `English` / `Korean` selector without
+  recreating workflow view models or resetting active review and confirmation
+  state.
+- Localize app-owned scan, review, quarantine, recovery, restore, permanent-
+  deletion, and accessibility copy at render time.
+- Keep raw paths and filenames, tool names, policy identifiers and revisions,
+  POSIX codes, and exact Core-required confirmation statements verbatim.
+- Verify language resolution, fallback, dynamic formatting, safety-copy
+  coverage, and verbatim security identifiers with unit tests and native
+  snapshots.
+
+Milestone: the source-run native app can be used in English or Korean while its
+existing safety and authorization boundaries remain unchanged.
+
 ## Phase 11: signed and downloadable native app
 
 Status: next; no installable app artifact exists.

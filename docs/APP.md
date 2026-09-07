@@ -29,6 +29,16 @@ distributed `.app` bundle. Scanning and review are available on macOS 14 or
 newer; every quarantine or restore mutation requires macOS 26 or newer.
 Purge uses the same minimum platform and fails before mutation on older systems.
 
+The dashboard and recovery headers provide a language menu with `System`,
+`English`, and `Korean`. `System` resolves supported macOS language preferences
+and falls back to English. The selection is persisted independently of workflow
+state and applies immediately through the SwiftUI environment; switching it
+does not recreate the window's view model or discard an active scan, draft,
+inventory, or confirmation. App-owned labels, safety disclosures, results, and
+accessibility text are localized. Raw filesystem paths and names, tool names,
+rule/check identifiers and revisions, POSIX codes, keyboard shortcuts, and exact
+Core-required confirmation statement identifiers are always rendered verbatim.
+
 ## Explicit scope
 
 The app starts empty and never scans on launch. `Select Folder…` opens a native
@@ -359,7 +369,8 @@ from VoiceOver. Metric groups, progress, observation status, and the results
 table have explicit labels. Scan and draft-review phase changes post a
 high-priority VoiceOver announcement, and state titles carry the heading trait.
 Complete and partial states include text and icons, so color is never the only
-signal.
+signal. App-owned accessibility labels, hints, values, and announcements follow
+the selected English or Korean interface language.
 
 The interface uses semantic macOS colors and system typography. It supports
 light and dark appearance without separate assets, has a 900 x 620 minimum
@@ -395,13 +406,18 @@ cover separate initial/retry statements, all four acknowledgements, stale and
 cross-attempt handles, single-use execution, mandatory post-attempt refresh,
 late cancellation, partial deletion, active-cache preservation, bounded
 capacity wording, and real descriptor-relative unlink over synthetic fixtures.
+Localization tests additionally cover deterministic system-language resolution,
+English fallback, Korean safety copy and formatting, verbatim raw values, and
+the invariant that Core-required confirmation statements are never translated.
 
 The optional native snapshot harness renders representative empty, scanning,
 classifying, complete, partial, policy, selection, and draft-review states. It
 also renders light and dark npm quarantine review/results, recovery inventory,
 restore confirmation/results, purge inventory, initial/retry purge
 confirmations, minimum-window purge layout, and purge results without scanning
-a real directory:
+a real directory. Korean coverage includes the empty dashboard, constrained
+and expanded scan results, and the minimum-window permanent-deletion
+confirmation with its in-sheet language selector:
 
 ```shell
 env DEVSIFT_SNAPSHOT_DIR=/private/tmp/devsift-snapshots \

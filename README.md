@@ -76,7 +76,9 @@ application data are never treated as disposable merely because they are large.
   cancellable scans, observation results, policy explanations, explicit draft
   candidate selection, in-memory review, narrowly scoped npm quarantine,
   explicit recovery inventory loading, receipt-bound manual restore, and
-  separately confirmed permanent deletion with explicit retry.
+  separately confirmed permanent deletion with explicit retry. Its interface
+  can follow the system language or be switched at runtime between English and
+  Korean.
 
 The native app can ask Core to create an in-memory draft from an explicitly
 selected eligible subset and display an identity-free review projection. It
@@ -261,6 +263,13 @@ swift run devsift classify .
 swift run devsift classify --json .
 swift run DevSiftApp
 ```
+
+Use the globe menu in the dashboard or recovery header to choose `System`,
+`English`, or `Korean`. The choice is saved for later launches and changes the
+current window without discarding its scan, review, recovery, or confirmation state.
+Filesystem paths and names, tool names, rule identifiers and revisions, POSIX
+codes, and exact Core-required confirmation statements remain verbatim in both
+languages.
 
 ### Try the Phase 10 source build
 
