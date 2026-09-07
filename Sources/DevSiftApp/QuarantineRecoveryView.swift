@@ -20,6 +20,7 @@ struct QuarantineRecoveryView: View {
         VStack(alignment: .leading, spacing: 16) {
           sameVolumeNotice
           restoreStatus
+          purgeStatus
           inventoryContent
           safetyFooter
         }
@@ -35,8 +36,11 @@ struct QuarantineRecoveryView: View {
 
   private var header: some View {
     HStack(spacing: 12) {
-      Label("npm Recovery", systemImage: "arrow.uturn.backward.circle.fill")
-        .font(.title2.weight(.semibold))
+      Label(
+        "npm Recovery & Cleanup",
+        systemImage: "externaldrive.badge.minus"
+      )
+      .font(.title2.weight(.semibold))
 
       Spacer()
 
@@ -70,10 +74,10 @@ struct QuarantineRecoveryView: View {
         .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: 4) {
-        Text("Quarantine does not free disk space")
+        Text("Quarantine is not permanent deletion")
           .font(.headline)
         Text(
-          "DevSift quarantine is a same-volume move. Recovery can restore the current quarantined contents, but neither quarantine nor restore permanently deletes files or reclaims capacity."
+          "DevSift quarantine is a same-volume move. You can restore a current item or separately confirm permanent deletion of its exact receipt-bound contents. Capacity readings are observational: deletion may show zero change, and DevSift does not provide secure erase or guaranteed reclaimed space."
         )
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -86,6 +90,75 @@ struct QuarantineRecoveryView: View {
     .overlay {
       RoundedRectangle(cornerRadius: 10)
         .stroke(Color.orange.opacity(0.3), lineWidth: 0.5)
+    }
+  }
+
+  @ViewBuilder
+  private var purgeStatus: some View {
+    switch viewModel.purgeState {
+    case .idle:
+      EmptyView()
+
+    case .preparing(let target):
+      recoveryProgress(
+        title: purgeProgressTitle(
+          target,
+          initial: "Preparing permanent deletion",
+          retry: "Preparing deletion retry"
+        ),
+        message:
+          "Core is freshly validating the exact receipt-bound journal evidence, trusted descriptors, current account, and same-volume capacity observation."
+      )
+
+    case .awaitingConfirmation(let confirmation):
+      QuarantinePurgeConfirmationView(
+        confirmation: confirmation,
+        confirm: {
+          exactStatementWasConfirmed,
+          restoreCutoffWasAccepted,
+          activityRisksWereAccepted,
+          capacityLimitsWereAccepted in
+          viewModel.confirmAndPurge(
+            confirmationID: confirmation.id,
+            exactPermanentDeletionStatementWasConfirmed: exactStatementWasConfirmed,
+            restoreCutoffAndPartialDeletionWereAccepted: restoreCutoffWasAccepted,
+            workWasStoppedAndActivityRisksWereAccepted: activityRisksWereAccepted,
+            capacityAndSecureEraseLimitsWereAccepted: capacityLimitsWereAccepted
+          )
+        },
+        cancel: { viewModel.cancelPurgeConfirmation(confirmation.id) }
+      )
+      .id(confirmation.id)
+
+    case .cancellingConfirmation:
+      recoveryProgress(
+        title: "Cancelling permanent deletion confirmation",
+        message: "Discarding the prepared one-time authority before another action is enabled."
+      )
+
+    case .purging(let target):
+      recoveryProgress(
+        title: purgeProgressTitle(
+          target,
+          initial: "Permanently deleting quarantined contents",
+          retry: "Continuing permanent deletion"
+        ),
+        message:
+          "Core is executing one bounded, receipt-bound pass. If it stops after staging, the refreshed inventory will require a new explicit retry."
+      )
+
+    case .finished(let result):
+      QuarantinePurgeResultBanner(
+        result: result,
+        dismiss: viewModel.dismissPurgeStatus
+      )
+
+    case .failed(let issue):
+      QuarantineRecoveryIssueBanner(
+        issue: issue,
+        actionTitle: "Dismiss",
+        dismiss: viewModel.dismissPurgeStatus
+      )
     }
   }
 
@@ -150,10 +223,10 @@ struct QuarantineRecoveryView: View {
     switch viewModel.inventoryState {
     case .notLoaded:
       VStack(alignment: .leading, spacing: 10) {
-        Text("Load the recovery inventory")
+        Text("Load the recovery and cleanup inventory")
           .font(.headline)
         Text(
-          "Loading is explicit: DevSift will acquire the recovery journal lock, reconcile incomplete receipts, and inspect only its fixed current-account npm quarantine."
+          "Loading is explicit: DevSift will acquire the journal lock, reconcile incomplete receipts, and inspect only its fixed current-account npm quarantine. Nothing is deleted while loading."
         )
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -171,8 +244,8 @@ struct QuarantineRecoveryView: View {
 
     case .loading:
       recoveryProgress(
-        title: "Loading recovery inventory",
-        message: "Reconciling durable journal state before any restore option is shown."
+        title: "Loading recovery and cleanup inventory",
+        message: "Reconciling durable journal state before any restore or deletion option is shown."
       )
 
     case .failed(let failure):
@@ -186,7 +259,7 @@ struct QuarantineRecoveryView: View {
           Label("No quarantined npm cache", systemImage: "checkmark.circle")
             .font(.headline)
           Text(
-            "The reconciled journal contains no current item that can be presented for recovery."
+            "The reconciled journal contains no current item that can be restored, permanently deleted, or retried."
           )
           .font(.callout)
           .foregroundStyle(.secondary)
@@ -204,7 +277,7 @@ struct QuarantineRecoveryView: View {
               .font(.headline)
             Spacer()
             Text(
-              "\(inventory.rows.count.formatted()) \(inventory.rows.count == 1 ? "item" : "items")"
+              "\((inventory.rows.count + inventory.purgeRetryRows.count).formatted()) \((inventory.rows.count + inventory.purgeRetryRows.count) == 1 ? "item" : "items")"
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -214,8 +287,36 @@ struct QuarantineRecoveryView: View {
             QuarantineRecoveryInventoryRowView(
               row: row,
               restoreSelectionIsEnabled: viewModel.canStartRestore,
-              restore: { viewModel.requestRestore(for: row.id) }
+              purgeSelectionIsEnabled: viewModel.canStartInitialPurge,
+              restore: { viewModel.requestRestore(for: row.id) },
+              purge: { viewModel.requestInitialPurge(for: row.id) }
             )
+          }
+
+          if !inventory.purgeRetryRows.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+              Label(
+                "Incomplete permanent deletions",
+                systemImage: "exclamationmark.arrow.triangle.2.circlepath"
+              )
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(.orange)
+
+              Text(
+                "These exact staged remainders cannot be restored. Each continuation requires a new, separate confirmation."
+              )
+              .font(.caption)
+              .foregroundStyle(.secondary)
+
+              ForEach(inventory.purgeRetryRows) { row in
+                QuarantinePurgeRetryInventoryRowView(
+                  row: row,
+                  retrySelectionIsEnabled: viewModel.canStartPurgeRetry,
+                  retry: { viewModel.requestPurgeRetry(for: row.id) }
+                )
+              }
+            }
+            .padding(.top, 6)
           }
         }
       }
@@ -225,16 +326,29 @@ struct QuarantineRecoveryView: View {
   private var safetyFooter: some View {
     VStack(alignment: .leading, spacing: 5) {
       Label(
-        "Restore only · no permanent deletion · no overwrite",
+        "Receipt-bound operations only · no arbitrary paths · no overwrite",
         systemImage: "lock.shield"
       )
       Text(
-        "Journal v1 does not provide trustworthy item dates or sizes, so this screen does not invent or estimate them. No filesystem paths or journal transaction IDs are displayed."
+        "No filesystem paths, journal transaction IDs, or raw journal bytes are displayed. Permanent deletion never targets the active npm cache and does not claim secure erasure, attribution, or guaranteed reclaimed capacity."
       )
     }
     .font(.caption)
     .foregroundStyle(.secondary)
     .fixedSize(horizontal: false, vertical: true)
+  }
+
+  private func purgeProgressTitle(
+    _ target: QuarantineRecoveryPurgeTarget,
+    initial: String,
+    retry: String
+  ) -> String {
+    switch target {
+    case .initial:
+      initial
+    case .explicitRetry:
+      retry
+    }
   }
 
   private func recoveryProgress(
@@ -262,7 +376,9 @@ struct QuarantineRecoveryView: View {
 private struct QuarantineRecoveryInventoryRowView: View {
   let row: QuarantineRecoveryInventoryRowPresentation
   let restoreSelectionIsEnabled: Bool
+  let purgeSelectionIsEnabled: Bool
   let restore: () -> Void
+  let purge: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -277,10 +393,20 @@ private struct QuarantineRecoveryInventoryRowView: View {
 
         Spacer()
 
-        Button("Restore…", action: restore)
-          .buttonStyle(.borderedProminent)
-          .disabled(!row.canRestore || !restoreSelectionIsEnabled)
-          .accessibilityHint(row.restoreAvailabilityMessage)
+        HStack(spacing: 8) {
+          Button("Restore…", action: restore)
+            .buttonStyle(.borderedProminent)
+            .disabled(!row.canRestore || !restoreSelectionIsEnabled)
+            .accessibilityIdentifier("quarantineRestoreButton")
+            .accessibilityHint(row.restoreAvailabilityMessage)
+
+          Button("Permanently Delete…", role: .destructive, action: purge)
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .disabled(!row.canPurge || !purgeSelectionIsEnabled)
+            .accessibilityIdentifier("quarantineInitialPurgeButton")
+            .accessibilityHint(row.purgeAvailabilityMessage)
+        }
       }
 
       Divider()
@@ -300,6 +426,11 @@ private struct QuarantineRecoveryInventoryRowView: View {
       Text(row.restoreAvailabilityMessage)
         .font(.caption)
         .foregroundStyle(row.canRestore ? Color.secondary : Color.orange)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Text(row.purgeAvailabilityMessage)
+        .font(.caption)
+        .foregroundStyle(row.canPurge ? Color.secondary : Color.orange)
         .fixedSize(horizontal: false, vertical: true)
     }
     .padding(14)
@@ -324,6 +455,50 @@ private struct QuarantineRecoveryInventoryRowView: View {
     Label(state.title, systemImage: state.tone.systemImage)
       .font(.caption)
       .foregroundStyle(state.tone.color)
+  }
+}
+
+private struct QuarantinePurgeRetryInventoryRowView: View {
+  let row: QuarantineRecoveryPurgeRetryRowPresentation
+  let retrySelectionIsEnabled: Bool
+  let retry: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(row.originalName)
+            .font(.headline.monospaced())
+          Text(row.responsibleTool)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        Spacer()
+
+        Button("Continue Deletion…", role: .destructive, action: retry)
+          .buttonStyle(.borderedProminent)
+          .tint(.red)
+          .disabled(!row.canRetry || !retrySelectionIsEnabled)
+          .accessibilityIdentifier("quarantinePurgeRetryButton")
+          .accessibilityHint(row.retryAvailabilityMessage)
+      }
+
+      Label("Exact staged deletion remainder", systemImage: "shippingbox.and.arrow.backward")
+        .font(.caption)
+        .foregroundStyle(.orange)
+
+      Text(row.retryAvailabilityMessage)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(14)
+    .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10)
+        .stroke(Color.orange.opacity(0.35), lineWidth: 0.5)
+    }
   }
 }
 
@@ -402,6 +577,126 @@ private struct QuarantineRecoveryConfirmationView: View {
   }
 }
 
+private struct QuarantinePurgeConfirmationView: View {
+  let confirmation: QuarantineRecoveryPurgeConfirmationPresentation
+  let confirm: (Bool, Bool, Bool, Bool) -> Void
+  let cancel: () -> Void
+
+  @State private var exactStatementWasConfirmed = false
+  @State private var restoreCutoffAndPartialDeletionWereAccepted = false
+  @State private var workAndActivityRisksWereAccepted = false
+  @State private var capacityAndSecureEraseLimitsWereAccepted = false
+
+  var body: some View {
+    GroupBox {
+      VStack(alignment: .leading, spacing: 12) {
+        Text(introduction)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Exact Core-required statement")
+            .font(.caption.weight(.semibold))
+          Text(verbatim: confirmation.requiredStatementIdentifier)
+            .font(.caption.monospaced())
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+          RoundedRectangle(cornerRadius: 7)
+            .stroke(Color.red.opacity(0.3), lineWidth: 0.5)
+        }
+
+        Toggle(
+          "I confirm the exact statement above and understand this is permanent deletion, not secure erase.",
+          isOn: $exactStatementWasConfirmed
+        )
+        .toggleStyle(.checkbox)
+        .accessibilityIdentifier("quarantinePurgeExactStatementAcknowledgement")
+
+        Toggle(
+          "I accept that restore becomes unavailable after staging and that deletion may be partial.",
+          isOn: $restoreCutoffAndPartialDeletionWereAccepted
+        )
+        .toggleStyle(.checkbox)
+        .accessibilityIdentifier("quarantinePurgeRestoreCutoffAcknowledgement")
+
+        Toggle(
+          "I stopped npm and other work using this cache. I accept unobserved activity, post-quarantine changes, and same-account races.",
+          isOn: $workAndActivityRisksWereAccepted
+        )
+        .toggleStyle(.checkbox)
+        .accessibilityIdentifier("quarantinePurgeActivityRiskAcknowledgement")
+
+        Toggle(
+          "I accept that the capacity reading is only observational, may show zero change or be unavailable, and cannot be attributed to DevSift.",
+          isOn: $capacityAndSecureEraseLimitsWereAccepted
+        )
+        .toggleStyle(.checkbox)
+        .accessibilityIdentifier("quarantinePurgeCapacityAcknowledgement")
+
+        HStack {
+          Spacer()
+          Button("Cancel", action: cancel)
+          Button(confirmButtonTitle, role: .destructive) {
+            confirm(
+              exactStatementWasConfirmed,
+              restoreCutoffAndPartialDeletionWereAccepted,
+              workAndActivityRisksWereAccepted,
+              capacityAndSecureEraseLimitsWereAccepted
+            )
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(.red)
+          .disabled(!allRisksWereAcknowledged)
+          .accessibilityIdentifier("quarantinePurgeConfirmButton")
+          .accessibilityHint(
+            "Runs one receipt-bound permanent deletion pass after all four acknowledgements are selected"
+          )
+        }
+      }
+      .padding(.top, 4)
+    } label: {
+      Label(confirmationTitle, systemImage: "trash.fill")
+        .font(.headline)
+        .foregroundStyle(.red)
+    }
+    .accessibilityIdentifier("quarantinePurgeConfirmation")
+  }
+
+  private var introduction: String {
+    if confirmation.isExplicitRetry {
+      return
+        "Core prepared one attempt to continue deleting the exact staged remainder of \(confirmation.originalName) for \(confirmation.responsibleTool). Restore is already unavailable for this remainder."
+    }
+    return
+      "Core prepared one attempt to permanently delete the exact current quarantined \(confirmation.originalName) for \(confirmation.responsibleTool). It never targets the active cache name."
+  }
+
+  private var confirmationTitle: String {
+    confirmation.isExplicitRetry
+      ? "Confirm permanent deletion retry"
+      : "Confirm permanent deletion"
+  }
+
+  private var confirmButtonTitle: String {
+    confirmation.isExplicitRetry
+      ? "Continue Permanent Deletion"
+      : "Permanently Delete"
+  }
+
+  private var allRisksWereAcknowledged: Bool {
+    exactStatementWasConfirmed
+      && restoreCutoffAndPartialDeletionWereAccepted
+      && workAndActivityRisksWereAccepted
+      && capacityAndSecureEraseLimitsWereAccepted
+  }
+}
+
 private struct QuarantineRecoveryResultBanner: View {
   let result: QuarantineRecoveryResultPresentation
   let dismiss: () -> Void
@@ -423,7 +718,7 @@ private struct QuarantineRecoveryResultBanner: View {
         Text(cancellationMessage)
           .foregroundStyle(.secondary)
       }
-      Text("Permanent deletion: no · overwrite: no")
+      Text("Restore result · no overwrite · no deletion authority used")
         .font(.caption.weight(.medium))
         .foregroundStyle(.secondary)
     }
@@ -431,6 +726,67 @@ private struct QuarantineRecoveryResultBanner: View {
     .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(result.tone.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+  }
+}
+
+private struct QuarantinePurgeResultBanner: View {
+  let result: QuarantineRecoveryPurgeResultPresentation
+  let dismiss: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .top) {
+        Label(result.title, systemImage: result.tone.systemImage)
+          .font(.headline)
+          .foregroundStyle(result.tone.color)
+        Spacer()
+        Button("Dismiss", action: dismiss)
+          .controlSize(.small)
+      }
+
+      Text(result.message)
+      Text(result.durabilityMessage)
+        .foregroundStyle(.secondary)
+      Text(result.observedUnlinkMessage)
+        .foregroundStyle(.secondary)
+      Text(result.capacityMessage)
+        .foregroundStyle(.secondary)
+
+      if let cancellationMessage = result.cancellationMessage {
+        Text(cancellationMessage)
+          .foregroundStyle(.orange)
+      }
+
+      Label(resultSummary, systemImage: resultSummaryImage)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(result.requiresExplicitRetry ? Color.orange : result.tone.color)
+
+      Text(result.limitationsMessage)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .font(.callout)
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(result.tone.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    .accessibilityIdentifier("quarantinePurgeResult")
+  }
+
+  private var resultSummary: String {
+    if result.requiresExplicitRetry {
+      return "A separate confirmation is required to continue deletion."
+    }
+    if result.performedPermanentDeletion {
+      return "Permanent deletion activity was observed during this pass."
+    }
+    return "No permanent deletion activity was observed during this pass."
+  }
+
+  private var resultSummaryImage: String {
+    if result.requiresExplicitRetry {
+      return "exclamationmark.arrow.triangle.2.circlepath"
+    }
+    return result.performedPermanentDeletion ? "trash.fill" : "nosign"
   }
 }
 

@@ -279,7 +279,7 @@ struct VisualSnapshotTests {
     for (appearance, suffix) in snapshotAppearances {
       let inventoryModel = QuarantineRecoveryViewModel(
         workflow: SnapshotRecoveryWorkflow(
-          inventories: [.success(snapshotRecoveryInventory())]
+          inventories: [.success(snapshotRecoveryInventory(includePurgeRetry: true))]
         )
       )
       await inventoryModel.loadInventory().value
@@ -353,6 +353,132 @@ struct VisualSnapshotTests {
         appearance: appearance,
         size: CGSize(width: 800, height: 700),
         to: outputDirectory.appendingPathComponent("restore-result-\(suffix).png")
+      )
+
+      let purgeConfirmationModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [.success(snapshotRecoveryInventory(includePurgeRetry: true))],
+          initialPurgePreparation: .success(snapshotPreparedPurge(kind: .initial))
+        )
+      )
+      await purgeConfirmationModel.loadInventory().value
+      guard
+        case .loaded(let purgeConfirmationInventory) =
+          purgeConfirmationModel.inventoryState,
+        let purgeConfirmationRow = purgeConfirmationInventory.rows.first,
+        let purgePreparation = purgeConfirmationModel.requestInitialPurge(
+          for: purgeConfirmationRow.id
+        )
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await purgePreparation.value
+      guard case .awaitingConfirmation = purgeConfirmationModel.purgeState else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      try render(
+        QuarantineRecoveryView(viewModel: purgeConfirmationModel),
+        appearance: appearance,
+        size: CGSize(width: 800, height: 980),
+        to: outputDirectory.appendingPathComponent("purge-confirmation-\(suffix).png")
+      )
+
+      // Closing a rendered recovery window invalidates its prepared authority.
+      // Build a fresh model for the constrained-window snapshot.
+      let minimumPurgeConfirmationModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [.success(snapshotRecoveryInventory(includePurgeRetry: true))],
+          initialPurgePreparation: .success(snapshotPreparedPurge(kind: .initial))
+        )
+      )
+      await minimumPurgeConfirmationModel.loadInventory().value
+      guard
+        case .loaded(let minimumPurgeInventory) =
+          minimumPurgeConfirmationModel.inventoryState,
+        let minimumPurgeRow = minimumPurgeInventory.rows.first,
+        let minimumPurgePreparation = minimumPurgeConfirmationModel.requestInitialPurge(
+          for: minimumPurgeRow.id
+        )
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await minimumPurgePreparation.value
+      guard case .awaitingConfirmation = minimumPurgeConfirmationModel.purgeState else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      try render(
+        QuarantineRecoveryView(viewModel: minimumPurgeConfirmationModel),
+        appearance: appearance,
+        size: CGSize(width: 680, height: 560),
+        to: outputDirectory.appendingPathComponent(
+          "purge-confirmation-minimum-\(suffix).png"
+        )
+      )
+
+      let purgeRetryConfirmationModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [.success(snapshotRecoveryInventory(includePurgeRetry: true))],
+          retryPurgePreparation: .success(snapshotPreparedPurge(kind: .explicitRetry))
+        )
+      )
+      await purgeRetryConfirmationModel.loadInventory().value
+      guard case .loaded(let purgeRetryInventory) = purgeRetryConfirmationModel.inventoryState,
+        let purgeRetryRow = purgeRetryInventory.purgeRetryRows.first,
+        let retryPreparation = purgeRetryConfirmationModel.requestPurgeRetry(
+          for: purgeRetryRow.id
+        )
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await retryPreparation.value
+      guard case .awaitingConfirmation = purgeRetryConfirmationModel.purgeState else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      try render(
+        QuarantineRecoveryView(viewModel: purgeRetryConfirmationModel),
+        appearance: appearance,
+        size: CGSize(width: 800, height: 980),
+        to: outputDirectory.appendingPathComponent("purge-retry-confirmation-\(suffix).png")
+      )
+
+      let purgeResultModel = QuarantineRecoveryViewModel(
+        workflow: SnapshotRecoveryWorkflow(
+          inventories: [
+            .success(snapshotRecoveryInventory()),
+            .success(QuarantineRecoveryWorkflowInventory(items: [])),
+          ],
+          initialPurgePreparation: .success(snapshotPreparedPurge(kind: .initial)),
+          purgeExecution: .success(snapshotPurgeResult())
+        )
+      )
+      await purgeResultModel.loadInventory().value
+      guard case .loaded(let purgeResultInventory) = purgeResultModel.inventoryState,
+        let purgeResultRow = purgeResultInventory.rows.first,
+        let resultPreparation = purgeResultModel.requestInitialPurge(for: purgeResultRow.id)
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await resultPreparation.value
+      guard case .awaitingConfirmation(let purgeConfirmation) = purgeResultModel.purgeState,
+        let purgeExecution = purgeResultModel.confirmAndPurge(
+          confirmationID: purgeConfirmation.id,
+          exactPermanentDeletionStatementWasConfirmed: true,
+          restoreCutoffAndPartialDeletionWereAccepted: true,
+          workWasStoppedAndActivityRisksWereAccepted: true,
+          capacityAndSecureEraseLimitsWereAccepted: true
+        )
+      else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      await purgeExecution.value
+      guard case .finished = purgeResultModel.purgeState else {
+        throw SnapshotError.couldNotPrepareRecovery
+      }
+      try render(
+        QuarantineRecoveryView(viewModel: purgeResultModel),
+        appearance: appearance,
+        size: CGSize(width: 800, height: 780),
+        to: outputDirectory.appendingPathComponent("purge-result-\(suffix).png")
       )
     }
   }
@@ -620,6 +746,15 @@ private actor SnapshotRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
       QuarantineRecoveryWorkflowExecutionResult,
       QuarantineRecoveryWorkflowExecutionFailure
     >
+  private let initialPurgePreparation:
+    Result<QuarantineRecoveryPreparedPurge, QuarantinePurgePreparationFailure>
+  private let retryPurgePreparation:
+    Result<QuarantineRecoveryPreparedPurge, QuarantinePurgePreparationFailure>
+  private let purgeExecution:
+    Result<
+      QuarantineRecoveryWorkflowPurgeExecutionResult,
+      QuarantineRecoveryWorkflowPurgeExecutionFailure
+    >
 
   init(
     inventories: [Result<QuarantineRecoveryWorkflowInventory, QuarantineInventoryLoadFailure>],
@@ -630,11 +765,26 @@ private actor SnapshotRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
     execution: Result<
       QuarantineRecoveryWorkflowExecutionResult,
       QuarantineRecoveryWorkflowExecutionFailure
+    > = .failure(.execution(.cancelled)),
+    initialPurgePreparation: Result<
+      QuarantineRecoveryPreparedPurge,
+      QuarantinePurgePreparationFailure
+    > = .failure(.invalidInventoryReference),
+    retryPurgePreparation: Result<
+      QuarantineRecoveryPreparedPurge,
+      QuarantinePurgePreparationFailure
+    > = .failure(.invalidInventoryReference),
+    purgeExecution: Result<
+      QuarantineRecoveryWorkflowPurgeExecutionResult,
+      QuarantineRecoveryWorkflowPurgeExecutionFailure
     > = .failure(.execution(.cancelled))
   ) {
     self.inventories = inventories
     self.preparation = preparation
     self.execution = execution
+    self.initialPurgePreparation = initialPurgePreparation
+    self.retryPurgePreparation = retryPurgePreparation
+    self.purgeExecution = purgeExecution
   }
 
   func reconcileAndLoadInventory()
@@ -662,11 +812,36 @@ private actor SnapshotRecoveryWorkflow: QuarantineRecoveryWorkflowHandling {
     execution
   }
 
+  func beginInitialPurge(
+    for item: QuarantineRecoveryWorkflowItemHandle
+  ) -> Result<QuarantineRecoveryPreparedPurge, QuarantinePurgePreparationFailure> {
+    initialPurgePreparation
+  }
+
+  func beginPurgeRetry(
+    for item: QuarantineRecoveryWorkflowPurgeRetryHandle
+  ) -> Result<QuarantineRecoveryPreparedPurge, QuarantinePurgePreparationFailure> {
+    retryPurgePreparation
+  }
+
+  func authorizeAndPurge(
+    _ preparedPurge: QuarantineRecoveryPreparedPurgeHandle,
+    statement: QuarantinePurgeConfirmationStatement
+  ) -> Result<
+    QuarantineRecoveryWorkflowPurgeExecutionResult,
+    QuarantineRecoveryWorkflowPurgeExecutionFailure
+  > {
+    purgeExecution
+  }
+
   func cancelPendingRestore() {}
 }
 
-private func snapshotRecoveryInventory() -> QuarantineRecoveryWorkflowInventory {
+private func snapshotRecoveryInventory(
+  includePurgeRetry: Bool = false
+) -> QuarantineRecoveryWorkflowInventory {
   let identity = QuarantineRecoveryInventoryIdentity()
+  let retryIdentity = QuarantineRecoveryPurgeRetryInventoryIdentity()
   return QuarantineRecoveryWorkflowInventory(
     items: [
       QuarantineRecoveryWorkflowInventoryItem(
@@ -679,7 +854,19 @@ private func snapshotRecoveryInventory() -> QuarantineRecoveryWorkflowInventory 
         ),
         quarantineReceiptWasProducedByRecovery: true
       )
-    ]
+    ],
+    purgeRetries:
+      includePurgeRetry
+      ? [
+        QuarantineRecoveryWorkflowPurgeRetryItem(
+          handle: QuarantineRecoveryWorkflowPurgeRetryHandle(
+            identity: retryIdentity,
+            ordinal: 0
+          ),
+          responsibleTool: "npm",
+          originalName: "_cacache"
+        )
+      ] : []
   )
 }
 
@@ -701,5 +888,40 @@ private func snapshotRestoreResult() -> QuarantineRecoveryWorkflowExecutionResul
     durability: .receiptRecorded(producedByRecovery: false),
     cancellationWasObservedAfterRename: false,
     isDurablyRestored: true
+  )
+}
+
+private func snapshotPreparedPurge(
+  kind: QuarantinePurgeAttemptKind
+) -> QuarantineRecoveryPreparedPurge {
+  QuarantineRecoveryPreparedPurge(
+    handle: QuarantineRecoveryPreparedPurgeHandle(
+      identity: QuarantineRecoveryPurgeAttemptIdentity()
+    ),
+    attemptKind: kind,
+    requiredStatement:
+      kind == .initial
+      ? .initialPermanentDeletionRisksAccepted
+      : .explicitRetryPermanentDeletionRisksAccepted,
+    responsibleTool: "npm",
+    originalName: "_cacache"
+  )
+}
+
+private func snapshotPurgeResult() -> QuarantineRecoveryWorkflowPurgeExecutionResult {
+  QuarantineRecoveryWorkflowPurgeExecutionResult(
+    attemptKind: .initial,
+    status: .itemAbsent,
+    durability: .terminalReceiptRecorded(
+      outcome: .itemAbsent,
+      producedByRecovery: false
+    ),
+    capacityObservationProvenance: .initialAttempt,
+    observedCapacityChange: .increase(amount: 4_294_967_296),
+    observedUnlinkCount: 742,
+    isDurablyTerminal: true,
+    isCrashRecoverable: true,
+    performedPermanentDeletion: true,
+    requiresExplicitRetry: false
   )
 }
