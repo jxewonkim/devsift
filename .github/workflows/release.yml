@@ -197,7 +197,7 @@ jobs:
           [[ "$(arch "-$EXPECTED_ARCHITECTURE" "$binary" status)" == "$expected_status" ]]
 
   publish:
-    name: Attest and publish pre-release
+    name: Attest and stage draft pre-release
     needs:
       - build
       - native-smoke
@@ -207,6 +207,7 @@ jobs:
     environment: release
     permissions:
       actions: read
+      artifact-metadata: write
       attestations: write
       contents: write
       id-token: write
@@ -292,7 +293,7 @@ jobs:
         with:
           subject-path: ${{ steps.handoff.outputs.archive_path }}
 
-      - name: Create, verify, and publish draft pre-release
+      - name: Create and verify draft pre-release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -346,8 +347,3 @@ jobs:
           [[ "$tag_target_type" == "commit" ]]
           [[ "$tag_commit" == "$GITHUB_SHA" ]]
           [[ "$tag_commit" == "$main_commit" ]]
-          gh release edit "$TAG_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft=false \
-            --prerelease \
-            --latest=false
