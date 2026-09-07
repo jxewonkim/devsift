@@ -3,25 +3,28 @@ import SwiftUI
 struct CleanupQuarantineProgressView: View {
   let root: URL
   let review: CleanupManifestReviewPresentation
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(spacing: 18) {
       ProgressView()
         .controlSize(.large)
-        .accessibilityLabel("Quarantine attempt in progress")
+        .accessibilityLabel(language.localized("Quarantine attempt in progress"))
 
-      Text("Moving the reviewed npm cache to quarantine")
+      Text(language.localized("Moving the reviewed npm cache to quarantine"))
         .font(.title2.weight(.semibold))
         .accessibilityAddTraits(.isHeader)
 
-      Text(SafeDisplayText.filePath(root))
+      Text(verbatim: SafeDisplayText.filePath(root))
         .font(.caption.monospaced())
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
 
       Text(
-        "DevSift is repeating its filesystem safety checks and recording the transaction. Closing the window requests cancellation, but reconciliation may continue if the protected rename has already started."
+        language.localized(
+          "DevSift is repeating its filesystem safety checks and recording the transaction. Closing the window requests cancellation, but reconciliation may continue if the protected rename has already started."
+        )
       )
       .font(.callout)
       .foregroundStyle(.secondary)
@@ -30,7 +33,12 @@ struct CleanupQuarantineProgressView: View {
       .frame(maxWidth: 560)
 
       Label(
-        "\(review.entryCount.formatted()) reviewed item · permanent deletion disabled",
+        language.format(
+          review.entryCount == 1
+            ? "%lld reviewed item · permanent deletion disabled"
+            : "%lld reviewed items · permanent deletion disabled",
+          Int64(review.entryCount)
+        ),
         systemImage: "shippingbox.and.arrow.backward"
       )
       .font(.caption)
@@ -46,6 +54,7 @@ struct CleanupQuarantineResultView: View {
   let result: CleanupQuarantineResultPresentation
   let rescan: () -> Void
   let openRecovery: (() -> Void)?
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     ScrollView {
@@ -57,10 +66,10 @@ struct CleanupQuarantineResultView: View {
             .accessibilityHidden(true)
 
           VStack(alignment: .leading, spacing: 6) {
-            Text(result.title)
+            Text(language.localized(result.title))
               .font(.title2.weight(.semibold))
               .accessibilityAddTraits(.isHeader)
-            Text(SafeDisplayText.filePath(root))
+            Text(verbatim: SafeDisplayText.filePath(root))
               .font(.caption.monospaced())
               .foregroundStyle(.secondary)
               .lineLimit(1)
@@ -70,26 +79,26 @@ struct CleanupQuarantineResultView: View {
 
         statusCard(
           title: "Attempt result",
-          message: result.message,
+          message: language.localized(result.message),
           systemImage: "arrow.right.square"
         )
         statusCard(
           title: "Durability",
-          message: result.durabilityMessage,
+          message: language.localized(result.durabilityMessage),
           systemImage: "checkmark.shield"
         )
 
         if let namespaceMessage = result.namespaceMessage {
           statusCard(
             title: "Quarantine namespace",
-            message: namespaceMessage,
+            message: language.localized(namespaceMessage),
             systemImage: "folder.badge.gearshape"
           )
         }
         if let cancellationMessage = result.cancellationMessage {
           statusCard(
             title: "Cancellation",
-            message: cancellationMessage,
+            message: language.localized(cancellationMessage),
             systemImage: "clock.arrow.circlepath"
           )
         }
@@ -100,10 +109,13 @@ struct CleanupQuarantineResultView: View {
             .foregroundStyle(.orange)
             .accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
-            Text("No disk space was reclaimed")
+            Text(language.localized("No disk space was reclaimed"))
               .font(.headline)
             Text(
-              "Quarantine is a same-volume move. No file was permanently deleted and guaranteed freed capacity is \(StorageByteFormatter.string(from: result.guaranteedFreedBytes))."
+              language.format(
+                "Quarantine is a same-volume move. No file was permanently deleted and guaranteed freed capacity is %@.",
+                StorageByteFormatter.string(from: result.guaranteedFreedBytes)
+              )
             )
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -114,10 +126,10 @@ struct CleanupQuarantineResultView: View {
 
         HStack {
           if let openRecovery {
-            Button("Open Recovery…", action: openRecovery)
+            Button(language.localized("Open Recovery…"), action: openRecovery)
               .buttonStyle(.borderedProminent)
           }
-          Button("Rescan", action: rescan)
+          Button(language.localized("Rescan"), action: rescan)
         }
       }
       .frame(maxWidth: 720, alignment: .leading)
@@ -136,7 +148,7 @@ struct CleanupQuarantineResultView: View {
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 3) {
-        Text(title)
+        Text(language.localized(title))
           .font(.callout.weight(.semibold))
         Text(message)
           .font(.callout)

@@ -3,6 +3,8 @@ import DevSiftCore
 import SwiftUI
 
 struct ScanResultView: View {
+  @Environment(\.appLanguage) private var language
+
   let root: URL
   let presentation: ScanPresentation
   let cleanupReviewPhase: CleanupReviewPhase
@@ -105,11 +107,11 @@ struct ScanResultView: View {
   private var resultHeading: some View {
     HStack(alignment: .firstTextBaseline, spacing: 18) {
       VStack(alignment: .leading, spacing: 4) {
-        Text(SafeDisplayText.fileName(of: root))
+        Text(verbatim: SafeDisplayText.fileName(of: root))
           .font(.system(size: 28, weight: .semibold))
           .lineLimit(1)
           .accessibilityAddTraits(.isHeader)
-        Text(SafeDisplayText.filePath(root))
+        Text(verbatim: SafeDisplayText.filePath(root))
           .font(.caption.monospaced())
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -120,16 +122,20 @@ struct ScanResultView: View {
       Spacer()
 
       Label(
-        presentation.observationIsComplete ? "Complete observation" : "Partial observation",
+        language.localized(
+          presentation.observationIsComplete ? "Complete observation" : "Partial observation"
+        ),
         systemImage: presentation.observationIsComplete
           ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
       )
       .font(.callout.weight(.medium))
       .foregroundStyle(presentation.observationIsComplete ? .green : .orange)
       .accessibilityLabel(
-        presentation.observationIsComplete
-          ? "Scan complete within configured limits"
-          : "Partial scan. Some entries or accounting details were not observed"
+        language.localized(
+          presentation.observationIsComplete
+            ? "Scan complete within configured limits"
+            : "Partial scan. Some entries or accounting details were not observed"
+        )
       )
     }
   }
@@ -138,66 +144,73 @@ struct ScanResultView: View {
   private var topLevelContent: some View {
     if presentation.report.traversalDetailsWereDiscarded {
       UnavailableResultsView(
-        title: "Largest observed items unavailable",
-        message:
+        title: language.localized("Largest observed items unavailable"),
+        message: language.localized(
           "The entry limit was reached. Descendant totals, top-level details, and earlier scan notes were discarded; only the selected folder inode remains in the diagnostic report."
+        )
       )
     } else if presentation.report.topLevelItemsWereSuppressed {
       UnavailableResultsView(
-        title: "Top-level details suppressed",
-        message:
-          "\(presentation.report.topLevelItemCount.formatted()) top-level items were observed. Their details exceeded the configured reporting limit, so no partial subset is shown."
+        title: language.localized("Top-level details suppressed"),
+        message: topLevelItemsSuppressedMessage
       )
     } else if presentation.items.isEmpty {
       UnavailableResultsView(
-        title: "No top-level items observed",
-        message: "The selected folder contained no entries within the configured scan scope."
+        title: language.localized("No top-level items observed"),
+        message: language.localized(
+          "The selected folder contained no entries within the configured scan scope."
+        )
       )
     } else {
       VStack(alignment: .leading, spacing: 8) {
         HStack {
-          Text("Largest observed items")
+          Text(language.localized("Largest observed items"))
             .font(.headline)
-          Text("Scanner observation · independent policy assessment")
+          Text(language.localized("Scanner observation · independent policy assessment"))
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
-          Text("\(presentation.items.count.formatted()) shown")
+          Text(shownItemCount)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
 
         Table(presentation.items, selection: $selectedItem) {
-          TableColumn("Dry run") { row in
+          TableColumn(language.localized("Dry run")) { row in
             if let selection = row.cleanupSelection {
               Toggle(
-                "Include \(row.displayPath) in the dry run",
+                language.format("Include %@ in the dry run", row.displayPath),
                 isOn: cleanupSelectionBinding(for: selection)
               )
               .labelsHidden()
               .toggleStyle(.checkbox)
               .disabled(cleanupReviewPhase.isPreparing)
               .accessibilityValue(
-                selectedCleanupCandidates.contains(selection) ? "Included" : "Not included"
+                language.localized(
+                  selectedCleanupCandidates.contains(selection) ? "Included" : "Not included"
+                )
               )
               .accessibilityHint(
-                "Adds this exact path and rule revision to an unapproved in-memory draft"
+                language.localized(
+                  "Adds this exact path and rule revision to an unapproved in-memory draft"
+                )
               )
             } else {
               Image(systemName: "lock.fill")
                 .foregroundStyle(.tertiary)
-                .accessibilityLabel("Not eligible for the dry run")
-                .help("This item does not meet every Core planning requirement.")
+                .accessibilityLabel(language.localized("Not eligible for the dry run"))
+                .help(
+                  language.localized("This item does not meet every Core planning requirement."))
             }
           }
           .width(58)
 
-          TableColumn("Item") { row in
+          TableColumn(language.localized("Item")) { row in
             HStack(spacing: 8) {
               Image(systemName: row.summary.kind.systemImage)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-              Text(row.displayPath)
+              Text(verbatim: row.displayPath)
                 .lineLimit(1)
                 .truncationMode(.middle)
             }
@@ -205,13 +218,13 @@ struct ScanResultView: View {
           }
           .width(min: 130, ideal: 170, max: 360)
 
-          TableColumn("Kind") { row in
-            Text(row.summary.kind.displayName)
+          TableColumn(language.localized("Kind")) { row in
+            Text(language.localized(row.summary.kind.displayName))
               .foregroundStyle(.secondary)
           }
           .width(54)
 
-          TableColumn("Allocation") { row in
+          TableColumn(language.localized("Allocation")) { row in
             SizeCell(
               bytes: row.summary.recursiveSize.allocatedBytes,
               isAvailable: !row.summary.sizeOverflowed,
@@ -221,7 +234,7 @@ struct ScanResultView: View {
           }
           .width(92)
 
-          TableColumn("Link-adjusted") { row in
+          TableColumn(language.localized("Link-adjusted")) { row in
             SizeCell(
               bytes: row.summary.hardLinkExclusiveAllocatedBytes,
               isAvailable: !row.summary.sizeOverflowed,
@@ -233,15 +246,15 @@ struct ScanResultView: View {
           }
           .width(98)
 
-          TableColumn("Entries") { row in
-            Text(row.summary.counts.total.formatted())
+          TableColumn(language.localized("Entries")) { row in
+            Text(language.format("%lld", Int64(clamping: row.summary.counts.total)))
               .monospacedDigit()
           }
           .width(54)
 
-          TableColumn("Observation") { row in
+          TableColumn(language.localized("Observation")) { row in
             Label(
-              row.observationIsComplete ? "Complete" : "Partial",
+              language.localized(row.observationIsComplete ? "Complete" : "Partial"),
               systemImage: row.observationIsComplete
                 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
             )
@@ -250,7 +263,7 @@ struct ScanResultView: View {
           }
           .width(86)
 
-          TableColumn("Policy") { row in
+          TableColumn(language.localized("Policy")) { row in
             PolicyBadge(policy: row.policy)
           }
           .width(94)
@@ -258,7 +271,9 @@ struct ScanResultView: View {
         .tableStyle(.inset(alternatesRowBackgrounds: true))
         .frame(height: tableHeight)
         .accessibilityLabel(
-          "Largest observed top-level items with observation and policy status"
+          language.localized(
+            "Largest observed top-level items with observation and policy status"
+          )
         )
       }
     }
@@ -274,6 +289,24 @@ struct ScanResultView: View {
     policyDetailsAreExpanded || shouldShowObservationNotice ? 120 : 180
   }
 
+  private var topLevelItemsSuppressedMessage: String {
+    let count = presentation.report.topLevelItemCount
+    return language.format(
+      count == 1
+        ? "%lld top-level item was observed. Its details exceeded the configured reporting limit, so no partial subset is shown."
+        : "%lld top-level items were observed. Their details exceeded the configured reporting limit, so no partial subset is shown.",
+      Int64(clamping: count)
+    )
+  }
+
+  private var shownItemCount: String {
+    let count = presentation.items.count
+    return language.format(
+      count == 1 ? "%lld item shown" : "%lld items shown",
+      Int64(clamping: count)
+    )
+  }
+
   private func cleanupSelectionBinding(
     for selection: CleanupCandidateSelection
   ) -> Binding<Bool> {
@@ -285,6 +318,8 @@ struct ScanResultView: View {
 }
 
 private struct CleanupDraftSelectionBar: View {
+  @Environment(\.appLanguage) private var language
+
   let candidateCount: Int
   let selectedCount: Int
   let phase: CleanupReviewPhase
@@ -306,17 +341,19 @@ private struct CleanupDraftSelectionBar: View {
       if phase.isPreparing {
         ProgressView()
           .controlSize(.small)
-          .accessibilityLabel("Preparing the in-memory draft")
-        Button("Cancel", role: .cancel, action: cancelPreparation)
+          .accessibilityLabel(language.localized("Preparing the in-memory draft"))
+        Button(language.localized("Cancel"), role: .cancel, action: cancelPreparation)
       } else {
         if selectedCount > 0 {
-          Button("Clear", action: clearSelection)
+          Button(language.localized("Clear"), action: clearSelection)
         }
-        Button("Review Draft…", action: prepareReview)
+        Button(language.localized("Review Draft…"), action: prepareReview)
           .buttonStyle(.borderedProminent)
           .disabled(selectedCount == 0)
           .accessibilityHint(
-            "Creates an unapproved, read-only draft without changing files"
+            language.localized(
+              "Creates an unapproved, read-only draft without changing files"
+            )
           )
       }
     }
@@ -332,28 +369,32 @@ private struct CleanupDraftSelectionBar: View {
 
   private var statusTitle: String {
     if phase.isPreparing {
-      return "Preparing draft"
+      return language.localized("Preparing draft")
     }
     if case .failed(let failure) = phase {
-      return failure.title
+      return language.localized(failure.title)
     }
     if candidateCount == 0 {
-      return "No eligible draft candidates"
+      return language.localized("No eligible draft candidates")
     }
-    return "\(selectedCount) of \(candidateCount) included"
+    return language.format(
+      "%lld of %lld included",
+      Int64(clamping: selectedCount),
+      Int64(clamping: candidateCount)
+    )
   }
 
   private var statusDetail: String {
     if case .failed(let failure) = phase {
-      return failure.message
+      return language.localized(failure.message)
     }
     if phase.isPreparing {
-      return "Core is validating a frozen selection snapshot."
+      return language.localized("Core is validating a frozen selection snapshot.")
     }
     if candidateCount == 0 {
-      return "Nothing currently meets every planning requirement."
+      return language.localized("Nothing currently meets every planning requirement.")
     }
-    return "Selection is not approval. No files will be changed."
+    return language.localized("Selection is not approval. No files will be changed.")
   }
 
   private var statusImage: String {
@@ -368,9 +409,11 @@ private struct CleanupDraftSelectionBar: View {
 }
 
 private struct PolicySelectionPrompt: View {
+  @Environment(\.appLanguage) private var language
+
   var body: some View {
     Label(
-      "Select an observed item to inspect its policy explanation.",
+      language.localized("Select an observed item to inspect its policy explanation."),
       systemImage: "list.bullet.rectangle"
     )
     .font(.callout)
@@ -379,22 +422,35 @@ private struct PolicySelectionPrompt: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
     .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-    .accessibilityHint("The Policy column remains visible for every item")
+    .accessibilityHint(
+      language.localized("The Policy column remains visible for every item")
+    )
   }
 }
 
 private struct PolicyBadge: View {
+  @Environment(\.appLanguage) private var language
+
   let policy: PolicyDecisionPresentation
 
   var body: some View {
-    Label(policy.badgeTitle, systemImage: policy.systemImage)
+    Label(language.localized(policy.badgeTitle), systemImage: policy.systemImage)
       .font(.caption.weight(.medium))
       .lineLimit(1)
       .foregroundStyle(foregroundColor)
       .padding(.horizontal, 6)
       .padding(.vertical, 3)
       .background(foregroundColor.opacity(0.1), in: Capsule())
-      .accessibilityLabel(policy.accessibilityLabel)
+      .accessibilityLabel(localizedAccessibilityLabel)
+  }
+
+  private var localizedAccessibilityLabel: String {
+    language.format(
+      "Policy disposition: %@. Match state: %@. %@",
+      language.localized(policy.badgeTitle),
+      language.localized(policy.matchStateDisplayName),
+      language.localized(policy.explanation)
+    )
   }
 
   private var foregroundColor: Color {
@@ -410,6 +466,8 @@ private struct PolicyBadge: View {
 }
 
 private struct PolicyExplanationDisclosure: View {
+  @Environment(\.appLanguage) private var language
+
   let row: ScanItemRow
   @Binding var isExpanded: Bool
 
@@ -417,33 +475,38 @@ private struct PolicyExplanationDisclosure: View {
     DisclosureGroup(isExpanded: $isExpanded) {
       VStack(alignment: .leading, spacing: 6) {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-          Text(row.policy.displayName)
+          Text(language.localized(row.policy.displayName))
             .font(.callout.weight(.semibold))
-          Text(row.policy.responsibleTool)
+          Text(verbatim: row.policy.responsibleTool)
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
         }
 
         if !row.policy.ruleRevisionLabels.isEmpty {
-          Text(row.policy.ruleRevisionLabels.joined(separator: " · "))
+          Text(verbatim: row.policy.ruleRevisionLabels.joined(separator: " · "))
             .font(.caption2.monospaced())
             .foregroundStyle(.secondary)
             .textSelection(.enabled)
         }
 
-        Text("Match state: \(row.policy.matchStateDisplayName)")
-          .font(.caption2.weight(.medium))
-          .foregroundStyle(.secondary)
+        Text(
+          language.format(
+            "Match state: %@",
+            language.localized(row.policy.matchStateDisplayName)
+          )
+        )
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.secondary)
 
-        Text(row.policy.explanation)
+        Text(language.localized(row.policy.explanation))
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
 
         if row.policy.findings.isEmpty {
           Label(
-            "No structured rule evidence is available for this item.",
+            language.localized("No structured rule evidence is available for this item."),
             systemImage: "questionmark.circle"
           )
           .font(.caption)
@@ -454,11 +517,13 @@ private struct PolicyExplanationDisclosure: View {
               PolicyFindingRow(finding: finding)
             }
           }
-          .accessibilityLabel("Structured policy evidence")
+          .accessibilityLabel(language.localized("Structured policy evidence"))
         }
 
         Label(
-          "Advisory only — this release cannot clean, approve, quarantine, or delete files.",
+          language.localized(
+            "Advisory only — this release cannot clean, approve, quarantine, or delete files."
+          ),
           systemImage: "lock.shield"
         )
         .font(.caption.weight(.medium))
@@ -467,9 +532,9 @@ private struct PolicyExplanationDisclosure: View {
       .padding(.top, 8)
     } label: {
       HStack(spacing: 8) {
-        Text("Policy explanation")
+        Text(language.localized("Policy explanation"))
           .font(.callout.weight(.medium))
-        Text(row.displayPath)
+        Text(verbatim: row.displayPath)
           .font(.caption.monospaced())
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -485,8 +550,10 @@ private struct PolicyExplanationDisclosure: View {
       RoundedRectangle(cornerRadius: 8)
         .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
     }
-    .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-    .accessibilityHint(PolicyDisclosureAccessibility.hint(isExpanded: isExpanded))
+    .accessibilityValue(language.localized(isExpanded ? "Expanded" : "Collapsed"))
+    .accessibilityHint(
+      language.localized(PolicyDisclosureAccessibility.hint(isExpanded: isExpanded))
+    )
   }
 }
 
@@ -499,6 +566,8 @@ enum PolicyDisclosureAccessibility {
 }
 
 private struct PolicyFindingRow: View {
+  @Environment(\.appLanguage) private var language
+
   let finding: RuleFinding
 
   var body: some View {
@@ -509,17 +578,17 @@ private struct PolicyFindingRow: View {
 
       VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 6) {
-          Text(finding.kind.displayName)
+          Text(language.localized(finding.kind.displayName))
             .font(.caption.weight(.medium))
-          Text(finding.identifier.rawValue)
+          Text(verbatim: finding.identifier.rawValue)
             .font(.caption2.monospaced())
             .foregroundStyle(.tertiary)
           Spacer()
-          Text(finding.state.displayName)
+          Text(localizedState)
             .font(.caption2.weight(.medium))
             .foregroundStyle(stateColor)
         }
-        Text(finding.explanation)
+        Text(language.localized(finding.explanation))
           .font(.caption2)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -538,37 +607,52 @@ private struct PolicyFindingRow: View {
       .orange
     }
   }
+
+  private var localizedState: String {
+    switch finding.state {
+    case .satisfied, .failed:
+      return language.localized(finding.state.displayName)
+    case .unknown(let reason):
+      return language.format(
+        "Unknown · %@",
+        language.localized(reason.displayName)
+      )
+    }
+  }
 }
 
 private struct SummaryBand: View {
+  @Environment(\.appLanguage) private var language
+
   let presentation: ScanPresentation
 
   var body: some View {
     VStack(spacing: 14) {
       HStack(spacing: 0) {
         MetricView(
-          title: "Observed apparent allocation",
+          title: language.localized("Observed apparent allocation"),
           value: sizeValue(presentation.report.root.recursiveSize.allocatedBytes),
           detail: apparentSizeDetail
         )
         Divider().padding(.vertical, 2)
         MetricView(
-          title: "Hard-link-adjusted allocation",
+          title: language.localized("Hard-link-adjusted allocation"),
           value: sizeValue(presentation.report.root.hardLinkExclusiveAllocatedBytes),
           detail: hardLinkDetail
         )
         Divider().padding(.vertical, 2)
         MetricView(
-          title: "Observed logical size",
+          title: language.localized("Observed logical size"),
           value: sizeValue(presentation.report.root.recursiveSize.logicalBytes),
           detail: logicalSizeDetail
         )
         Divider().padding(.vertical, 2)
         MetricView(
-          title: "Observed entries",
+          title: language.localized("Observed entries"),
           value: entryValue,
           detail: presentation.metricsAreAvailable
-            ? "Includes selected folder" : "Entry limit reached"
+            ? language.localized("Includes selected folder")
+            : language.localized("Entry limit reached")
         )
       }
 
@@ -592,56 +676,76 @@ private struct SummaryBand: View {
 
   private var apparentSizeDetail: String {
     if !presentation.metricsAreAvailable {
-      return "Entry limit reached"
+      return language.localized("Entry limit reached")
     }
     if presentation.report.root.sizeOverflowed {
-      return "Exact total unavailable"
+      return language.localized("Exact total unavailable")
     }
     if !presentation.report.root.isComplete
       || presentation.report.root.unknownAllocatedItemCount > 0
     {
-      return "Partial metadata"
+      return language.localized("Partial metadata")
     }
-    return "Observed metadata"
+    return language.localized("Observed metadata")
   }
 
   private var logicalSizeDetail: String {
     if !presentation.metricsAreAvailable {
-      return "Entry limit reached"
+      return language.localized("Entry limit reached")
     }
     if presentation.report.root.sizeOverflowed {
-      return "Exact total unavailable"
+      return language.localized("Exact total unavailable")
     }
-    return presentation.report.root.isComplete ? "Observed metadata" : "Partial metadata"
+    return language.localized(
+      presentation.report.root.isComplete ? "Observed metadata" : "Partial metadata"
+    )
   }
 
   private var hardLinkDetail: String {
     if !presentation.metricsAreAvailable {
-      return "Entry limit reached"
+      return language.localized("Entry limit reached")
     }
     if presentation.report.root.sizeOverflowed {
-      return "Exact total unavailable"
+      return language.localized("Exact total unavailable")
     }
     let isPartial =
       !presentation.report.hardLinkAccountingIsComplete
       || !presentation.report.root.isComplete
       || presentation.report.root.unknownAllocatedItemCount > 0
-    return isPartial ? "Partial accounting" : "Regular-file links adjusted"
+    return language.localized(
+      isPartial ? "Partial accounting" : "Regular-file links adjusted"
+    )
   }
 
   private var entryValue: String {
     presentation.metricsAreAvailable
-      ? presentation.report.root.counts.total.formatted() : "Unavailable"
+      ? language.format("%lld", Int64(clamping: presentation.report.root.counts.total))
+      : language.localized("Unavailable")
   }
 
   private func sizeValue(_ bytes: UInt64) -> String {
     guard presentation.metricsAreAvailable else {
-      return "Unavailable"
+      return language.localized("Unavailable")
     }
     guard !presentation.report.root.sizeOverflowed else {
-      return "Overflow"
+      return language.localized("Overflow")
     }
-    return StorageByteFormatter.string(from: bytes)
+    return localizedByteCount(bytes)
+  }
+
+  private func localizedByteCount(_ bytes: UInt64) -> String {
+    let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+    guard bytes >= 1_024 else {
+      return language.format("%llu B", bytes)
+    }
+
+    var value = Double(bytes)
+    var unitIndex = 0
+    while value >= 1_024, unitIndex < units.count - 1 {
+      value /= 1_024
+      unitIndex += 1
+    }
+    return language.format("%.1f %@", value, units[unitIndex])
   }
 }
 
@@ -673,6 +777,8 @@ private struct MetricView: View {
 }
 
 private struct AllocationDistributionBar: View {
+  @Environment(\.appLanguage) private var language
+
   let presentation: ScanPresentation
 
   private var segments: [(id: ScanRelativePath, bytes: UInt64, color: Color)] {
@@ -694,7 +800,7 @@ private struct AllocationDistributionBar: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text("Top-level apparent allocation distribution")
+      Text(language.localized("Top-level apparent allocation distribution"))
         .font(.caption2)
         .foregroundStyle(.secondary)
 
@@ -713,7 +819,10 @@ private struct AllocationDistributionBar: View {
     .padding(.horizontal, 12)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Distribution of apparent allocation across the largest observed top-level items")
+      language.localized(
+        "Distribution of apparent allocation across the largest observed top-level items"
+      )
+    )
   }
 
   private func segmentWidth(_ bytes: UInt64, available: CGFloat) -> CGFloat {
@@ -724,32 +833,51 @@ private struct AllocationDistributionBar: View {
 }
 
 private struct SizeCell: View {
+  @Environment(\.appLanguage) private var language
+
   let bytes: UInt64
   let isAvailable: Bool
   let isPartial: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 1) {
-      Text(isAvailable ? StorageByteFormatter.string(from: bytes) : "Unavailable")
+      Text(isAvailable ? localizedByteCount : language.localized("Unavailable"))
         .monospacedDigit()
       if isPartial {
-        Text("Partial")
+        Text(language.localized("Partial"))
           .font(.caption2)
           .foregroundStyle(.orange)
       }
     }
     .accessibilityElement(children: .combine)
   }
+
+  private var localizedByteCount: String {
+    let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+    guard bytes >= 1_024 else {
+      return language.format("%llu B", bytes)
+    }
+
+    var value = Double(bytes)
+    var unitIndex = 0
+    while value >= 1_024, unitIndex < units.count - 1 {
+      value /= 1_024
+      unitIndex += 1
+    }
+    return language.format("%.1f %@", value, units[unitIndex])
+  }
 }
 
 private struct ObservationNotice: View {
+  @Environment(\.appLanguage) private var language
+
   let presentation: ScanPresentation
 
   @State private var isExpanded = false
 
   var body: some View {
     DisclosureGroup(isExpanded: $isExpanded) {
-      ForEach(presentation.partialDetailMessages, id: \.self) { message in
+      ForEach(localizedPartialDetailMessages, id: \.self) { message in
         Text(message)
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -763,11 +891,11 @@ private struct ObservationNotice: View {
             .accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-              Text(SafeDisplayText.path(issue.path))
+              Text(verbatim: SafeDisplayText.path(issue.path))
                 .font(.caption.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)
-              Text(issue.reason.displayName)
+              Text(language.localized(issue.reason.displayName))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
@@ -786,27 +914,88 @@ private struct ObservationNotice: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 9)
     .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-    .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-    .accessibilityHint(ObservationDisclosureAccessibility.hint(isExpanded: isExpanded))
+    .accessibilityValue(language.localized(isExpanded ? "Expanded" : "Collapsed"))
+    .accessibilityHint(
+      language.localized(ObservationDisclosureAccessibility.hint(isExpanded: isExpanded))
+    )
   }
 
   private var noticeTitle: String {
     let retained = presentation.report.issues.count
     let suppressed = presentation.report.suppressedIssueCount
-    let retainedNoun = retained == 1 ? "issue" : "issues"
     var parts = [
-      "Partial scan — some entries or accounting details were not observed.",
-      "\(retained.formatted()) scan \(retainedNoun) shown",
+      language.localized("Partial scan — some entries or accounting details were not observed."),
+      language.format(
+        retained == 1 ? "%lld scan issue shown" : "%lld scan issues shown",
+        Int64(clamping: retained)
+      ),
     ]
     if suppressed > 0 {
-      let suppressedNoun = suppressed == 1 ? "issue" : "issues"
-      parts.append("\(suppressed.formatted()) additional \(suppressedNoun) not retained")
+      parts.append(
+        language.format(
+          suppressed == 1
+            ? "%lld additional issue not retained"
+            : "%lld additional issues not retained",
+          Int64(clamping: suppressed)
+        )
+      )
     }
     return parts.joined(separator: " · ")
   }
 
+  private var localizedPartialDetailMessages: [String] {
+    let report = presentation.report
+    var messages: [String] = []
+    if report.traversalDetailsWereDiscarded {
+      messages.append(
+        language.localized(
+          "Earlier descendant totals and scan issues were discarded; their total is unknown."
+        )
+      )
+    }
+    if report.topLevelItemsWereSuppressed && !report.traversalDetailsWereDiscarded {
+      messages.append(
+        language.localized("Top-level details exceeded the configured reporting limit.")
+      )
+    }
+    if !report.hardLinkAccountingIsComplete {
+      messages.append(language.localized("Hard-link-adjusted allocation is partial."))
+    }
+    if report.root.unknownAllocatedItemCount > 0 {
+      let count = report.root.unknownAllocatedItemCount
+      messages.append(
+        language.format(
+          count == 1
+            ? "%lld entry has unknown allocation."
+            : "%lld entries have unknown allocation.",
+          Int64(clamping: count)
+        )
+      )
+    }
+    if report.root.sizeOverflowed {
+      messages.append(
+        language.localized("One or more root size totals overflowed; exact values are unavailable.")
+      )
+    }
+    if report.suppressedIssueCount > 0 {
+      let count = report.suppressedIssueCount
+      messages.append(
+        language.format(
+          count == 1
+            ? "%lld additional scan issue was not retained."
+            : "%lld additional scan issues were not retained.",
+          Int64(clamping: count)
+        )
+      )
+    }
+    return messages
+  }
+
   private func issueDetail(_ issue: ScanIssue) -> String {
-    var parts = [issue.operation.displayName, issue.impact.displayName]
+    var parts = [
+      language.localized(issue.operation.displayName),
+      language.localized(issue.impact.displayName),
+    ]
     if let systemCode = issue.systemCode {
       parts.append("POSIX \(systemCode)")
     }
@@ -853,18 +1042,25 @@ enum ObservationDisclosureAccessibility {
 }
 
 private struct AccountingFootnote: View {
+  @Environment(\.appLanguage) private var language
+
   let presentation: ScanPresentation
 
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
       Text(
-        "Observed allocation is not guaranteed reclaimable. Hard links, clones, snapshots, compression, unreadable paths, and concurrent changes can affect actual free space."
+        language.localized(
+          "Observed allocation is not guaranteed reclaimable. Hard links, clones, snapshots, compression, unreadable paths, and concurrent changes can affect actual free space."
+        )
       )
       if !accountingDetails.isEmpty {
         Text(accountingDetails.joined(separator: " · "))
       }
       Text(
-        "The selected folder inode is included, so top-level rows may not sum to the root total.")
+        language.localized(
+          "The selected folder inode is included, so top-level rows may not sum to the root total."
+        )
+      )
     }
     .font(.caption2)
     .foregroundStyle(.secondary)
@@ -876,33 +1072,58 @@ private struct AccountingFootnote: View {
     var details: [String] = []
     if root.unknownAllocatedItemCount > 0 {
       let count = root.unknownAllocatedItemCount
-      let noun = count == 1 ? "entry" : "entries"
-      let verb = count == 1 ? "is" : "are"
       details.append(
-        "\(count.formatted()) \(noun) with unknown allocation \(verb) excluded"
+        language.format(
+          count == 1
+            ? "%lld entry with unknown allocation is excluded"
+            : "%lld entries with unknown allocation are excluded",
+          Int64(clamping: count)
+        )
       )
     }
     if root.possibleSharedContentFileCount > 0 {
+      let count = root.possibleSharedContentFileCount
       details.append(
-        "\(root.possibleSharedContentFileCount.formatted()) files may share APFS content"
+        language.format(
+          count == 1 ? "%lld file may share APFS content" : "%lld files may share APFS content",
+          Int64(clamping: count)
+        )
       )
     }
     if root.sharedContentMetadataUnavailableCount > 0 {
+      let count = root.sharedContentMetadataUnavailableCount
       details.append(
-        "shared-content metadata unavailable for \(root.sharedContentMetadataUnavailableCount.formatted()) files"
+        language.format(
+          count == 1
+            ? "shared-content metadata unavailable for %lld file"
+            : "shared-content metadata unavailable for %lld files",
+          Int64(clamping: count)
+        )
       )
     }
     if !presentation.report.hardLinkAccountingIsComplete {
-      details.append("hard-link-adjusted allocation is partial")
+      details.append(language.localized("hard-link-adjusted allocation is partial"))
     }
     if root.unobservedHardLinkFileCount > 0 {
+      let count = root.unobservedHardLinkFileCount
       details.append(
-        "\(root.unobservedHardLinkFileCount.formatted()) hard-link groups have links outside the observed scope"
+        language.format(
+          count == 1
+            ? "%lld hard-link group has links outside the observed scope"
+            : "%lld hard-link groups have links outside the observed scope",
+          Int64(clamping: count)
+        )
       )
     }
     if root.nonExclusiveHardLinkFileCount > 0 {
+      let count = root.nonExclusiveHardLinkFileCount
       details.append(
-        "\(root.nonExclusiveHardLinkFileCount.formatted()) hard-link paths receive no exclusive allocation credit"
+        language.format(
+          count == 1
+            ? "%lld hard-link path receives no exclusive allocation credit"
+            : "%lld hard-link paths receive no exclusive allocation credit",
+          Int64(clamping: count)
+        )
       )
     }
     return details

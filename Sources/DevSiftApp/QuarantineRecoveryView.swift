@@ -2,13 +2,17 @@ import SwiftUI
 
 @MainActor
 struct QuarantineRecoveryView: View {
+  @Environment(\.appLanguage) private var language
   @Environment(\.dismiss) private var dismiss
   @State private var viewModel: QuarantineRecoveryViewModel
+  @Binding private var languageSelection: AppLanguageSelection
 
   init(
-    viewModel: QuarantineRecoveryViewModel = QuarantineRecoveryViewModel()
+    viewModel: QuarantineRecoveryViewModel = QuarantineRecoveryViewModel(),
+    languageSelection: Binding<AppLanguageSelection> = .constant(.english)
   ) {
     _viewModel = State(initialValue: viewModel)
+    _languageSelection = languageSelection
   }
 
   var body: some View {
@@ -37,26 +41,44 @@ struct QuarantineRecoveryView: View {
   private var header: some View {
     HStack(spacing: 12) {
       Label(
-        "npm Recovery & Cleanup",
+        language.localized("npm Recovery & Cleanup"),
         systemImage: "externaldrive.badge.minus"
       )
       .font(.title2.weight(.semibold))
 
       Spacer()
 
+      Menu {
+        Picker(language.localized("Language"), selection: $languageSelection) {
+          ForEach(AppLanguageSelection.allCases) { selection in
+            Text(language.localized(languageOptionTitle(selection)))
+              .tag(selection)
+          }
+        }
+      } label: {
+        Label(languageMenuValue, systemImage: "globe")
+      }
+      .accessibilityIdentifier("recovery-language-menu")
+      .accessibilityLabel(language.localized("Language"))
+      .accessibilityValue(language.localized(languageOptionTitle(languageSelection)))
+      .accessibilityHint(language.localized("Choose the language used by DevSift"))
+      .help(language.localized("Choose the language used by DevSift"))
+
       if case .loaded = viewModel.inventoryState {
         Button(action: { viewModel.loadInventory() }) {
-          Label("Refresh", systemImage: "arrow.clockwise")
+          Label(language.localized("Refresh"), systemImage: "arrow.clockwise")
         }
         .disabled(viewModel.isWorking)
         .accessibilityHint(
           viewModel.refreshDiscardsPendingConfirmation
-            ? "Cancels the pending confirmation, then reconciles and loads a new bounded inventory"
-            : "Reconciles the journal and loads a new bounded inventory"
+            ? language.localized(
+              "Cancels the pending confirmation, then reconciles and loads a new bounded inventory"
+            )
+            : language.localized("Reconciles the journal and loads a new bounded inventory")
         )
       }
 
-      Button("Done") {
+      Button(language.localized("Done")) {
         dismiss()
       }
       .keyboardShortcut(.cancelAction)
@@ -74,10 +96,12 @@ struct QuarantineRecoveryView: View {
         .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: 4) {
-        Text("Quarantine is not permanent deletion")
+        Text(language.localized("Quarantine is not permanent deletion"))
           .font(.headline)
         Text(
-          "Quarantine is a same-volume move and frees 0 B. Restore and receipt-bound permanent deletion are separate. Capacity change may be zero; DevSift provides neither secure erase nor guaranteed reclaimed space."
+          language.localized(
+            "Quarantine is a same-volume move and frees 0 B. Restore and receipt-bound permanent deletion are separate. Capacity change may be zero; DevSift provides neither secure erase nor guaranteed reclaimed space."
+          )
         )
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -90,6 +114,28 @@ struct QuarantineRecoveryView: View {
     .overlay {
       RoundedRectangle(cornerRadius: 10)
         .stroke(Color.orange.opacity(0.3), lineWidth: 0.5)
+    }
+  }
+
+  private var languageMenuValue: String {
+    switch languageSelection {
+    case .system:
+      language.localized("Auto")
+    case .english:
+      "EN"
+    case .korean:
+      "한국어"
+    }
+  }
+
+  private func languageOptionTitle(_ selection: AppLanguageSelection) -> String {
+    switch selection {
+    case .system:
+      "System"
+    case .english:
+      "English"
+    case .korean:
+      "Korean"
     }
   }
 
@@ -223,14 +269,16 @@ struct QuarantineRecoveryView: View {
     switch viewModel.inventoryState {
     case .notLoaded:
       VStack(alignment: .leading, spacing: 10) {
-        Text("Load the recovery and cleanup inventory")
+        Text(language.localized("Load the recovery and cleanup inventory"))
           .font(.headline)
         Text(
-          "Loading is explicit: DevSift will acquire the journal lock, reconcile incomplete receipts, and inspect only its fixed current-account npm quarantine. Nothing is deleted while loading."
+          language.localized(
+            "Loading is explicit: DevSift will acquire the journal lock, reconcile incomplete receipts, and inspect only its fixed current-account npm quarantine. Nothing is deleted while loading."
+          )
         )
         .font(.callout)
         .foregroundStyle(.secondary)
-        Button("Load and Reconcile") {
+        Button(language.localized("Load and Reconcile")) {
           viewModel.loadInventory()
         }
         .buttonStyle(.borderedProminent)
@@ -256,10 +304,15 @@ struct QuarantineRecoveryView: View {
     case .loaded(let inventory):
       if inventory.isEmpty {
         VStack(alignment: .leading, spacing: 5) {
-          Label("No quarantined npm cache", systemImage: "checkmark.circle")
-            .font(.headline)
+          Label(
+            language.localized("No quarantined npm cache"),
+            systemImage: "checkmark.circle"
+          )
+          .font(.headline)
           Text(
-            "The reconciled journal contains no current item that can be restored, permanently deleted, or retried."
+            language.localized(
+              "The reconciled journal contains no current item that can be restored, permanently deleted, or retried."
+            )
           )
           .font(.callout)
           .foregroundStyle(.secondary)
@@ -273,14 +326,12 @@ struct QuarantineRecoveryView: View {
       } else {
         VStack(alignment: .leading, spacing: 10) {
           HStack {
-            Text("Reconciled inventory")
+            Text(language.localized("Reconciled inventory"))
               .font(.headline)
             Spacer()
-            Text(
-              "\((inventory.rows.count + inventory.purgeRetryRows.count).formatted()) \((inventory.rows.count + inventory.purgeRetryRows.count) == 1 ? "item" : "items")"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            Text(inventoryCountText(inventory))
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
 
           ForEach(inventory.rows) { row in
@@ -296,14 +347,16 @@ struct QuarantineRecoveryView: View {
           if !inventory.purgeRetryRows.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
               Label(
-                "Incomplete permanent deletions",
+                language.localized("Incomplete permanent deletions"),
                 systemImage: "exclamationmark.arrow.triangle.2.circlepath"
               )
               .font(.callout.weight(.semibold))
               .foregroundStyle(.orange)
 
               Text(
-                "These exact staged remainders cannot be restored. Each continuation requires a new, separate confirmation."
+                language.localized(
+                  "These exact staged remainders cannot be restored. Each continuation requires a new, separate confirmation."
+                )
               )
               .font(.caption)
               .foregroundStyle(.secondary)
@@ -326,11 +379,13 @@ struct QuarantineRecoveryView: View {
   private var safetyFooter: some View {
     VStack(alignment: .leading, spacing: 5) {
       Label(
-        "Receipt-bound operations only · no arbitrary paths · no overwrite",
+        language.localized("Receipt-bound operations only · no arbitrary paths · no overwrite"),
         systemImage: "lock.shield"
       )
       Text(
-        "No filesystem paths, journal transaction IDs, or raw journal bytes are displayed. Permanent deletion never targets the active npm cache and does not claim secure erasure, attribution, or guaranteed reclaimed capacity."
+        language.localized(
+          "No filesystem paths, journal transaction IDs, or raw journal bytes are displayed. Permanent deletion never targets the active npm cache and does not claim secure erasure, attribution, or guaranteed reclaimed capacity."
+        )
       )
     }
     .font(.caption)
@@ -358,10 +413,11 @@ struct QuarantineRecoveryView: View {
     HStack(alignment: .top, spacing: 12) {
       ProgressView()
         .controlSize(.small)
+        .accessibilityLabel(language.localized(title))
       VStack(alignment: .leading, spacing: 3) {
-        Text(title)
+        Text(language.localized(title))
           .font(.callout.weight(.semibold))
-        Text(message)
+        Text(language.localized(message))
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -371,9 +427,18 @@ struct QuarantineRecoveryView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
   }
+
+  private func inventoryCountText(
+    _ inventory: QuarantineRecoveryInventoryPresentation
+  ) -> String {
+    let count = inventory.rows.count + inventory.purgeRetryRows.count
+    return language.format(count == 1 ? "%lld item" : "%lld items", Int64(count))
+  }
 }
 
 private struct QuarantineRecoveryInventoryRowView: View {
+  @Environment(\.appLanguage) private var language
+
   let row: QuarantineRecoveryInventoryRowPresentation
   let restoreSelectionIsEnabled: Bool
   let purgeSelectionIsEnabled: Bool
@@ -384,9 +449,9 @@ private struct QuarantineRecoveryInventoryRowView: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .firstTextBaseline) {
         VStack(alignment: .leading, spacing: 2) {
-          Text(row.originalName)
+          Text(verbatim: row.originalName)
             .font(.headline.monospaced())
-          Text(row.responsibleTool)
+          Text(verbatim: row.responsibleTool)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -394,18 +459,22 @@ private struct QuarantineRecoveryInventoryRowView: View {
         Spacer()
 
         HStack(spacing: 8) {
-          Button("Restore…", action: restore)
+          Button(language.localized("Restore…"), action: restore)
             .buttonStyle(.borderedProminent)
             .disabled(!row.canRestore || !restoreSelectionIsEnabled)
             .accessibilityIdentifier("quarantineRestoreButton")
-            .accessibilityHint(row.restoreAvailabilityMessage)
+            .accessibilityHint(language.localized(row.restoreAvailabilityMessage))
 
-          Button("Permanently Delete…", role: .destructive, action: purge)
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .disabled(!row.canPurge || !purgeSelectionIsEnabled)
-            .accessibilityIdentifier("quarantineInitialPurgeButton")
-            .accessibilityHint(row.purgeAvailabilityMessage)
+          Button(
+            language.localized("Permanently Delete…"),
+            role: .destructive,
+            action: purge
+          )
+          .buttonStyle(.bordered)
+          .tint(.red)
+          .disabled(!row.canPurge || !purgeSelectionIsEnabled)
+          .accessibilityIdentifier("quarantineInitialPurgeButton")
+          .accessibilityHint(language.localized(row.purgeAvailabilityMessage))
         }
       }
 
@@ -416,19 +485,21 @@ private struct QuarantineRecoveryInventoryRowView: View {
 
       if row.receiptWasProducedByRecovery {
         Label(
-          "The terminal quarantine receipt was completed by journal recovery.",
+          language.localized(
+            "The terminal quarantine receipt was completed by journal recovery."
+          ),
           systemImage: "clock.arrow.circlepath"
         )
         .font(.caption)
         .foregroundStyle(.secondary)
       }
 
-      Text(row.restoreAvailabilityMessage)
+      Text(language.localized(row.restoreAvailabilityMessage))
         .font(.caption)
         .foregroundStyle(row.canRestore ? Color.secondary : Color.orange)
         .fixedSize(horizontal: false, vertical: true)
 
-      Text(row.purgeAvailabilityMessage)
+      Text(language.localized(row.purgeAvailabilityMessage))
         .font(.caption)
         .foregroundStyle(row.canPurge ? Color.secondary : Color.orange)
         .fixedSize(horizontal: false, vertical: true)
@@ -444,7 +515,7 @@ private struct QuarantineRecoveryInventoryRowView: View {
   private func recoveryStateLabel(
     _ state: QuarantineRecoverySourcePresentation
   ) -> some View {
-    Label(state.title, systemImage: state.tone.systemImage)
+    Label(language.localized(state.title), systemImage: state.tone.systemImage)
       .font(.caption)
       .foregroundStyle(state.tone.color)
   }
@@ -452,13 +523,15 @@ private struct QuarantineRecoveryInventoryRowView: View {
   private func recoveryStateLabel(
     _ state: QuarantineRecoveryItemStatePresentation
   ) -> some View {
-    Label(state.title, systemImage: state.tone.systemImage)
+    Label(language.localized(state.title), systemImage: state.tone.systemImage)
       .font(.caption)
       .foregroundStyle(state.tone.color)
   }
 }
 
 private struct QuarantinePurgeRetryInventoryRowView: View {
+  @Environment(\.appLanguage) private var language
+
   let row: QuarantineRecoveryPurgeRetryRowPresentation
   let retrySelectionIsEnabled: Bool
   let retry: () -> Void
@@ -467,28 +540,31 @@ private struct QuarantinePurgeRetryInventoryRowView: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .firstTextBaseline) {
         VStack(alignment: .leading, spacing: 2) {
-          Text(row.originalName)
+          Text(verbatim: row.originalName)
             .font(.headline.monospaced())
-          Text(row.responsibleTool)
+          Text(verbatim: row.responsibleTool)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
 
         Spacer()
 
-        Button("Continue Deletion…", role: .destructive, action: retry)
+        Button(language.localized("Continue Deletion…"), role: .destructive, action: retry)
           .buttonStyle(.borderedProminent)
           .tint(.red)
           .disabled(!row.canRetry || !retrySelectionIsEnabled)
           .accessibilityIdentifier("quarantinePurgeRetryButton")
-          .accessibilityHint(row.retryAvailabilityMessage)
+          .accessibilityHint(language.localized(row.retryAvailabilityMessage))
       }
 
-      Label("Exact staged deletion remainder", systemImage: "shippingbox.and.arrow.backward")
-        .font(.caption)
-        .foregroundStyle(.orange)
+      Label(
+        language.localized("Exact staged deletion remainder"),
+        systemImage: "shippingbox.and.arrow.backward"
+      )
+      .font(.caption)
+      .foregroundStyle(.orange)
 
-      Text(row.retryAvailabilityMessage)
+      Text(language.localized(row.retryAvailabilityMessage))
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
@@ -503,6 +579,8 @@ private struct QuarantinePurgeRetryInventoryRowView: View {
 }
 
 private struct QuarantineRecoveryConfirmationView: View {
+  @Environment(\.appLanguage) private var language
+
   let confirmation: QuarantineRecoveryConfirmationPresentation
   let confirm: (Bool, Bool, Bool) -> Void
   let cancel: () -> Void
@@ -515,13 +593,17 @@ private struct QuarantineRecoveryConfirmationView: View {
     GroupBox {
       VStack(alignment: .leading, spacing: 6) {
         Text(
-          "Core prepared one attempt to restore the current quarantined \(confirmation.originalName) for \(confirmation.responsibleTool). It will fail rather than overwrite the original name."
+          language.format(
+            "Core prepared one attempt to restore the current quarantined %@ for %@. It will fail rather than overwrite the original name.",
+            confirmation.originalName,
+            confirmation.responsibleTool
+          )
         )
         .font(.callout)
         .foregroundStyle(.secondary)
 
         VStack(alignment: .leading, spacing: 4) {
-          Text("Exact Core-required statement")
+          Text(language.localized("Exact Core-required statement"))
             .font(.caption.weight(.semibold))
           Text(verbatim: confirmation.requiredStatementIdentifier)
             .font(.caption.monospaced())
@@ -533,29 +615,33 @@ private struct QuarantineRecoveryConfirmationView: View {
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
 
         Toggle(
-          "I confirm the exact Core-required statement shown above.",
+          language.localized("I confirm the exact Core-required statement shown above."),
           isOn: $exactStatementWasConfirmed
         )
         .toggleStyle(.checkbox)
 
         Toggle(isOn: $npmWasStopped) {
           Text(
-            "I stopped npm work using this cache. I understand DevSift did not observe inactivity."
+            language.localized(
+              "I stopped npm work using this cache. I understand DevSift did not observe inactivity."
+            )
           )
         }
         .toggleStyle(.checkbox)
 
         Toggle(isOn: $postQuarantineChangesWereAccepted) {
           Text(
-            "I accept that these are the current quarantined contents and may include changes made after quarantine."
+            language.localized(
+              "I accept that these are the current quarantined contents and may include changes made after quarantine."
+            )
           )
         }
         .toggleStyle(.checkbox)
 
         HStack {
           Spacer()
-          Button("Cancel", action: cancel)
-          Button("Restore Current Contents") {
+          Button(language.localized("Cancel"), action: cancel)
+          Button(language.localized("Restore Current Contents")) {
             confirm(
               exactStatementWasConfirmed,
               npmWasStopped,
@@ -571,13 +657,18 @@ private struct QuarantineRecoveryConfirmationView: View {
       }
       .padding(.top, 4)
     } label: {
-      Label("Confirm no-overwrite restore", systemImage: "checkmark.shield")
-        .font(.headline)
+      Label(
+        language.localized("Confirm no-overwrite restore"),
+        systemImage: "checkmark.shield"
+      )
+      .font(.headline)
     }
   }
 }
 
 private struct QuarantinePurgeConfirmationView: View {
+  @Environment(\.appLanguage) private var language
+
   let confirmation: QuarantineRecoveryPurgeConfirmationPresentation
   let confirm: (Bool, Bool, Bool, Bool) -> Void
   let cancel: () -> Void
@@ -596,7 +687,7 @@ private struct QuarantinePurgeConfirmationView: View {
           .fixedSize(horizontal: false, vertical: true)
 
         Label {
-          Text(confirmation.dataRemanenceDisclosure)
+          Text(language.localized(confirmation.dataRemanenceDisclosure))
             .fixedSize(horizontal: false, vertical: true)
         } icon: {
           Image(systemName: "exclamationmark.triangle.fill")
@@ -606,7 +697,7 @@ private struct QuarantinePurgeConfirmationView: View {
         .accessibilityIdentifier("quarantinePurgeDataRemanenceDisclosure")
 
         VStack(alignment: .leading, spacing: 5) {
-          Text("Exact Core-required statement")
+          Text(language.localized("Exact Core-required statement"))
             .font(.caption.weight(.semibold))
           Text(verbatim: confirmation.requiredStatementIdentifier)
             .font(.caption.monospaced())
@@ -622,28 +713,36 @@ private struct QuarantinePurgeConfirmationView: View {
         }
 
         Toggle(
-          "I confirm the exact statement above and understand this is permanent deletion, not secure erase.",
+          language.localized(
+            "I confirm the exact statement above and understand this is permanent deletion, not secure erase."
+          ),
           isOn: $exactStatementWasConfirmed
         )
         .toggleStyle(.checkbox)
         .accessibilityIdentifier("quarantinePurgeExactStatementAcknowledgement")
 
         Toggle(
-          "I accept that restore becomes unavailable after staging and that deletion may be partial.",
+          language.localized(
+            "I accept that restore becomes unavailable after staging and that deletion may be partial."
+          ),
           isOn: $restoreCutoffAndPartialDeletionWereAccepted
         )
         .toggleStyle(.checkbox)
         .accessibilityIdentifier("quarantinePurgeRestoreCutoffAcknowledgement")
 
         Toggle(
-          "I stopped npm and other work using this cache. I accept unobserved activity, post-quarantine changes, and same-account races.",
+          language.localized(
+            "I stopped npm and other work using this cache. I accept unobserved activity, post-quarantine changes, and same-account races."
+          ),
           isOn: $workAndActivityRisksWereAccepted
         )
         .toggleStyle(.checkbox)
         .accessibilityIdentifier("quarantinePurgeActivityRiskAcknowledgement")
 
         Toggle(
-          "I accept that the capacity reading is only observational, may show zero change or be unavailable, and cannot be attributed to DevSift.",
+          language.localized(
+            "I accept that the capacity reading is only observational, may show zero change or be unavailable, and cannot be attributed to DevSift."
+          ),
           isOn: $capacityAndSecureEraseLimitsWereAccepted
         )
         .toggleStyle(.checkbox)
@@ -651,7 +750,7 @@ private struct QuarantinePurgeConfirmationView: View {
 
         HStack {
           Spacer()
-          Button("Cancel", action: cancel)
+          Button(language.localized("Cancel"), action: cancel)
           Button(confirmButtonTitle, role: .destructive) {
             confirm(
               exactStatementWasConfirmed,
@@ -665,7 +764,9 @@ private struct QuarantinePurgeConfirmationView: View {
           .disabled(!allRisksWereAcknowledged)
           .accessibilityIdentifier("quarantinePurgeConfirmButton")
           .accessibilityHint(
-            "Runs one receipt-bound permanent deletion pass after all four acknowledgements are selected"
+            language.localized(
+              "Runs one receipt-bound permanent deletion pass after all four acknowledgements are selected"
+            )
           )
         }
       }
@@ -680,23 +781,33 @@ private struct QuarantinePurgeConfirmationView: View {
 
   private var introduction: String {
     if confirmation.isExplicitRetry {
-      return
-        "Core prepared one attempt to continue deleting the exact staged remainder of \(confirmation.originalName) for \(confirmation.responsibleTool). Restore is already unavailable for this remainder."
+      return language.format(
+        "Core prepared one attempt to continue deleting the exact staged remainder of %@ for %@. Restore is already unavailable for this remainder.",
+        confirmation.originalName,
+        confirmation.responsibleTool
+      )
     }
-    return
-      "Core prepared one attempt to permanently delete the exact current quarantined \(confirmation.originalName) for \(confirmation.responsibleTool). It never targets the active cache name."
+    return language.format(
+      "Core prepared one attempt to permanently delete the exact current quarantined %@ for %@. It never targets the active cache name.",
+      confirmation.originalName,
+      confirmation.responsibleTool
+    )
   }
 
   private var confirmationTitle: String {
-    confirmation.isExplicitRetry
-      ? "Confirm permanent deletion retry"
-      : "Confirm permanent deletion"
+    language.localized(
+      confirmation.isExplicitRetry
+        ? "Confirm permanent deletion retry"
+        : "Confirm permanent deletion"
+    )
   }
 
   private var confirmButtonTitle: String {
-    confirmation.isExplicitRetry
-      ? "Continue Permanent Deletion"
-      : "Permanently Delete"
+    language.localized(
+      confirmation.isExplicitRetry
+        ? "Continue Permanent Deletion"
+        : "Permanently Delete"
+    )
   }
 
   private var allRisksWereAcknowledged: Bool {
@@ -708,27 +819,29 @@ private struct QuarantinePurgeConfirmationView: View {
 }
 
 private struct QuarantineRecoveryResultBanner: View {
+  @Environment(\.appLanguage) private var language
+
   let result: QuarantineRecoveryResultPresentation
   let dismiss: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .top) {
-        Label(result.title, systemImage: result.tone.systemImage)
+        Label(language.localized(result.title), systemImage: result.tone.systemImage)
           .font(.headline)
           .foregroundStyle(result.tone.color)
         Spacer()
-        Button("Dismiss", action: dismiss)
+        Button(language.localized("Dismiss"), action: dismiss)
           .controlSize(.small)
       }
-      Text(result.message)
-      Text(result.durabilityMessage)
+      Text(language.localized(result.message))
+      Text(language.localized(result.durabilityMessage))
         .foregroundStyle(.secondary)
       if let cancellationMessage = result.cancellationMessage {
-        Text(cancellationMessage)
+        Text(language.localized(cancellationMessage))
           .foregroundStyle(.secondary)
       }
-      Text("Restore result · no overwrite · no deletion authority used")
+      Text(language.localized("Restore result · no overwrite · no deletion authority used"))
         .font(.caption.weight(.medium))
         .foregroundStyle(.secondary)
     }
@@ -740,30 +853,32 @@ private struct QuarantineRecoveryResultBanner: View {
 }
 
 private struct QuarantinePurgeResultBanner: View {
+  @Environment(\.appLanguage) private var language
+
   let result: QuarantineRecoveryPurgeResultPresentation
   let dismiss: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .top) {
-        Label(result.title, systemImage: result.tone.systemImage)
+        Label(language.localized(result.title), systemImage: result.tone.systemImage)
           .font(.headline)
           .foregroundStyle(result.tone.color)
         Spacer()
-        Button("Dismiss", action: dismiss)
+        Button(language.localized("Dismiss"), action: dismiss)
           .controlSize(.small)
       }
 
-      Text(result.message)
-      Text(result.durabilityMessage)
+      Text(language.localized(result.message))
+      Text(language.localized(result.durabilityMessage))
         .foregroundStyle(.secondary)
-      Text(result.observedUnlinkMessage)
+      Text(language.localized(result.observedUnlinkMessage))
         .foregroundStyle(.secondary)
-      Text(result.capacityMessage)
+      Text(language.localized(result.capacityMessage))
         .foregroundStyle(.secondary)
 
       if let cancellationMessage = result.cancellationMessage {
-        Text(cancellationMessage)
+        Text(language.localized(cancellationMessage))
           .foregroundStyle(.orange)
       }
 
@@ -771,7 +886,7 @@ private struct QuarantinePurgeResultBanner: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(result.requiresExplicitRetry ? Color.orange : result.tone.color)
 
-      Text(result.limitationsMessage)
+      Text(language.localized(result.limitationsMessage))
         .font(.caption)
         .foregroundStyle(.secondary)
     }
@@ -784,12 +899,12 @@ private struct QuarantinePurgeResultBanner: View {
 
   private var resultSummary: String {
     if result.requiresExplicitRetry {
-      return "A separate confirmation is required to continue deletion."
+      return language.localized("A separate confirmation is required to continue deletion.")
     }
     if result.performedPermanentDeletion {
-      return "Permanent deletion activity was observed during this pass."
+      return language.localized("Permanent deletion activity was observed during this pass.")
     }
-    return "No permanent deletion activity was observed during this pass."
+    return language.localized("No permanent deletion activity was observed during this pass.")
   }
 
   private var resultSummaryImage: String {
@@ -801,6 +916,8 @@ private struct QuarantinePurgeResultBanner: View {
 }
 
 private struct QuarantineRecoveryIssueBanner: View {
+  @Environment(\.appLanguage) private var language
+
   let issue: QuarantineRecoveryIssuePresentation
   let actionTitle: String
   let dismiss: () -> Void
@@ -811,15 +928,15 @@ private struct QuarantineRecoveryIssueBanner: View {
         .foregroundStyle(issue.tone.color)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 3) {
-        Text(issue.title)
+        Text(language.localized(issue.title))
           .font(.callout.weight(.semibold))
-        Text(issue.message)
+        Text(language.localized(issue.message))
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
       Spacer()
-      Button(actionTitle, action: dismiss)
+      Button(language.localized(actionTitle), action: dismiss)
         .controlSize(.small)
     }
     .padding(14)

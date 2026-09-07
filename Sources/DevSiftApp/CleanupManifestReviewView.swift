@@ -12,6 +12,7 @@ struct CleanupManifestReviewView: View {
   @State private var reviewWasConfirmed = false
   @State private var npmStoppedRiskWasAccepted = false
   @State private var finalConfirmationIsPresented = false
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     ScrollView(.vertical) {
@@ -38,22 +39,26 @@ struct CleanupManifestReviewView: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
         Button(action: backToSelection) {
-          Label("Back to Selection", systemImage: "chevron.backward")
+          Label(language.localized("Back to Selection"), systemImage: "chevron.backward")
         }
-        .accessibilityHint("Discards this review presentation and returns to your selected items")
+        .accessibilityHint(
+          language.localized(
+            "Discards this review presentation and returns to your selected items"
+          )
+        )
 
         Spacer()
 
-        Label("Unapproved draft", systemImage: "doc.badge.clock")
+        Label(language.localized("Unapproved draft"), systemImage: "doc.badge.clock")
           .font(.callout.weight(.medium))
           .foregroundStyle(.secondary)
       }
 
       VStack(alignment: .leading, spacing: 4) {
-        Text("Draft cleanup plan")
+        Text(language.localized("Draft cleanup plan"))
           .font(.system(size: 28, weight: .semibold))
           .accessibilityAddTraits(.isHeader)
-        Text(SafeDisplayText.filePath(root))
+        Text(verbatim: SafeDisplayText.filePath(root))
           .font(.caption.monospaced())
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -71,10 +76,12 @@ struct CleanupManifestReviewView: View {
         .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: 4) {
-        Text("Review first — no files have changed yet")
+        Text(language.localized("Review first — no files have changed yet"))
           .font(.headline)
         Text(
-          "This in-memory snapshot is not approval and may already be stale. If you continue, Core will bind this exact review to a one-time attempt and freshly revalidate the root, item, and policy evidence before any move."
+          language.localized(
+            "This in-memory snapshot is not approval and may already be stale. If you continue, Core will bind this exact review to a one-time attempt and freshly revalidate the root, item, and policy evidence before any move."
+          )
         )
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -99,9 +106,9 @@ struct CleanupManifestReviewView: View {
         .accessibilityHidden(true)
 
       VStack(alignment: .leading, spacing: 4) {
-        Text(review.deferredExecutionNoticeTitle)
+        Text(language.localized(review.deferredExecutionNoticeTitle))
           .font(.headline)
-        Text(review.deferredExecutionNoticeMessage)
+        Text(language.localized(review.deferredExecutionNoticeMessage))
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -122,8 +129,11 @@ struct CleanupManifestReviewView: View {
       ReviewMetric(
         title: "Selected items",
         value: review.entryCount.formatted(),
-        detail:
-          "\(review.reclaimableCount.formatted()) reclaimable · \(review.reviewRequiredCount.formatted()) review"
+        detail: language.format(
+          "%@ reclaimable · %@ review",
+          review.reclaimableCount.formatted(),
+          review.reviewRequiredCount.formatted()
+        )
       )
       ReviewMetric(
         title: "Observed allocation",
@@ -165,8 +175,11 @@ struct CleanupManifestReviewView: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     } label: {
-      Label("Observed quantities and uncertainty", systemImage: "chart.bar.doc.horizontal")
-        .font(.callout.weight(.medium))
+      Label(
+        language.localized("Observed quantities and uncertainty"),
+        systemImage: "chart.bar.doc.horizontal"
+      )
+      .font(.callout.weight(.medium))
     }
   }
 
@@ -177,13 +190,13 @@ struct CleanupManifestReviewView: View {
     _ secondValue: String
   ) -> some View {
     GridRow {
-      Text(firstTitle)
+      Text(language.localized(firstTitle))
         .foregroundStyle(.secondary)
-      Text(firstValue)
+      Text(verbatim: language.localized(firstValue))
         .monospacedDigit()
-      Text(secondTitle)
+      Text(language.localized(secondTitle))
         .foregroundStyle(.secondary)
-      Text(secondValue)
+      Text(verbatim: language.localized(secondValue))
         .monospacedDigit()
     }
     .font(.caption)
@@ -192,10 +205,10 @@ struct CleanupManifestReviewView: View {
   private var entryList: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack {
-        Text("Draft entries")
+        Text(language.localized("Draft entries"))
           .font(.headline)
         Spacer()
-        Text("Canonical raw-path order")
+        Text(language.localized("Canonical raw-path order"))
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -210,7 +223,9 @@ struct CleanupManifestReviewView: View {
 
   private var reviewFooter: some View {
     Label(
-      "Observed values are estimates. Quarantine moves an item on the same volume and guarantees 0 B of freed capacity; only a later permanent purge can reclaim disk space.",
+      language.localized(
+        "Observed values are estimates. Quarantine moves an item on the same volume and guarantees 0 B of freed capacity; only a later permanent purge can reclaim disk space."
+      ),
       systemImage: "info.circle"
     )
     .font(.caption)
@@ -223,51 +238,61 @@ struct CleanupManifestReviewView: View {
       VStack(alignment: .leading, spacing: 12) {
         if quarantineAvailability == .available {
           Toggle(isOn: $reviewWasConfirmed) {
-            Text("I reviewed every selected entry and pending requirement shown above.")
+            Text(
+              language.localized(
+                "I reviewed every selected entry and pending requirement shown above."
+              )
+            )
           }
           .toggleStyle(.checkbox)
 
           Toggle(isOn: $npmStoppedRiskWasAccepted) {
             Text(
-              "I stopped npm work using this cache. I understand DevSift did not observe inactivity and another process could still access it."
+              language.localized(
+                "I stopped npm work using this cache. I understand DevSift did not observe inactivity and another process could still access it."
+              )
             )
           }
           .toggleStyle(.checkbox)
 
           HStack {
             Spacer()
-            Button("Final Confirmation…") {
+            Button(language.localized("Final Confirmation…")) {
               finalConfirmationIsPresented = true
             }
             .buttonStyle(.borderedProminent)
             .disabled(!reviewWasConfirmed || !npmStoppedRiskWasAccepted)
             .accessibilityHint(
-              "Opens the final confirmation for a recoverable move, not permanent deletion"
+              language.localized(
+                "Opens the final confirmation for a recoverable move, not permanent deletion"
+              )
             )
           }
         } else if let message = quarantineAvailability.message {
-          Label(message, systemImage: "lock.shield")
+          Label(language.localized(message), systemImage: "lock.shield")
             .font(.callout)
             .foregroundStyle(.secondary)
         }
       }
       .padding(.top, 4)
     } label: {
-      Label("Recoverable npm quarantine", systemImage: "shippingbox")
+      Label(language.localized("Recoverable npm quarantine"), systemImage: "shippingbox")
         .font(.headline)
     }
     .confirmationDialog(
-      "Move the reviewed npm cache to quarantine?",
+      language.localized("Move the reviewed npm cache to quarantine?"),
       isPresented: $finalConfirmationIsPresented,
       titleVisibility: .visible
     ) {
-      Button("Move to Quarantine") {
+      Button(language.localized("Move to Quarantine")) {
         executeQuarantine(reviewWasConfirmed, npmStoppedRiskWasAccepted)
       }
-      Button("Cancel", role: .cancel) {}
+      Button(language.localized("Cancel"), role: .cancel) {}
     } message: {
       Text(
-        "This one-time attempt asserts that npm work using this cache is stopped while DevSift has not observed inactivity. It moves one exact _cacache into private quarantine; it does not permanently delete files or free disk space."
+        language.localized(
+          "This one-time attempt asserts that npm work using this cache is stopped while DevSift has not observed inactivity. It moves one exact _cacache into private quarantine; it does not permanently delete files or free disk space."
+        )
       )
     }
   }
@@ -277,18 +302,19 @@ private struct ReviewMetric: View {
   let title: String
   let value: String
   let detail: String
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
-      Text(title)
+      Text(language.localized(title))
         .font(.caption)
         .foregroundStyle(.secondary)
-      Text(value)
+      Text(verbatim: value)
         .font(.title3.weight(.semibold))
         .monospacedDigit()
         .lineLimit(1)
         .minimumScaleFactor(0.75)
-      Text(detail)
+      Text(language.localized(detail))
         .font(.caption2)
         .foregroundStyle(.secondary)
         .lineLimit(1)
@@ -308,6 +334,7 @@ private struct CleanupManifestReviewEntryView: View {
   let entry: CleanupManifestReviewEntryPresentation
 
   @State private var isExpanded = false
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     DisclosureGroup(isExpanded: $isExpanded) {
@@ -315,7 +342,10 @@ private struct CleanupManifestReviewEntryView: View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 5) {
           detailRow("Rule", entry.ruleRevisionLabel)
           detailRow("Tool", entry.responsibleTool)
-          detailRow("Reproducibility", entry.reproducibility.reviewDisplayName)
+          detailRow(
+            "Reproducibility",
+            language.localized(entry.reproducibility.reviewDisplayName)
+          )
           detailRow(
             "Observed allocation",
             StorageByteFormatter.string(from: entry.size.observedAllocatedBytes)
@@ -332,7 +362,7 @@ private struct CleanupManifestReviewEntryView: View {
           )
         }
 
-        Text(entry.classificationExplanation)
+        Text(language.localized(entry.classificationExplanation))
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -340,7 +370,7 @@ private struct CleanupManifestReviewEntryView: View {
         Divider()
 
         if !entry.deferredExecutionPreconditions.isEmpty {
-          Text("Pending execution requirements")
+          Text(language.localized("Pending execution requirements"))
             .font(.caption.weight(.semibold))
 
           ForEach(entry.deferredExecutionPreconditions, id: \.identifier) { precondition in
@@ -349,12 +379,12 @@ private struct CleanupManifestReviewEntryView: View {
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
               VStack(alignment: .leading, spacing: 2) {
-                Text(precondition.title)
+                Text(language.localized(precondition.title))
                   .font(.caption.weight(.medium))
-                Text(precondition.identifierAndRevisionLabel)
+                Text(verbatim: precondition.identifierAndRevisionLabel)
                   .font(.caption2.monospaced())
                   .foregroundStyle(.secondary)
-                Text(precondition.explanation)
+                Text(language.localized(precondition.explanation))
                   .font(.caption)
                   .foregroundStyle(.secondary)
                   .fixedSize(horizontal: false, vertical: true)
@@ -366,7 +396,7 @@ private struct CleanupManifestReviewEntryView: View {
           Divider()
         }
 
-        Text("Policy findings")
+        Text(language.localized("Policy findings"))
           .font(.caption.weight(.semibold))
 
         ForEach(entry.findings, id: \.identifier) { finding in
@@ -375,12 +405,18 @@ private struct CleanupManifestReviewEntryView: View {
               .foregroundStyle(.secondary)
               .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-              Text("\(finding.kind.displayName) · \(finding.state.displayName)")
-                .font(.caption.weight(.medium))
-              Text(finding.identifier)
+              Text(
+                language.format(
+                  "%@ · %@",
+                  language.localized(finding.kind.displayName),
+                  language.localized(finding.state.displayName)
+                )
+              )
+              .font(.caption.weight(.medium))
+              Text(verbatim: finding.identifier)
                 .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
-              Text(finding.explanation)
+              Text(language.localized(finding.explanation))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -394,12 +430,12 @@ private struct CleanupManifestReviewEntryView: View {
     } label: {
       HStack(spacing: 10) {
         VStack(alignment: .leading, spacing: 2) {
-          Text(entry.displayPath)
+          Text(verbatim: entry.displayPath)
             .font(.callout.weight(.medium))
             .lineLimit(1)
             .truncationMode(.middle)
             .help(entry.displayPath)
-          Text(entry.displayName)
+          Text(language.localized(entry.displayName))
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -407,7 +443,7 @@ private struct CleanupManifestReviewEntryView: View {
 
         Spacer()
 
-        Text(entry.disposition.reviewDisplayName)
+        Text(language.localized(entry.disposition.reviewDisplayName))
           .font(.caption.weight(.medium))
           .foregroundStyle(entry.disposition == .reviewRequired ? .orange : .blue)
           .padding(.horizontal, 7)
@@ -417,7 +453,7 @@ private struct CleanupManifestReviewEntryView: View {
             in: Capsule()
           )
 
-        Text(StorageByteFormatter.string(from: entry.size.observedAllocatedBytes))
+        Text(verbatim: StorageByteFormatter.string(from: entry.size.observedAllocatedBytes))
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
       }
@@ -429,15 +465,17 @@ private struct CleanupManifestReviewEntryView: View {
         .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
     }
     .accessibilityHint(
-      isExpanded ? "Collapses the draft evidence" : "Expands the draft evidence"
+      language.localized(
+        isExpanded ? "Collapses the draft evidence" : "Expands the draft evidence"
+      )
     )
   }
 
   private func detailRow(_ title: String, _ value: String) -> some View {
     GridRow {
-      Text(title)
+      Text(language.localized(title))
         .foregroundStyle(.secondary)
-      Text(value)
+      Text(verbatim: value)
         .textSelection(.enabled)
     }
     .font(.caption)
@@ -446,13 +484,20 @@ private struct CleanupManifestReviewEntryView: View {
 
 private struct CleanupEntryUncertainty: View {
   let entry: CleanupManifestReviewEntryPresentation
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
-      Text("Accounting uncertainty")
+      Text(language.localized("Accounting uncertainty"))
         .font(.caption.weight(.semibold))
       Text(
-        "Possible shared content \(entry.size.possibleSharedContentFileCount.formatted()) · shared metadata unavailable \(entry.size.sharedContentMetadataUnavailableCount.formatted()) · unobserved hard links \(entry.size.unobservedHardLinkFileCount.formatted()) · non-exclusive hard links \(entry.size.nonExclusiveHardLinkFileCount.formatted())"
+        language.format(
+          "Possible shared content %@ · shared metadata unavailable %@ · unobserved hard links %@ · non-exclusive hard links %@",
+          entry.size.possibleSharedContentFileCount.formatted(),
+          entry.size.sharedContentMetadataUnavailableCount.formatted(),
+          entry.size.unobservedHardLinkFileCount.formatted(),
+          entry.size.nonExclusiveHardLinkFileCount.formatted()
+        )
       )
       .font(.caption)
       .foregroundStyle(.secondary)

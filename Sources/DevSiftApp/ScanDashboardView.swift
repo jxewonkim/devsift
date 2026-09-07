@@ -5,16 +5,20 @@ import UniformTypeIdentifiers
 
 struct ScanDashboardView: View {
   @State private var viewModel: ScanViewModel
+  @Binding private var languageSelection: AppLanguageSelection
   @State private var folderImporterIsPresented = false
   @State private var folderImportFailureIsPresented = false
   @State private var recoveryIsPresented = false
+  @Environment(\.appLanguage) private var language
   private let policyDetailsInitiallyExpanded: Bool
 
   init(
     viewModel: ScanViewModel = ScanViewModel(),
-    policyDetailsInitiallyExpanded: Bool = false
+    policyDetailsInitiallyExpanded: Bool = false,
+    languageSelection: Binding<AppLanguageSelection> = .constant(.english)
   ) {
     _viewModel = State(initialValue: viewModel)
+    _languageSelection = languageSelection
     self.policyDetailsInitiallyExpanded = policyDetailsInitiallyExpanded
   }
 
@@ -50,16 +54,28 @@ struct ScanDashboardView: View {
       onCompletion: handleFolderImport
     )
     .fileDialogImportsUnresolvedAliases(true)
-    .alert("Folder selection failed", isPresented: $folderImportFailureIsPresented) {
-      Button("OK") {}
+    .alert(
+      language.localized("Folder selection failed"),
+      isPresented: $folderImportFailureIsPresented
+    ) {
+      Button(language.localized("OK")) {}
     } message: {
-      Text("DevSift could not open the folder picker result. Select the folder again.")
+      Text(
+        language.localized(
+          "DevSift could not open the folder picker result. Select the folder again."
+        )
+      )
     }
     .sheet(isPresented: $recoveryIsPresented) {
-      QuarantineRecoveryView()
+      QuarantineRecoveryView(languageSelection: $languageSelection)
     }
     .onChange(of: viewModel.phase) { _, phase in
-      guard let announcement = DashboardAccessibility.announcement(for: phase) else {
+      guard
+        let announcement = DashboardAccessibility.announcement(
+          for: phase,
+          language: language
+        )
+      else {
         return
       }
       postAccessibilityAnnouncement(announcement)
@@ -68,7 +84,8 @@ struct ScanDashboardView: View {
       guard
         let announcement = CleanupReviewAccessibility.announcement(
           from: previousPhase,
-          to: phase
+          to: phase,
+          language: language
         )
       else {
         return
@@ -166,41 +183,59 @@ struct ScanDashboardView: View {
 
       Spacer()
 
+      Menu {
+        Picker(language.localized("Language"), selection: $languageSelection) {
+          ForEach(AppLanguageSelection.allCases) { selection in
+            Text(language.localized(languageOptionTitle(selection)))
+              .tag(selection)
+          }
+        }
+      } label: {
+        Label(languageMenuValue, systemImage: "globe")
+      }
+      .accessibilityIdentifier("app-language-menu")
+      .accessibilityLabel(language.localized("Language"))
+      .accessibilityValue(language.localized(languageOptionTitle(languageSelection)))
+      .accessibilityHint(language.localized("Choose the language used by DevSift"))
+      .help(language.localized("Choose the language used by DevSift"))
+
       Button {
         recoveryIsPresented = true
       } label: {
-        Label("Recovery…", systemImage: "arrow.uturn.backward.circle")
+        Label(language.localized("Recovery…"), systemImage: "arrow.uturn.backward.circle")
       }
       .disabled(viewModel.cleanupReviewPhase.isExecuting)
       .accessibilityHint(
         viewModel.cleanupReviewPhase.isExecuting
-          ? "Wait for the current quarantine reconciliation to finish"
-          : "Explicitly load and reconcile the fixed npm quarantine inventory"
+          ? language.localized("Wait for the current quarantine reconciliation to finish")
+          : language.localized(
+            "Explicitly load and reconcile the fixed npm quarantine inventory"
+          )
       )
 
       if showsHeaderRescanButton {
         Button(action: { viewModel.rescan() }) {
-          Label("Rescan", systemImage: "arrow.clockwise")
+          Label(language.localized("Rescan"), systemImage: "arrow.clockwise")
         }
         .keyboardShortcut("r", modifiers: .command)
-        .accessibilityHint("Scans the same selected folder again")
+        .accessibilityHint(language.localized("Scans the same selected folder again"))
       }
 
       if viewModel.isWorking {
         Button(role: .cancel, action: viewModel.cancelScan) {
-          Label("Cancel", systemImage: "xmark")
+          Label(language.localized("Cancel"), systemImage: "xmark")
         }
         .keyboardShortcut(.escape, modifiers: [])
-        .accessibilityHint(DashboardAccessibility.cancelHint)
+        .accessibilityHint(language.localized(DashboardAccessibility.cancelHint))
       }
 
       if showsHeaderFolderButton {
         Button(action: selectFolder) {
-          Label("Select Folder…", systemImage: "folder.badge.plus")
+          Label(language.localized("Select Folder…"), systemImage: "folder.badge.plus")
         }
         .buttonStyle(.borderedProminent)
         .keyboardShortcut("o", modifiers: .command)
-        .accessibilityHint("Choose the only folder DevSift will scan")
+        .accessibilityHint(language.localized("Choose the only folder DevSift will scan"))
       }
     }
     .controlSize(.regular)
@@ -211,17 +246,17 @@ struct ScanDashboardView: View {
 
   private var safetyFooter: some View {
     HStack(spacing: 8) {
-      Label(footerSafetyStatus, systemImage: "lock.shield")
+      Label(language.localized(footerSafetyStatus), systemImage: "lock.shield")
         .foregroundStyle(.secondary)
 
       Spacer()
 
-      Text(footerStatus)
+      Text(language.localized(footerStatus))
         .foregroundStyle(.secondary)
       Text("·")
         .foregroundStyle(.tertiary)
         .accessibilityHidden(true)
-      Text("No telemetry")
+      Text(language.localized("No telemetry"))
         .foregroundStyle(.secondary)
     }
     .font(.caption)
@@ -272,6 +307,28 @@ struct ScanDashboardView: View {
       "Scan cancelled"
     case .failed:
       "Scan unavailable"
+    }
+  }
+
+  private var languageMenuValue: String {
+    switch languageSelection {
+    case .system:
+      language.localized("Auto")
+    case .english:
+      "EN"
+    case .korean:
+      "한국어"
+    }
+  }
+
+  private func languageOptionTitle(_ selection: AppLanguageSelection) -> String {
+    switch selection {
+    case .system:
+      "System"
+    case .english:
+      "English"
+    case .korean:
+      "Korean"
     }
   }
 
@@ -352,6 +409,7 @@ enum FolderImportDecision: Equatable {
 
 private struct EmptyScanView: View {
   let selectFolder: () -> Void
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(spacing: 22) {
@@ -366,24 +424,31 @@ private struct EmptyScanView: View {
       .accessibilityHidden(true)
 
       VStack(spacing: 8) {
-        Text("Understand what's taking space.")
+        Text(language.localized("Understand what's taking space."))
           .font(.system(size: 30, weight: .semibold))
           .accessibilityAddTraits(.isHeader)
-        Text("Choose one folder to observe its filesystem metadata and largest top-level items.")
-          .font(.title3)
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
-          .frame(maxWidth: 560)
+        Text(
+          language.localized(
+            "Choose one folder to observe its filesystem metadata and largest top-level items."
+          )
+        )
+        .font(.title3)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 560)
       }
 
-      Button("Select Folder…", action: selectFolder)
+      Button(language.localized("Select Folder…"), action: selectFolder)
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .keyboardShortcut("o", modifiers: .command)
 
-      Label("Analysis only — no files will be changed.", systemImage: "lock.shield")
-        .font(.callout)
-        .foregroundStyle(.secondary)
+      Label(
+        language.localized("Analysis only — no files will be changed."),
+        systemImage: "lock.shield"
+      )
+      .font(.callout)
+      .foregroundStyle(.secondary)
     }
     .padding(40)
   }
@@ -391,26 +456,38 @@ private struct EmptyScanView: View {
 
 private struct ScanningView: View {
   let root: URL
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 14) {
         VStack(alignment: .leading, spacing: 6) {
-          Text("Scanning \(SafeDisplayText.fileName(of: root))…")
-            .font(.system(size: 28, weight: .semibold))
-            .lineLimit(1)
-            .accessibilityAddTraits(.isHeader)
-          Text("Reading filesystem metadata. File contents are never opened.")
-            .foregroundStyle(.secondary)
+          Text(
+            language.format(
+              "Scanning %@…",
+              SafeDisplayText.fileName(of: root)
+            )
+          )
+          .font(.system(size: 28, weight: .semibold))
+          .lineLimit(1)
+          .accessibilityAddTraits(.isHeader)
+          Text(
+            language.localized("Reading filesystem metadata. File contents are never opened.")
+          )
+          .foregroundStyle(.secondary)
         }
 
         ProgressView()
           .progressViewStyle(.linear)
-          .accessibilityLabel("Scanning filesystem metadata")
+          .accessibilityLabel(language.localized("Scanning filesystem metadata"))
 
-        Text("You can cancel safely at any time. Scanning stops at the next checkpoint.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        Text(
+          language.localized(
+            "You can cancel safely at any time. Scanning stops at the next checkpoint."
+          )
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
       .padding(28)
 
@@ -457,6 +534,7 @@ private struct ScanningView: View {
 
 private struct ClassifyingView: View {
   let root: URL
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(spacing: 22) {
@@ -471,12 +549,19 @@ private struct ClassifyingView: View {
       .accessibilityHidden(true)
 
       VStack(spacing: 8) {
-        Text("Analyzing policies for \(SafeDisplayText.fileName(of: root))…")
-          .font(.system(size: 28, weight: .semibold))
-          .lineLimit(1)
-          .accessibilityAddTraits(.isHeader)
         Text(
-          "The storage scan has finished. DevSift is comparing exact filesystem names with versioned, read-only rules."
+          language.format(
+            "Analyzing policies for %@…",
+            SafeDisplayText.fileName(of: root)
+          )
+        )
+        .font(.system(size: 28, weight: .semibold))
+        .lineLimit(1)
+        .accessibilityAddTraits(.isHeader)
+        Text(
+          language.localized(
+            "The storage scan has finished. DevSift is comparing exact filesystem names with versioned, read-only rules."
+          )
         )
         .font(.title3)
         .foregroundStyle(.secondary)
@@ -486,10 +571,12 @@ private struct ClassifyingView: View {
 
       ProgressView()
         .controlSize(.small)
-        .accessibilityLabel("Analyzing read-only storage policies")
+        .accessibilityLabel(language.localized("Analyzing read-only storage policies"))
 
       Label(
-        "Missing evidence stays protected. A versioned rule may expose deliberately unobserved activity only as a pending execution requirement.",
+        language.localized(
+          "Missing evidence stays protected. A versioned rule may expose deliberately unobserved activity only as a pending execution requirement."
+        ),
         systemImage: "lock.shield"
       )
       .font(.callout)
@@ -506,6 +593,7 @@ struct ScanMessageView: View {
   let root: URL?
   let primaryTitle: String
   let primaryAction: () -> Void
+  @Environment(\.appLanguage) private var language
 
   var body: some View {
     VStack(spacing: 18) {
@@ -515,15 +603,15 @@ struct ScanMessageView: View {
         .accessibilityHidden(true)
 
       VStack(spacing: 7) {
-        Text(title)
+        Text(language.localized(title))
           .font(.title.weight(.semibold))
           .accessibilityAddTraits(.isHeader)
-        Text(message)
+        Text(language.localized(message))
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
           .frame(maxWidth: 520)
         if let root {
-          Text(SafeDisplayText.filePath(root))
+          Text(verbatim: SafeDisplayText.filePath(root))
             .font(.caption.monospaced())
             .foregroundStyle(.tertiary)
             .lineLimit(2)
@@ -531,7 +619,7 @@ struct ScanMessageView: View {
         }
       }
 
-      Button(primaryTitle, action: primaryAction)
+      Button(language.localized(primaryTitle), action: primaryAction)
         .buttonStyle(.borderedProminent)
         .keyboardShortcut(root == nil ? "o" : "r", modifiers: .command)
     }

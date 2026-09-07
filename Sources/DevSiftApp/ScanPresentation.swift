@@ -607,22 +607,36 @@ enum DashboardAccessibility {
   static let cancelHint =
     "Stops the active scan or policy analysis at the next cancellation checkpoint"
 
-  static func announcement(for phase: ScanDashboardPhase) -> String? {
+  static func announcement(
+    for phase: ScanDashboardPhase,
+    language: AppLanguage = .english
+  ) -> String? {
     switch phase {
     case .empty:
       nil
     case .scanning(let root):
-      "Scanning \(SafeDisplayText.fileName(of: root)). File contents are never opened."
+      language.format(
+        "Scanning %@. File contents are never opened.",
+        SafeDisplayText.fileName(of: root)
+      )
     case .classifying(let root):
-      "Storage scan finished. Analyzing read-only policies for \(SafeDisplayText.fileName(of: root))."
+      language.format(
+        "Storage scan finished. Analyzing read-only policies for %@.",
+        SafeDisplayText.fileName(of: root)
+      )
     case .result(_, let presentation):
-      presentation.observationIsComplete
-        ? "Scan and read-only policy analysis complete. Results are ready."
-        : "Partial scan and read-only policy analysis complete. Some observation details are unavailable. Results are ready."
+      language.localized(
+        presentation.observationIsComplete
+          ? "Scan and read-only policy analysis complete. Results are ready."
+          : "Partial scan and read-only policy analysis complete. Some observation details are unavailable. Results are ready."
+      )
     case .cancelled:
-      "Scan cancelled. No files were changed."
+      language.localized("Scan cancelled. No files were changed.")
     case .failed(_, let failure):
-      "\(failure.title). No files were changed."
+      language.format(
+        "%@. No files were changed.",
+        language.localized(failure.title)
+      )
     }
   }
 }
