@@ -750,7 +750,7 @@ struct DescriptorNPMQuarantinePurgePreflight: Sendable {
       try dependencies.hooks.beforeFinalParentValidation()
       try cancellationCheckpoint()
       let finalHome = try DescriptorStatSnapshot.read(from: homeDescriptor)
-      guard descriptorPurgePreflightSnapshotsEqual(finalHome, homeSnapshot) else {
+      guard descriptorTrustedAncestorSnapshotsMatch(finalHome, homeSnapshot) else {
         return .failure(.homeUnsafe)
       }
       let finalRoot = try validateRoot(
@@ -833,8 +833,8 @@ struct DescriptorNPMQuarantinePurgePreflight: Sendable {
         let held = try DescriptorStatSnapshot.read(from: child)
         let after = try DescriptorStatSnapshot.read(at: traversal, component: component)
         guard
-          descriptorPurgePreflightSnapshotsEqual(before, held),
-          descriptorPurgePreflightSnapshotsEqual(after, held)
+          descriptorTrustedAncestorSnapshotsMatch(before, held),
+          descriptorTrustedAncestorSnapshotsMatch(after, held)
         else {
           descriptorCloseIgnoringErrors(child)
           throw DescriptorNPMQuarantinePurgePreflightFailure.homeUnsafe
@@ -1363,7 +1363,7 @@ struct DescriptorNPMQuarantinePurgePreflight: Sendable {
     _ context: DescriptorPurgePreflightContext
   ) throws {
     let home = try DescriptorStatSnapshot.read(from: context.homeDescriptor)
-    guard descriptorPurgePreflightSnapshotsEqual(home, context.homeSnapshot) else {
+    guard descriptorTrustedAncestorSnapshotsMatch(home, context.homeSnapshot) else {
       throw DescriptorNPMQuarantinePurgePreflightFailure.homeUnsafe
     }
     let root = try validateRoot(

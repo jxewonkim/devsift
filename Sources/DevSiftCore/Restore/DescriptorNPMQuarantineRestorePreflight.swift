@@ -416,7 +416,7 @@ struct DescriptorNPMQuarantineRestorePreflight: Sendable {
       try dependencies.hooks.beforeFinalParentValidation()
       try cancellationCheckpoint()
       let finalHomeSnapshot = try DescriptorStatSnapshot.read(from: homeDescriptor)
-      guard descriptorRestoreSnapshotsEqual(finalHomeSnapshot, homeSnapshot) else {
+      guard descriptorTrustedAncestorSnapshotsMatch(finalHomeSnapshot, homeSnapshot) else {
         throw DescriptorNPMQuarantineRestorePreflightFailure.homeUnsafe
       }
       let finalRootSnapshot = try validateRoot(
@@ -507,8 +507,8 @@ struct DescriptorNPMQuarantineRestorePreflight: Sendable {
           component: component
         )
         guard
-          descriptorRestoreSnapshotsEqual(namedBefore, held),
-          descriptorRestoreSnapshotsEqual(namedAfter, held)
+          descriptorTrustedAncestorSnapshotsMatch(namedBefore, held),
+          descriptorTrustedAncestorSnapshotsMatch(namedAfter, held)
         else {
           descriptorCloseIgnoringErrors(child)
           throw DescriptorNPMQuarantineRestorePreflightFailure.homeUnsafe

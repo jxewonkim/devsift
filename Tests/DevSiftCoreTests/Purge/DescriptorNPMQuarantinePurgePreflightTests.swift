@@ -117,6 +117,31 @@ struct DescriptorNPMQuarantinePurgePreflightTests {
     #expect(capacityProbe.callCount == 0)
   }
 
+  @Test("Unrelated home child churn preserves the exact trusted parents")
+  func unrelatedHomeChildChurn() throws {
+    let fixture = try PurgePreflightFixture()
+    defer { fixture.remove() }
+    let unrelated = fixture.homeURL.appendingPathComponent(
+      "unrelated-sibling",
+      isDirectory: true
+    )
+    let preflight = fixture.preflight(
+      hooks: DescriptorNPMQuarantinePurgePreflightHooks(
+        beforeFinalParentValidation: {
+          try FileManager.default.createDirectory(
+            at: unrelated,
+            withIntermediateDirectories: false
+          )
+          try descriptorJournalTestChmod(unrelated, mode: 0o700)
+        }
+      )
+    )
+
+    _ = try requirePurgeSession(
+      preflight.prepareInitial(try fixture.initialSelection())
+    )
+  }
+
   @Test("Purge identifier namespace collisions are bounded")
   func identifierCollisions() throws {
     let fixture = try PurgePreflightFixture()
@@ -284,6 +309,7 @@ private final class PurgePreflightFixture: @unchecked Sendable {
   let currentWorkBinding: QuarantineJournalFileBindingV1?
 
   var rootURL: URL { filesystem.rootURL }
+  var homeURL: URL { filesystem.baseURL }
   var quarantineURL: URL { filesystem.quarantineURL }
   var quarantineTransactionID: String { intent.transactionID }
   var intentRecordURL: URL {

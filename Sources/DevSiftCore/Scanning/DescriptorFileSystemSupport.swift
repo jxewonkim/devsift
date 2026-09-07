@@ -195,6 +195,21 @@ struct DescriptorStatSnapshot: Sendable {
   }
 }
 
+/// Matches an already held absolute-path ancestor across named observations.
+/// Creating or removing an unrelated child legitimately changes directory
+/// times and link count, so those fields are not substitution evidence here.
+/// Exact roots and mutation targets use their stricter operation-specific
+/// comparisons after traversal.
+func descriptorTrustedAncestorSnapshotsMatch(
+  _ left: DescriptorStatSnapshot,
+  _ right: DescriptorStatSnapshot
+) -> Bool {
+  left.sameBinding(as: right)
+    && left.ownerUID == right.ownerUID
+    && left.permissionMode == right.permissionMode
+    && left.flags == right.flags
+}
+
 func descriptorOpenRoot(
   _ url: URL,
   cancellationPolicy: DescriptorCancellationPolicy = .observeTaskCancellation

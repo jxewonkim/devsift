@@ -200,6 +200,39 @@ struct DescriptorNPMQuarantineRestorePreflightTests {
     #expect(probe.observation.callCount == 0)
   }
 
+  @Test("Unrelated home child churn preserves the exact trusted parents")
+  func unrelatedHomeChildChurn() throws {
+    let fixture = try RestorePreflightFixture()
+    defer { fixture.remove() }
+    let probe = RestorePreflightPrepareProbe()
+    let unrelated = fixture.homeURL.appendingPathComponent(
+      "unrelated-sibling",
+      isDirectory: true
+    )
+    let preflight = fixture.preflight(
+      journal: fixture.preparationJournal(probe: probe),
+      hooks: DescriptorNPMQuarantineRestorePreflightHooks(
+        beforeFinalParentValidation: {
+          try FileManager.default.createDirectory(
+            at: unrelated,
+            withIntermediateDirectories: false
+          )
+          try descriptorJournalTestChmod(unrelated, mode: 0o700)
+        }
+      )
+    )
+
+    switch preflight.prepare(
+      quarantineTransactionID: fixture.quarantineTransactionID
+    ) {
+    case .success:
+      break
+    case .failure(let failure):
+      Issue.record("Unrelated home churn rejected exact parents: \(failure)")
+    }
+    #expect(probe.observation.callCount == 1)
+  }
+
   @Test("Execute opens the exact receipt-bound item for the synchronous restorer call")
   func executeUsesExactHeldItemDescriptor() async throws {
     let fixture = try RestorePreflightFixture()
